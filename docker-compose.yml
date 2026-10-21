@@ -1,0 +1,78 @@
+name: harmony
+
+x-app-env: &app-env
+  NODE_ENV: ${NODE_ENV:-production}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  REDIS_URL: redis://redis:6379
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - harmony_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [harmony_internal]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'no']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [harmony_internal]
+
+  migrate:
+    build: .
+    image: harmony-app:local
+    command: ['node', 'apps/server/dist/migrate.js']
+    restart: 'no'
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [harmony_internal]
+
+  app:
+    image: harmony-app:local
+    restart: unless-stopped
+    environment: *app-env
+    ports:
+      - '127.0.0.1:8470:8080'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/healthz']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 512M
+    networks: [harmony_internal]
+
+volumes:
+  harmony_pgdata:
+    name: harmony_pgdata
+
+networks:
+  harmony_internal:
+    name: harmony_internal

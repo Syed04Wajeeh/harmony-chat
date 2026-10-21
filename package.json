@@ -1,0 +1,30 @@
+{
+  "name": "harmony",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm build:shared && pnpm --parallel --filter @harmony/server --filter @harmony/web dev",
+    "build:shared": "pnpm --filter @harmony/shared build",
+    "build": "pnpm -r build",
+    "lint": "pnpm build:shared && eslint .",
+    "typecheck": "pnpm build:shared && pnpm -r --parallel typecheck",
+    "test": "pnpm test:unit && pnpm test:integration",
+    "test:unit": "pnpm build:shared && pnpm --filter @harmony/server test:unit",
+    "test:integration": "pnpm build:shared && pnpm --filter @harmony/server test:integration",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.0"
+  }
+}
