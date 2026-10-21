@@ -1,15 +1,34 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import websocket from '@fastify/websocket';
+import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance } from 'fastify';
+import {
+  hasZodFastifySchemaValidationErrors,
+  serializerCompiler,
+  validatorCompiler,
+  type ZodTypeProvider,
+} from 'fastify-type-provider-zod';
 import { sql, type Kysely } from 'kysely';
 import type { Redis } from 'ioredis';
-import type { HealthResponse } from '@harmony/shared';
+import { MAX_FRAME_BYTES, type HealthResponse } from '@harmony/shared';
+import { authPlugin } from './auth/plugin.js';
+import type { AuthPolicy } from './auth/policy.js';
+import { UserStore } from './auth/user-store.js';
+import { channelRoutes } from './channels/routes.js';
+import { ChannelService } from './channels/service.js';
 import type { Config } from './config.js';
 import type { Database } from './db/schema.js';
+import { AppError } from './errors.js';
+import { messageRoutes } from './messages/routes.js';
+import { MessageRateLimiter } from './messages/rate-limiter.js';
+import { MessageService } from './messages/service.js';
+import { Hub } from './realtime/hub.js';
+import { realtimeRoutes } from './realtime/routes.js';
 
 export interface AppDeps {
-  config: Pick<Config, 'NODE_ENV' | 'LOG_LEVEL' | 'WEB_DIST_DIR'>;
+  config: Config;
   db: Kysely<Database>;
   redis: Redis;
 }
@@ -23,7 +42,33 @@ export async function buildApp({ config, db, redis }: AppDeps): Promise<FastifyI
       level: config.LOG_LEVEL,
       ...(config.NODE_ENV === 'development' && { transport: { target: 'pino-pretty' } }),
     },
+  }).withTypeProvider<ZodTypeProvider>();
+
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
+  app.setErrorHandler((error: Error & { statusCode?: number; code?: string }, request, reply) => {
+    if (error instanceof AppError) {
+      return reply.code(error.statusCode).send({ code: error.code, message: error.message });
+    }
+    if (hasZodFastifySchemaValidationErrors(error)) {
+      return reply.code(400).send({ code: 'invalid_request', message: 'Invalid request' });
+    }
+    const status = error.statusCode ?? 500;
+    if (status >= 500) {
+      request.log.error({ err: error }, 'request failed');
+      return reply.code(500).send({ code: 'internal', message: 'Internal error' });
+    }
+    return reply.code(status).send({ code: error.code ?? 'bad_request', message: error.message });
   });
+  app.setNotFoundHandler((request, reply) => {
+    const isApi = API_PREFIXES.some((prefix) => request.url.startsWith(prefix));
+    if (!webRoot || request.method !== 'GET' || isApi) {
+      return reply.code(404).send({ code: 'not_found', message: 'Not found' });
+    }
+    return reply.sendFile('index.html');
+  });
+
+  const webRoot = existsSync(config.WEB_DIST_DIR) ? path.resolve(config.WEB_DIST_DIR) : null;
 
   app.get('/healthz', (): HealthResponse => ({ status: 'ok' }));
 
@@ -41,19 +86,70 @@ export async function buildApp({ config, db, redis }: AppDeps): Promise<FastifyI
     return { status: ready ? 'ok' : 'degraded', checks };
   });
 
-  const webRoot = path.resolve(config.WEB_DIST_DIR);
-  if (existsSync(webRoot)) {
-    await app.register(fastifyStatic, { root: webRoot });
-    app.setNotFoundHandler((request, reply) => {
-      const isApi = API_PREFIXES.some((prefix) => request.url.startsWith(prefix));
-      if (request.method !== 'GET' || isApi) {
-        return reply.code(404).send({ error: 'Not Found' });
-      }
-      return reply.sendFile('index.html');
-    });
-  }
+  if (webRoot) await app.register(fastifyStatic, { root: webRoot });
+
+  const subscriber = redis.duplicate({ enableOfflineQueue: true, maxRetriesPerRequest: null });
+  const hub = new Hub(subscriber, app.log, config.WS_HEARTBEAT_INTERVAL_MS);
+  app.addHook('onClose', () => {
+    subscriber.disconnect();
+  });
+
+  const channels = new ChannelService(db);
+  const limiter = new MessageRateLimiter(
+    redis,
+    config.MESSAGE_RATE_MAX,
+    config.MESSAGE_RATE_WINDOW_SECONDS,
+  );
+  const messages = new MessageService(db, redis, limiter, config.INSTANCE_ID);
+  const users = new UserStore(db);
+
+  await app.register(
+    async (api) => {
+      // Before auth, so its onRequest/onResponse hooks also run for rejected upgrades and
+      // destroy their sockets. preClose is added first so it runs first and closes with 1001.
+      api.addHook('preClose', () => {
+        hub.closeAll(1001, 'server shutting down');
+      });
+      await api.register(websocket, { options: { maxPayload: MAX_FRAME_BYTES } });
+      await api.register(authPlugin, { policy: authPolicy(config), users });
+      await api.register(rateLimit, {
+        redis,
+        nameSpace: 'harmony:ratelimit:http:',
+        max: config.RATE_LIMIT_MAX,
+        timeWindow: config.RATE_LIMIT_WINDOW_MS,
+        keyGenerator: (request) => request.user.login,
+        skipOnError: true,
+        errorResponseBuilder: () => new AppError(429, 'rate_limited', 'Too many requests'),
+      });
+      await api.register(channelRoutes, { channels });
+      await api.register(messageRoutes, { channels, messages });
+      await api.register(realtimeRoutes, {
+        hub,
+        channels,
+        messages,
+        instanceId: config.INSTANCE_ID,
+      });
+    },
+    { prefix: '/api' },
+  );
 
   return app;
+}
+
+function authPolicy(config: Config): AuthPolicy {
+  const devLogin = config.NODE_ENV === 'development' ? config.DEV_AUTH_LOGIN : undefined;
+  return {
+    proxySecret: config.PROXY_SHARED_SECRET,
+    publicOrigin: config.PUBLIC_ORIGIN,
+    allowedLogins: config.ALLOWED_LOGINS,
+    devIdentity: devLogin
+      ? {
+          login: devLogin,
+          displayName: config.DEV_AUTH_NAME ?? devLogin.split('@')[0] ?? devLogin,
+          avatarUrl: null,
+        }
+      : undefined,
+  };
 }
 
 async function check(probe: () => Promise<unknown>): Promise<'up' | 'down'> {

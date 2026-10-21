@@ -6,9 +6,14 @@ x-app-env: &app-env
   DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
   REDIS_URL: redis://redis:6379
 
+# Images are pinned and upgraded deliberately; opt out of host-level auto-updaters.
+x-no-auto-update: &no-auto-update
+  com.centurylinklabs.watchtower.enable: 'false'
+
 services:
   postgres:
     image: postgres:16-alpine
+    labels: *no-auto-update
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -25,6 +30,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    labels: *no-auto-update
     restart: unless-stopped
     command: ['redis-server', '--appendonly', 'no']
     healthcheck:
@@ -37,6 +43,7 @@ services:
   migrate:
     build: .
     image: harmony-app:local
+    labels: *no-auto-update
     command: ['node', 'apps/server/dist/migrate.js']
     restart: 'no'
     environment: *app-env
@@ -47,10 +54,14 @@ services:
 
   app:
     image: harmony-app:local
+    labels: *no-auto-update
     restart: unless-stopped
-    environment: *app-env
-    ports:
-      - '127.0.0.1:8470:8080'
+    environment:
+      <<: *app-env
+      PROXY_SHARED_SECRET: ${PROXY_SHARED_SECRET:?set PROXY_SHARED_SECRET in .env}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
+      ALLOWED_LOGINS: ${ALLOWED_LOGINS:-}
+      INSTANCE_ID: ${INSTANCE_ID:-app-1}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -67,6 +78,28 @@ services:
         limits:
           cpus: '2'
           memory: 512M
+    networks: [harmony_internal]
+
+  nginx:
+    image: nginx:1.27-alpine
+    labels: *no-auto-update
+    restart: unless-stopped
+    environment:
+      PROXY_SHARED_SECRET: ${PROXY_SHARED_SECRET:?set PROXY_SHARED_SECRET in .env}
+      NGINX_ENVSUBST_FILTER: PROXY_
+    volumes:
+      - ./deploy/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    ports:
+      - '127.0.0.1:8470:8080'
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/healthz']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks: [harmony_internal]
 
 volumes:

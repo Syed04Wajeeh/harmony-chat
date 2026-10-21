@@ -1,8 +1,8 @@
-import { loadConfig } from './config.js';
+import { loadDatabaseUrl } from './config.js';
 import { createDb } from './db.js';
 import { createMigrator } from './migrator.js';
 
-const db = createDb(loadConfig().DATABASE_URL);
+const db = createDb(loadDatabaseUrl());
 const { error, results } = await createMigrator(db).migrateToLatest();
 
 for (const result of results ?? []) {

@@ -6,6 +6,6 @@ const backend = 'http://localhost:8080';
 export default defineConfig({
   plugins: [react()],
   server: {
-    proxy: { '/api': backend, '/healthz': backend, '/readyz': backend },
+    proxy: { '/api': { target: backend, ws: true }, '/healthz': backend, '/readyz': backend },
   },
 });
