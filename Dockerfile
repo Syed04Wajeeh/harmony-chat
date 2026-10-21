@@ -14,8 +14,11 @@ RUN pnpm deploy --prod --filter @harmony/server /deploy
 
 FROM node:24-alpine
 ENV NODE_ENV=production \
-    WEB_DIST_DIR=/app/apps/web/dist
+    WEB_DIST_DIR=/app/apps/web/dist \
+    UPLOAD_DIR=/data/uploads
 WORKDIR /app
+# A new named volume copies this directory's ownership, so the node user can write to it.
+RUN mkdir -p /data/uploads && chown node:node /data/uploads
 COPY --from=build --chown=node:node /deploy apps/server
 COPY --from=build --chown=node:node /repo/apps/web/dist apps/web/dist
 USER node

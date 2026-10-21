@@ -32,7 +32,11 @@ export function ChannelView({ channel, me, client, status }: ChannelViewProps) {
         loadingOlder={chat.loadingOlder}
         onLoadOlder={() => void chat.loadOlder()}
       />
-      <Composer channelName={channel.name} disabled={status !== 'open'} onSend={chat.send} />
+      <Composer
+        channelName={channel.name ?? channel.dmUser?.displayName ?? ''}
+        disabled={status !== 'open'}
+        onSend={chat.send}
+      />
     </main>
   );
 }

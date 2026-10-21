@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import multipart from '@fastify/multipart';
 import websocket from '@fastify/websocket';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
@@ -18,24 +19,36 @@ import type { AuthPolicy } from './auth/policy.js';
 import { UserStore } from './auth/user-store.js';
 import { channelRoutes } from './channels/routes.js';
 import { ChannelService } from './channels/service.js';
+import { guildRoutes } from './guilds/routes.js';
+import { GuildService } from './guilds/service.js';
 import type { Config } from './config.js';
 import type { Database } from './db/schema.js';
 import { AppError } from './errors.js';
 import { messageRoutes } from './messages/routes.js';
-import { MessageRateLimiter } from './messages/rate-limiter.js';
 import { MessageService } from './messages/service.js';
+import { PresenceService } from './presence/service.js';
+import { RateLimiter } from './rate-limit.js';
+import { EventBus } from './realtime/events.js';
 import { Hub } from './realtime/hub.js';
 import { realtimeRoutes } from './realtime/routes.js';
+import { TypingService } from './realtime/typing.js';
+import { searchRoutes } from './search/routes.js';
+import { UploadCleaner } from './uploads/cleaner.js';
+import { uploadRoutes } from './uploads/routes.js';
+import { UploadService } from './uploads/service.js';
+import { LocalDiskStorage, type Storage } from './uploads/storage.js';
+import { userRoutes } from './users/routes.js';
 
 export interface AppDeps {
   config: Config;
   db: Kysely<Database>;
   redis: Redis;
+  storage?: Storage;
 }
 
 const API_PREFIXES = ['/api/', '/healthz', '/readyz'];
 
-export async function buildApp({ config, db, redis }: AppDeps): Promise<FastifyInstance> {
+export async function buildApp({ config, db, redis, storage }: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     genReqId: () => crypto.randomUUID(),
     logger: {
@@ -94,14 +107,48 @@ export async function buildApp({ config, db, redis }: AppDeps): Promise<FastifyI
     subscriber.disconnect();
   });
 
-  const channels = new ChannelService(db);
-  const limiter = new MessageRateLimiter(
-    redis,
-    config.MESSAGE_RATE_MAX,
-    config.MESSAGE_RATE_WINDOW_SECONDS,
+  const events = new EventBus(redis);
+  const limiter = (name: string, max: number, windowSeconds: number) =>
+    new RateLimiter(redis, name, max, windowSeconds);
+  const channels = new ChannelService(db, events);
+  const messages = new MessageService(
+    db,
+    events,
+    channels,
+    limiter('messages', config.MESSAGE_RATE_MAX, config.MESSAGE_RATE_WINDOW_SECONDS),
+    limiter('reactions', config.REACTION_RATE_MAX, config.MESSAGE_RATE_WINDOW_SECONDS),
   );
-  const messages = new MessageService(db, redis, limiter, config.INSTANCE_ID);
   const users = new UserStore(db);
+  const presence = new PresenceService(
+    redis,
+    db,
+    events,
+    { ttlMs: config.PRESENCE_TTL_MS, sweepMs: config.PRESENCE_SWEEP_MS },
+    app.log,
+  );
+  const files = storage ?? new LocalDiskStorage(config.UPLOAD_DIR);
+  const guilds = new GuildService(db, events, channels, presence, files);
+  const typing = new TypingService(redis, events, channels);
+  const uploads = new UploadService(db, files);
+  const cleaner = new UploadCleaner(
+    db,
+    redis,
+    files,
+    {
+      orphanTtlMs: config.UPLOAD_ORPHAN_TTL_MS,
+      intervalMs: config.UPLOAD_CLEANUP_INTERVAL_MS,
+      instanceId: config.INSTANCE_ID,
+    },
+    app.log,
+  );
+  app.addHook('onReady', () => {
+    presence.start();
+    cleaner.start();
+  });
+  app.addHook('onClose', () => {
+    presence.stop();
+    cleaner.stop();
+  });
 
   await app.register(
     async (api) => {
@@ -121,13 +168,29 @@ export async function buildApp({ config, db, redis }: AppDeps): Promise<FastifyI
         skipOnError: true,
         errorResponseBuilder: () => new AppError(429, 'rate_limited', 'Too many requests'),
       });
+      await api.register(multipart, {
+        limits: { fileSize: config.UPLOAD_MAX_BYTES, files: 1, fields: 5 },
+      });
+      await api.register(userRoutes, { users, presence });
+      await api.register(guildRoutes, { guilds, channels });
       await api.register(channelRoutes, { channels });
       await api.register(messageRoutes, { channels, messages });
+      await api.register(searchRoutes, { reader: messages.reader });
+      await api.register(uploadRoutes, {
+        uploads,
+        limiter: limiter('uploads', config.UPLOAD_RATE_MAX, config.UPLOAD_RATE_WINDOW_SECONDS),
+      });
       await api.register(realtimeRoutes, {
         hub,
         channels,
         messages,
+        users,
+        presence,
+        typing,
         instanceId: config.INSTANCE_ID,
+        presenceHeartbeatMs: config.PRESENCE_HEARTBEAT_MS,
+        frameBurst: config.WS_FRAME_BURST,
+        frameRefillPerSecond: config.WS_FRAME_REFILL_PER_SECOND,
       });
     },
     { prefix: '/api' },

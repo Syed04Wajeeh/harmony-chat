@@ -41,7 +41,33 @@ const ConfigSchema = z
     RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1).default(60_000),
     MESSAGE_RATE_MAX: z.coerce.number().int().min(1).default(20),
     MESSAGE_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(10),
+    REACTION_RATE_MAX: z.coerce.number().int().min(1).default(30),
     WS_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().min(10).default(30_000),
+    WS_FRAME_BURST: z.coerce.number().int().min(1).default(30),
+    WS_FRAME_REFILL_PER_SECOND: z.coerce.number().positive().default(3),
+
+    PRESENCE_TTL_MS: z.coerce.number().int().min(100).default(90_000),
+    PRESENCE_HEARTBEAT_MS: z.coerce.number().int().min(10).default(30_000),
+    PRESENCE_SWEEP_MS: z.coerce.number().int().min(10).default(30_000),
+
+    UPLOAD_DIR: z.string().min(1).default('/data/uploads'),
+    UPLOAD_MAX_BYTES: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(10 * 1024 * 1024),
+    UPLOAD_RATE_MAX: z.coerce.number().int().min(1).default(20),
+    UPLOAD_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(60),
+    UPLOAD_ORPHAN_TTL_MS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .default(24 * 60 * 60 * 1000),
+    UPLOAD_CLEANUP_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .min(10)
+      .default(60 * 60 * 1000),
   })
   .transform((raw, ctx) => {
     const { NODE_ENV, DEV_AUTH_LOGIN, PROXY_SHARED_SECRET, PUBLIC_ORIGIN } = raw;

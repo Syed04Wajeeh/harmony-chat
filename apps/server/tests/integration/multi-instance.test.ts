@@ -18,7 +18,7 @@ describe('two app instances sharing Postgres and Redis', () => {
   beforeAll(async () => {
     infra = createInfra();
     [a, b] = await Promise.all([infra.startApp(), infra.startApp()]);
-    channelId = await createChannel(infra.db);
+    channelId = await createChannel(infra.db, ['carol@example.com', 'dave@example.com']);
   });
 
   afterAll(async () => {

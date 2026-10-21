@@ -1,6 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ListMessagesResponse, Message } from '@harmony/shared';
-import { api, createChannel, createInfra, type Infra, type TestApp } from './support/harness.js';
+import {
+  addMember,
+  api,
+  createChannel,
+  createInfra,
+  type Infra,
+  type TestApp,
+} from './support/harness.js';
 
 describe('channels and message history', () => {
   let infra: Infra;
@@ -12,7 +19,7 @@ describe('channels and message history', () => {
     infra = createInfra();
     target = await infra.startApp({ MESSAGE_RATE_MAX: '1000' });
     call = api(target, 'history@example.com');
-    channelId = await createChannel(infra.db);
+    channelId = await createChannel(infra.db, ['history@example.com']);
   });
 
   afterAll(() => infra.stop());
@@ -20,12 +27,10 @@ describe('channels and message history', () => {
   const page = async (query = '') =>
     (await call(`/api/channels/${channelId}/messages${query}`)).body as ListMessagesResponse;
 
-  it('lists channels including the seeded general channel', async () => {
+  it('lists the channels the user belongs to', async () => {
     const { status, body } = await call('/api/channels');
     expect(status).toBe(200);
-    expect((body as { channels: { name: string }[] }).channels.map((c) => c.name)).toContain(
-      'general',
-    );
+    expect((body as { channels: { id: string }[] }).channels.map((c) => c.id)).toContain(channelId);
   });
 
   it('posts a message and returns it with its author', async () => {
@@ -106,7 +111,7 @@ describe('channels and message history', () => {
     expect((await call(`/api/channels/${channelId}/messages?limit=101`)).status).toBe(400);
   });
 
-  it('excludes soft-deleted messages', async () => {
+  it('serves soft-deleted messages as empty tombstones', async () => {
     const before = await page();
     const victim = before.messages[3];
     await infra.db
@@ -115,8 +120,11 @@ describe('channels and message history', () => {
       .where('id', '=', victim?.id ?? '0')
       .execute();
     const after = await page();
-    expect(after.messages).toHaveLength(24);
-    expect(after.messages.some((m) => m.id === victim?.id)).toBe(false);
+    expect(after.messages).toHaveLength(25);
+    expect(after.messages.find((m) => m.id === victim?.id)).toMatchObject({
+      content: '',
+      deleted: true,
+    });
   });
 
   it('rate limits message sends per user over REST', async () => {
@@ -124,7 +132,9 @@ describe('channels and message history', () => {
       MESSAGE_RATE_MAX: '3',
       MESSAGE_RATE_WINDOW_SECONDS: '30',
     });
-    const send = api(limited, `limited-${Date.now()}@example.com`);
+    const login = `limited-${Date.now()}@example.com`;
+    await addMember(infra.db, channelId, login);
+    const send = api(limited, login);
     const statuses: number[] = [];
     for (let i = 0; i < 5; i++) {
       statuses.push(

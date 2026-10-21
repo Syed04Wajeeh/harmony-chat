@@ -1,12 +1,12 @@
 import fp from 'fastify-plugin';
-import type { User } from '@harmony/shared';
+import type { DirectoryUser } from '@harmony/shared';
 import { AppError } from '../errors.js';
 import { authenticate, isAuthFailure, type AuthPolicy } from './policy.js';
 import type { UserStore } from './user-store.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    user: User;
+    user: DirectoryUser;
   }
 }
 

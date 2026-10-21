@@ -1,6 +1,6 @@
 # Harmony
 
-A self-hosted, Discord-style team chat app: channels, message history with keyset pagination, and live delivery over WebSockets and Redis pub/sub. Identity comes from Tailscale Serve, so there are no passwords or sign-up.
+A self-hosted, Discord-style team chat app: servers (guilds) with public and private channels, DMs, message history with keyset pagination, replies, reactions, mentions, pins, search, file uploads, unread counts and presence, delivered live over WebSockets and Redis pub/sub. Identity comes from Tailscale Serve, so there are no passwords or sign-up. The REST and WebSocket contract is in [docs/api/protocol.md](docs/api/protocol.md).
 
 ## Quickstart (Docker)
 
@@ -10,7 +10,7 @@ docker compose up -d --build
 curl http://127.0.0.1:8470/healthz
 ```
 
-Request path: Tailscale Serve (HTTPS) → `127.0.0.1:8470` → nginx → app. nginx is the only published port and stamps a shared secret on every request; the app rejects requests without it. Postgres and Redis stay on the internal network, and a one-shot `migrate` service applies migrations before the app starts.
+Request path: Tailscale Serve (HTTPS) → `127.0.0.1:8470` → nginx → app. nginx is the only published port and stamps a shared secret on every request; the app rejects requests without it. Postgres and Redis stay on the internal network, and a one-shot `migrate` service applies migrations before the app starts. Uploads live in the `harmony_uploads` volume (limit `UPLOAD_MAX_BYTES`, default 10 MiB).
 
 Point Serve at nginx and set `PUBLIC_ORIGIN` to the exact URL browsers use, for example:
 

@@ -4,6 +4,7 @@ import {
   PUBLIC_ORIGIN,
   TestSocket,
   api,
+  createChannel,
   createInfra,
   proxyHeaders,
   type Infra,
@@ -13,10 +14,12 @@ import {
 describe('authentication', () => {
   let infra: Infra;
   let target: TestApp;
+  let channelId: string;
 
   beforeAll(async () => {
     infra = createInfra();
     target = await infra.startApp();
+    channelId = await createChannel(infra.db, ['origin@example.com']);
   });
 
   afterAll(() => infra.stop());
@@ -97,7 +100,7 @@ describe('authentication', () => {
   describe('Origin checks', () => {
     const body = JSON.stringify({ content: 'hi' });
     const post = (headers: Record<string, string>) =>
-      fetch(`${target.url}/api/channels/1/messages`, {
+      fetch(`${target.url}/api/channels/${channelId}/messages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...headers },
         body,

@@ -17,17 +17,22 @@ describe('health endpoints', () => {
 
   afterAll(() => infra.stop());
 
-  it('applies the channels and messages migration and seeds #general', async () => {
+  it('applies every migration', async () => {
     const tables = await db.introspection.getTables();
     expect(tables.map((t) => t.name)).toEqual(
-      expect.arrayContaining(['users', 'channels', 'messages']),
+      expect.arrayContaining([
+        'users',
+        'guilds',
+        'guild_members',
+        'guild_invites',
+        'channels',
+        'channel_members',
+        'messages',
+        'message_reactions',
+        'message_mentions',
+        'attachments',
+      ]),
     );
-    const general = await db
-      .selectFrom('channels')
-      .select('name')
-      .where('name', '=', 'general')
-      .execute();
-    expect(general).toHaveLength(1);
   });
 
   it('GET /healthz is 200 and needs no authentication', async () => {

@@ -14,6 +14,17 @@ describe('realtime delivery', () => {
   let target: TestApp;
   let channelId: string;
   const sockets: TestSocket[] = [];
+  const members = [
+    'alice@example.com',
+    'bob@example.com',
+    'sender@example.com',
+    'unsub@example.com',
+    'unsub-sender@example.com',
+    'rest-sub@example.com',
+    'rest-poster@example.com',
+    'malformed@example.com',
+    'ratelimited@example.com',
+  ];
 
   const connect = async (login: string, app = target) => {
     const socket = await TestSocket.connect(app, login);
@@ -43,7 +54,7 @@ describe('realtime delivery', () => {
   });
 
   it('delivers each message once to every subscriber and acks the sender', async () => {
-    channelId = await createChannel(infra.db);
+    channelId = await createChannel(infra.db, members);
     const alice = await connect('alice@example.com');
     const bob = await connect('bob@example.com');
     await alice.subscribe(channelId);
@@ -63,7 +74,7 @@ describe('realtime delivery', () => {
   });
 
   it('does not deliver messages from channels a socket is not subscribed to', async () => {
-    const other = await createChannel(infra.db);
+    const other = await createChannel(infra.db, ['listener@example.com']);
     const listener = await connect('listener@example.com');
     const sender = await connect('sender@example.com');
     await listener.subscribe(other);
@@ -98,7 +109,7 @@ describe('realtime delivery', () => {
   });
 
   it('backfills exactly the missed messages, in order, after a reconnect', async () => {
-    const channel = await createChannel(infra.db);
+    const channel = await createChannel(infra.db, ['reader@example.com', 'writer@example.com']);
     const reader = await connect('reader@example.com');
     const writer = await connect('writer@example.com');
     await reader.subscribe(channel);
@@ -126,7 +137,7 @@ describe('realtime delivery', () => {
   });
 
   it('reports hasMore when the backfill exceeds the limit', async () => {
-    const channel = await createChannel(infra.db);
+    const channel = await createChannel(infra.db, ['bulk@example.com']);
     const author = await infra.db
       .selectFrom('users')
       .select('id')
@@ -177,7 +188,7 @@ describe('realtime delivery', () => {
       MESSAGE_RATE_MAX: '3',
       MESSAGE_RATE_WINDOW_SECONDS: '30',
     });
-    const socket = await connect(`ratelimited-${Date.now()}@example.com`, limited);
+    const socket = await connect('ratelimited@example.com', limited);
     for (let i = 0; i < 5; i++) send(socket, 'spam', `r${i}`);
     await socket.waitFor('ack', 3);
     const errors = await socket.waitFor('error', 2);

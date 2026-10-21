@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import type { FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
@@ -10,6 +13,7 @@ import { buildApp } from '../../../src/app.js';
 import { loadConfig, type Config } from '../../../src/config.js';
 import { createDb } from '../../../src/db.js';
 import type { Database } from '../../../src/db/schema.js';
+import { createGuildWithGeneral } from '../../../src/guilds/membership.js';
 import { createRedis } from '../../../src/redis.js';
 
 export const PROXY_SECRET = 'test-proxy-secret-test-proxy-secret-0123456789';
@@ -26,7 +30,7 @@ export interface TestApp {
 export interface Infra {
   db: Kysely<Database>;
   redis: Redis;
-  startApp(overrides?: Record<string, string>): Promise<TestApp>;
+  startApp(overrides?: Record<string, string>, appDb?: Kysely<Database>): Promise<TestApp>;
   stop(): Promise<void>;
 }
 
@@ -38,7 +42,7 @@ export function createInfra(): Infra {
   return {
     db,
     redis,
-    async startApp(overrides = {}) {
+    async startApp(overrides = {}, appDb = db) {
       const config = loadConfig({
         NODE_ENV: 'test',
         LOG_LEVEL: 'silent',
@@ -48,9 +52,10 @@ export function createInfra(): Infra {
         PROXY_SHARED_SECRET: PROXY_SECRET,
         PUBLIC_ORIGIN,
         INSTANCE_ID: `test-${randomUUID().slice(0, 8)}`,
+        UPLOAD_DIR: mkdtempSync(path.join(tmpdir(), 'harmony-uploads-')),
         ...overrides,
       });
-      const app = await buildApp({ config, db, redis });
+      const app = await buildApp({ config, db: appDb, redis });
       apps.push(app);
       await app.listen({ port: 0, host: '127.0.0.1' });
       const { port } = app.server.address() as AddressInfo;
@@ -94,7 +99,12 @@ export function api(target: TestApp, login: string) {
       },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     });
-    return { status: res.status, body: await res.json() };
+    const text = await res.text();
+    return {
+      status: res.status,
+      headers: Object.fromEntries(res.headers) as Record<string, string>,
+      body: (text ? JSON.parse(text) : null) as unknown,
+    };
   };
 }
 
@@ -170,11 +180,154 @@ export async function settle(ms = 150): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function createChannel(db: Kysely<Database>): Promise<string> {
-  const { id } = await db
-    .insertInto('channels')
-    .values({ name: `t-${randomUUID().slice(0, 12)}` })
+/** Creates the user row the way the first request would, so tests can reference its id. */
+export async function ensureUser(
+  db: Kysely<Database>,
+  login: string,
+  { admin = false }: { admin?: boolean } = {},
+): Promise<string> {
+  const row = await db
+    .insertInto('users')
+    .values({
+      login,
+      display_name: login.split('@')[0] ?? login,
+      avatar_url: null,
+      is_admin: admin,
+    })
+    .onConflict((oc) =>
+      oc
+        .column('login')
+        .doUpdateSet((eb) => ({ is_admin: admin ? true : eb.ref('users.is_admin') })),
+    )
     .returning('id')
     .executeTakeFirstOrThrow();
+  return row.id;
+}
+
+export interface ChannelOptions {
+  private?: boolean;
+  createdBy?: string;
+  name?: string;
+  /** Defaults to a new guild owned by `createdBy` (or the first member) containing `members`. */
+  guildId?: string;
+}
+
+/** A guild owned by `ownerLogin` whose members are `members` too. Has no channels yet. */
+export async function createGuild(
+  db: Kysely<Database>,
+  ownerLogin: string,
+  members: string[] = [],
+  name = 'Test guild',
+): Promise<string> {
+  const ownerId = await ensureUser(db, ownerLogin);
+  const guild = await db
+    .insertInto('guilds')
+    .values({ name, owner_id: ownerId, icon_attachment_id: null })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  for (const login of [ownerLogin, ...members]) await addGuildMember(db, guild.id, login);
+  return guild.id;
+}
+
+/** Mirrors what the first real user's arrival does: a default guild with a `general` channel. */
+export async function ensureDefaultGuild(db: Kysely<Database>): Promise<void> {
+  const existing = await db
+    .selectFrom('guilds')
+    .select('id')
+    .where('is_default', '=', true)
+    .executeTakeFirst();
+  if (existing) return;
+  const owner = await ensureUser(db, 'default-owner@example.com');
+  await db.transaction().execute((trx) => createGuildWithGeneral(trx, 'Harmony', owner, true));
+}
+
+export async function addGuildMember(db: Kysely<Database>, guildId: string, login: string) {
+  const userId = await ensureUser(db, login);
+  await db
+    .insertInto('guild_members')
+    .values({ guild_id: guildId, user_id: userId })
+    .onConflict((oc) => oc.doNothing())
+    .execute();
+  return userId;
+}
+
+/**
+ * A text channel. Public channels include every guild member; private ones only `members`.
+ * Without `guildId`, a fresh guild is created holding the creator and `members`.
+ */
+export async function createChannel(
+  db: Kysely<Database>,
+  members: string[] = [],
+  options: ChannelOptions = {},
+): Promise<string> {
+  const owner = options.createdBy ?? members[0] ?? `owner-${randomUUID().slice(0, 8)}@example.com`;
+  const guildId = options.guildId ?? (await createGuild(db, owner, members));
+  const creator = await ensureUser(db, owner);
+  const isPrivate = options.private ?? false;
+  const { id } = await db
+    .insertInto('channels')
+    .values({
+      guild_id: guildId,
+      name: options.name ?? `t-${randomUUID().slice(0, 12)}`,
+      is_private: isPrivate,
+      created_by: creator,
+      topic: null,
+      dm_key: null,
+      archived_at: null,
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  if (isPrivate) {
+    for (const login of members) await addMember(db, id, login);
+  } else {
+    await db
+      .insertInto('channel_members')
+      .columns(['channel_id', 'user_id', 'last_read_message_id'])
+      .expression((eb) =>
+        eb
+          .selectFrom('guild_members')
+          .select([eb.val(id).as('channel_id'), 'user_id', eb.val(null).as('last_read_message_id')])
+          .where('guild_id', '=', guildId),
+      )
+      .execute();
+  }
   return id;
+}
+
+export async function addMember(db: Kysely<Database>, channelId: string, login: string) {
+  const userId = await ensureUser(db, login);
+  await db
+    .insertInto('channel_members')
+    .values({ channel_id: channelId, user_id: userId, last_read_message_id: null })
+    .onConflict((oc) => oc.doNothing())
+    .execute();
+  return userId;
+}
+
+export async function insertMessages(
+  db: Kysely<Database>,
+  channelId: string,
+  authorLogin: string,
+  count: number,
+): Promise<string[]> {
+  const authorId = await ensureUser(db, authorLogin);
+  const ids: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const row = await db
+      .insertInto('messages')
+      .values({
+        channel_id: channelId,
+        author_id: authorId,
+        content: `seed ${i}`,
+        reply_to_id: null,
+        edited_at: null,
+        deleted_at: null,
+        pinned_at: null,
+        pinned_by: null,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    ids.push(row.id);
+  }
+  return ids;
 }

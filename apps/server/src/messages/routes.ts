@@ -1,13 +1,16 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
 import {
   ChannelParams,
+  EditMessageBody,
   ListMessagesQuery,
   ListMessagesResponse,
   Message,
+  MessageParams,
+  PinsResponse,
+  ReactionParams,
   SendMessageBody,
 } from '@harmony/shared';
 import type { ChannelService } from '../channels/service.js';
-import { AppError } from '../errors.js';
 import type { MessageService } from './service.js';
 
 export interface MessageRoutesOptions {
@@ -31,9 +34,7 @@ export const messageRoutes: FastifyPluginCallbackZod<MessageRoutesOptions> = (
     },
     async (request) => {
       const { id } = request.params;
-      if (!(await channels.exists(id))) {
-        throw new AppError(404, 'channel_not_found', 'Channel not found');
-      }
+      await channels.requireMember(id, request.user.id);
       const { before, limit } = request.query;
       return messages.history(id, limit, before);
     },
@@ -45,15 +46,62 @@ export const messageRoutes: FastifyPluginCallbackZod<MessageRoutesOptions> = (
       schema: { params: ChannelParams, body: SendMessageBody, response: { 201: Message } },
     },
     async (request, reply) => {
-      const { content, nonce } = request.body;
       const message = await messages.send({
         author: request.user,
         channelId: request.params.id,
-        content,
-        nonce,
+        ...request.body,
       });
       return reply.code(201).send(message);
     },
+  );
+
+  app.get(
+    '/channels/:id/pins',
+    { schema: { params: ChannelParams, response: { 200: PinsResponse } } },
+    async (request) => ({ messages: await messages.pins(request.user, request.params.id) }),
+  );
+
+  app.patch(
+    '/messages/:id',
+    {
+      schema: { params: MessageParams, body: EditMessageBody, response: { 200: Message } },
+    },
+    (request) => messages.edit(request.user, request.params.id, request.body.content),
+  );
+
+  app.delete('/messages/:id', { schema: { params: MessageParams } }, async (request, reply) => {
+    await messages.delete(request.user, request.params.id);
+    return reply.code(204).send();
+  });
+
+  app.put(
+    '/messages/:id/reactions/:emoji',
+    { schema: { params: ReactionParams } },
+    async (request, reply) => {
+      await messages.addReaction(request.user, request.params.id, request.params.emoji);
+      return reply.code(204).send();
+    },
+  );
+
+  app.delete(
+    '/messages/:id/reactions/:emoji',
+    { schema: { params: ReactionParams } },
+    async (request, reply) => {
+      await messages.removeReaction(request.user, request.params.id, request.params.emoji);
+      return reply.code(204).send();
+    },
+  );
+
+  app.put(
+    '/messages/:id/pin',
+    { schema: { params: MessageParams, response: { 200: Message } } },
+    (request) => messages.setPinned(request.user, request.params.id, true),
+  );
+
+  app.delete(
+    '/messages/:id/pin',
+    { schema: { params: MessageParams, response: { 200: Message } } },
+    (request) => messages.setPinned(request.user, request.params.id, false),
   );
   done();
 };

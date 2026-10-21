@@ -1,18 +1,25 @@
 import type { Redis } from 'ioredis';
 import { WebSocket } from 'ws';
 import {
-  MESSAGE_CHANNEL_PREFIX,
-  MessageEnvelope,
+  CHANNEL_TOPIC_PREFIX,
+  ChannelEvent,
+  PRESENCE_TOPIC,
+  PresenceEvent,
+  USER_TOPIC_PREFIX,
+  UserEvent,
+  channelTopic,
+  userTopic,
+  type DirectoryUser,
   type ServerFrame,
-  type User,
 } from '@harmony/shared';
-import { redisChannelFor } from '../messages/service.js';
 
 export interface HubClient {
   readonly socket: WebSocket;
-  readonly user: User;
+  readonly user: DirectoryUser;
   readonly channels: Set<string>;
   alive: boolean;
+  /** Resolves once the client's per-user topic is live, so no event addressed to it is missed. */
+  ready: Promise<unknown>;
 }
 
 interface Room {
@@ -26,8 +33,9 @@ export interface HubLogger {
 }
 
 /**
- * Tracks the sockets connected to this instance and fans Redis messages out to them.
- * A Redis channel is subscribed while at least one local socket is in the room.
+ * Tracks the sockets connected to this instance and fans Redis messages out to them. A Redis
+ * topic is subscribed while at least one local socket is in its room: channel topics per
+ * subscribed channel, one topic per connected user, and the global presence topic always.
  */
 export class Hub {
   private readonly rooms = new Map<string, Room>();
@@ -39,9 +47,10 @@ export class Hub {
     private readonly log: HubLogger,
     heartbeatIntervalMs: number,
   ) {
-    subscriber.on('message', (redisChannel: string, payload: string) =>
-      this.dispatch(redisChannel, payload),
-    );
+    subscriber.on('message', (topic: string, payload: string) => this.dispatch(topic, payload));
+    subscriber.subscribe(PRESENCE_TOPIC).catch((err: unknown) => {
+      this.log.warn({ err }, 'presence subscribe failed');
+    });
     this.heartbeat = setInterval(() => this.sweep(), heartbeatIntervalMs);
     this.heartbeat.unref();
   }
@@ -50,46 +59,37 @@ export class Hub {
     return this.clients.size;
   }
 
-  add(socket: WebSocket, user: User): HubClient {
-    const client: HubClient = { socket, user, channels: new Set(), alive: true };
+  add(socket: WebSocket, user: DirectoryUser): HubClient {
+    const client: HubClient = {
+      socket,
+      user,
+      channels: new Set(),
+      alive: true,
+      ready: Promise.resolve(),
+    };
     socket.on('pong', () => {
       client.alive = true;
     });
     this.clients.add(client);
+    client.ready = this.enter(userTopic(user.id), client);
     return client;
   }
 
   /** Resolves once messages published from now on will reach this client. */
   async join(client: HubClient, channelId: string): Promise<void> {
-    let room = this.rooms.get(channelId);
-    if (!room) {
-      room = {
-        clients: new Set(),
-        ready: this.subscriber.subscribe(redisChannelFor(channelId)),
-      };
-      this.rooms.set(channelId, room);
-    }
-    room.clients.add(client);
     client.channels.add(channelId);
-    await room.ready;
+    await this.enter(channelTopic(channelId), client);
   }
 
   leave(client: HubClient, channelId: string): void {
     client.channels.delete(channelId);
-    const room = this.rooms.get(channelId);
-    if (!room) return;
-    room.clients.delete(client);
-    if (room.clients.size === 0) {
-      this.rooms.delete(channelId);
-      this.subscriber.unsubscribe(redisChannelFor(channelId)).catch((err: unknown) => {
-        this.log.warn({ err, channelId }, 'redis unsubscribe failed');
-      });
-    }
+    this.exit(channelTopic(channelId), client);
   }
 
   remove(client: HubClient): void {
     this.clients.delete(client);
     for (const channelId of [...client.channels]) this.leave(client, channelId);
+    this.exit(userTopic(client.user.id), client);
   }
 
   send(client: HubClient, frame: ServerFrame): void {
@@ -101,25 +101,53 @@ export class Hub {
     for (const client of this.clients) client.socket.close(code, reason);
   }
 
-  private dispatch(redisChannel: string, payload: string): void {
-    const channelId = redisChannel.slice(MESSAGE_CHANNEL_PREFIX.length);
-    const room = this.rooms.get(channelId);
-    if (!room) return;
-
-    let envelope: MessageEnvelope;
-    try {
-      envelope = MessageEnvelope.parse(JSON.parse(payload));
-    } catch (err) {
-      this.log.warn({ err, channelId }, 'dropping malformed envelope');
-      return;
+  private enter(topic: string, client: HubClient): Promise<unknown> {
+    let room = this.rooms.get(topic);
+    if (!room) {
+      room = { clients: new Set(), ready: this.subscriber.subscribe(topic) };
+      this.rooms.set(topic, room);
     }
-    // The nonce lets the sender's other frames reconcile with its optimistic copy.
-    const frame: ServerFrame = {
-      type: 'message.created',
-      message: envelope.message,
-      ...(envelope.nonce && { nonce: envelope.nonce }),
-    };
-    for (const client of room.clients) this.send(client, frame);
+    room.clients.add(client);
+    return room.ready;
+  }
+
+  private exit(topic: string, client: HubClient): void {
+    const room = this.rooms.get(topic);
+    if (!room) return;
+    room.clients.delete(client);
+    if (room.clients.size === 0) {
+      this.rooms.delete(topic);
+      this.subscriber.unsubscribe(topic).catch((err: unknown) => {
+        this.log.warn({ err, topic }, 'redis unsubscribe failed');
+      });
+    }
+  }
+
+  private dispatch(topic: string, payload: string): void {
+    try {
+      if (topic === PRESENCE_TOPIC) {
+        const frame = PresenceEvent.parse(JSON.parse(payload));
+        for (const client of this.clients) this.send(client, frame);
+        return;
+      }
+      const room = this.rooms.get(topic);
+      if (!room) return;
+      const json: unknown = JSON.parse(payload);
+
+      if (topic.startsWith(CHANNEL_TOPIC_PREFIX)) {
+        const frame = ChannelEvent.parse(json);
+        for (const client of room.clients) this.send(client, frame);
+      } else if (topic.startsWith(USER_TOPIC_PREFIX)) {
+        const frame = UserEvent.parse(json);
+        for (const client of [...room.clients]) {
+          // Losing membership ends the live subscription too, not just future subscribes.
+          if (frame.type === 'channel.removed') this.leave(client, frame.channelId);
+          this.send(client, frame);
+        }
+      }
+    } catch (err) {
+      this.log.warn({ err, topic }, 'dropping malformed event');
+    }
   }
 
   private sweep(): void {
