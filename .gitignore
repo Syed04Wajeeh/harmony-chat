@@ -2,6 +2,9 @@ node_modules
 dist
 .env
 coverage
-uploads/
+/uploads/
+.e2e-uploads/
+test-results/
+playwright-report/
 *.log
 *.tsbuildinfo
