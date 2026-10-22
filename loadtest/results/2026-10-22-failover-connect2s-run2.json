@@ -1,0 +1,318 @@
+{
+  "scenario": "failover",
+  "date": "2026-10-22T00:50:03.727Z",
+  "params": {
+    "clients": 20,
+    "senders": 4,
+    "targetRatePerSec": 100,
+    "durationSec": 40,
+    "killAtSec": 10,
+    "restartAtSec": 25
+  },
+  "receiversPerInstanceAtStart": {
+    "app-2": 10,
+    "app-1": 10
+  },
+  "killedAtOffsetMs": 10000,
+  "killCommandMs": 166,
+  "restart": {
+    "startedOffsetMs": 25000,
+    "healthyAfterMs": 5388
+  },
+  "nginxRoutesToApp1AgainAfterHealthyMs": 3358,
+  "probeInstanceCounts": {
+    "app-2": 34,
+    "app-1": 50
+  },
+  "sent": {
+    "attempted": 3967,
+    "ok201": 3965,
+    "failed": [
+      {
+        "seq": 990,
+        "atOffsetMs": 10036,
+        "status": 502,
+        "ms": 11
+      },
+      {
+        "seq": 989,
+        "atOffsetMs": 10030,
+        "status": 502,
+        "ms": 18
+      }
+    ]
+  },
+  "persistedInDb": 3965,
+  "clientsAffected": 10,
+  "reconnectCount": 10,
+  "msFromKillToCloseEvent": {
+    "count": 10,
+    "min": 49,
+    "p50": 49,
+    "p90": 50,
+    "p95": 50,
+    "p99": 50,
+    "max": 50,
+    "mean": 49.4
+  },
+  "reconnectMs_closeToHello": {
+    "count": 10,
+    "min": 270,
+    "p50": 339,
+    "p90": 468,
+    "p95": 469,
+    "p99": 469,
+    "max": 469,
+    "mean": 372.1
+  },
+  "reconnectMs_closeToResubscribed": {
+    "count": 10,
+    "min": 291,
+    "p50": 347,
+    "p90": 475,
+    "p95": 476,
+    "p99": 476,
+    "max": 476,
+    "mean": 381.3
+  },
+  "failedConnectAttempts": 0,
+  "backfilledMessages": {
+    "count": 10,
+    "min": 28,
+    "p50": 35,
+    "p90": 47,
+    "p95": 47,
+    "p99": 47,
+    "max": 47,
+    "mean": 38
+  },
+  "reconnectedTo": {
+    "app-2": 10
+  },
+  "totalMissingAcrossClients": 0,
+  "clientsWithMissing": 0,
+  "clientsWithForeign": 0,
+  "perClient": [
+    {
+      "login": "load-fo156882-4",
+      "startedOn": "app-2",
+      "reconnects": 0,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-5",
+      "startedOn": "app-1",
+      "reconnects": 1,
+      "received": 3965,
+      "rawFrames": 3966,
+      "duplicatesBeforeDedupe": 1,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-6",
+      "startedOn": "app-1",
+      "reconnects": 1,
+      "received": 3965,
+      "rawFrames": 3966,
+      "duplicatesBeforeDedupe": 1,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-7",
+      "startedOn": "app-2",
+      "reconnects": 0,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-8",
+      "startedOn": "app-1",
+      "reconnects": 1,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-9",
+      "startedOn": "app-1",
+      "reconnects": 1,
+      "received": 3965,
+      "rawFrames": 3966,
+      "duplicatesBeforeDedupe": 1,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-10",
+      "startedOn": "app-2",
+      "reconnects": 0,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-11",
+      "startedOn": "app-2",
+      "reconnects": 0,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-12",
+      "startedOn": "app-2",
+      "reconnects": 0,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-13",
+      "startedOn": "app-2",
+      "reconnects": 0,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-14",
+      "startedOn": "app-1",
+      "reconnects": 1,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-15",
+      "startedOn": "app-1",
+      "reconnects": 1,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-16",
+      "startedOn": "app-2",
+      "reconnects": 0,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-17",
+      "startedOn": "app-1",
+      "reconnects": 1,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-18",
+      "startedOn": "app-1",
+      "reconnects": 1,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-19",
+      "startedOn": "app-1",
+      "reconnects": 1,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-20",
+      "startedOn": "app-2",
+      "reconnects": 0,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-21",
+      "startedOn": "app-1",
+      "reconnects": 1,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-22",
+      "startedOn": "app-2",
+      "reconnects": 0,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    },
+    {
+      "login": "load-fo156882-23",
+      "startedOn": "app-2",
+      "reconnects": 0,
+      "received": 3965,
+      "rawFrames": 3965,
+      "duplicatesBeforeDedupe": 0,
+      "missing": 0,
+      "foreign": 0,
+      "missingIds": []
+    }
+  ],
+  "pass": true
+}

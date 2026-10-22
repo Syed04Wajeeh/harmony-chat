@@ -2,6 +2,7 @@ packages:
   - apps/*
   - packages/*
   - examples/*
+  - loadtest
 
 allowBuilds:
   esbuild: true

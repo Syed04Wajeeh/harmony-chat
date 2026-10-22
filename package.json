@@ -16,7 +16,11 @@
     "test": "pnpm test:unit && pnpm test:integration",
     "test:unit": "pnpm build:shared && pnpm --filter @harmony/server --filter @harmony/web test:unit",
     "test:integration": "pnpm build:shared && pnpm --filter @harmony/server test:integration",
-    "format": "prettier --write .",
+    "load:up": "bash loadtest/scripts/load.sh up",
+    "load:down": "bash loadtest/scripts/load.sh down",
+    "load:test": "node loadtest/scripts/cross-instance.ts && bash loadtest/scripts/sweep.sh run two 100 500 1000",
+    "load:failover": "node loadtest/scripts/failover.ts && node loadtest/scripts/recreate.ts",
+    "format":"prettier --write .",
     "test:e2e": "pnpm --filter @harmony/web test:e2e",
     "screenshots": "E2E_SCREENSHOTS=1 pnpm --filter @harmony/web test:e2e"
   },
