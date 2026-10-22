@@ -15,6 +15,11 @@ export class DevApi {
     readonly login: string,
   ) {}
 
+  /** Any endpoint, for the ones the helpers below do not cover. */
+  request<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+    return this.call<T>(method, path, body);
+  }
+
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
     const response = await fetch(this.baseUrl + path, {
       method,
@@ -30,6 +35,37 @@ export class DevApi {
         `${method} ${path} failed: ${String(response.status)} ${await response.text()}`,
       );
     return (response.status === 204 ? undefined : await response.json()) as T;
+  }
+
+  createRole(
+    guildId: string,
+    body: { name: string; color?: number; hoist?: boolean; permissions?: string[] },
+  ) {
+    return this.call<{ id: string }>('POST', `/api/guilds/${guildId}/roles`, body);
+  }
+  assignRole(guildId: string, userId: string, roleId: string) {
+    return this.call('PUT', `/api/guilds/${guildId}/members/${userId}/roles/${roleId}`);
+  }
+  setNickname(guildId: string, userId: string, nickname: string | null) {
+    return this.call('PATCH', `/api/guilds/${guildId}/members/${userId}`, { nickname });
+  }
+  roles(guildId: string) {
+    return this.call<{ roles: { id: string; isDefault: boolean }[] }>(
+      'GET',
+      `/api/guilds/${guildId}/roles`,
+    ).then((r) => r.roles);
+  }
+  putOverwrite(
+    channelId: string,
+    targetType: 'role' | 'member',
+    targetId: string,
+    body: { allow?: string[]; deny?: string[] },
+  ) {
+    return this.call(
+      'PUT',
+      `/api/channels/${channelId}/overwrites/${targetType}/${targetId}`,
+      body,
+    );
   }
 
   me() {

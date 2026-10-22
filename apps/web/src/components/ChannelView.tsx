@@ -25,6 +25,7 @@ import { useUi } from '../store/ui.js';
 import { Lightbox } from './Attachments.js';
 import { ChannelHeader } from './ChannelHeader.js';
 import { MessageContext, type MessageHandlers } from './chat-context.js';
+import { useGuildAccess } from '../hooks/usePermission.js';
 import { Composer } from './Composer.js';
 import { ChannelPanels } from '../modules/slots.js';
 import { MessageList, type PendingMessage } from './MessageList.js';
@@ -37,6 +38,8 @@ const NO_INTERACTIONS: readonly LocalInteraction[] = [];
 
 export function ChannelView({ channelId }: { channelId: string }) {
   const channel = useApp((state) => state.channels[channelId]);
+  const access = useGuildAccess(channel?.guildId ?? '', channel?.guildId ? channelId : undefined);
+  const readOnly = channel?.guildId != null && access.loaded && !access.has('send_messages');
   const history = useApp((state) => state.history[channelId]);
   const outbox = useApp((state) => state.outbox[channelId]);
   const interactions = useApp((state) => state.interactions[channelId]) ?? NO_INTERACTIONS;
@@ -262,19 +265,25 @@ export function ChannelView({ channelId }: { channelId: string }) {
           <ChannelPanels channelId={channelId} label={label} />
         </div>
         <TypingIndicator channelId={channelId} />
-        <Composer
-          key={channelId}
-          channelId={channelId}
-          guildId={channel.guildId}
-          placeholder={isDm ? `Message ${label}` : `Message ${label}`}
-          replyTo={replyTo}
-          replyToName={replyTo ? (nameOf(replyTo.author.id) ?? replyTo.author.displayName) : null}
-          onCancelReply={() => setReplyTo(null)}
-          onEditLast={editLast}
-          uploads={uploads}
-          candidates={candidates}
-          me={me}
-        />
+        {readOnly ? (
+          <p className="composer-locked" role="status">
+            You do not have permission to send messages in this channel.
+          </p>
+        ) : (
+          <Composer
+            key={channelId}
+            channelId={channelId}
+            guildId={channel.guildId}
+            placeholder={isDm ? `Message ${label}` : `Message ${label}`}
+            replyTo={replyTo}
+            replyToName={replyTo ? (nameOf(replyTo.author.id) ?? replyTo.author.displayName) : null}
+            onCancelReply={() => setReplyTo(null)}
+            onEditLast={editLast}
+            uploads={uploads}
+            candidates={candidates}
+            me={me}
+          />
+        )}
         {dragging && <div className="drop-overlay">Drop files to upload</div>}
       </section>
       <MessageSheet message={sheet} onClose={() => setSheet(null)} />

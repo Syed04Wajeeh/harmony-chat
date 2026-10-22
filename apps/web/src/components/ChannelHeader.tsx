@@ -5,7 +5,9 @@ import { useApp } from '../store/store.js';
 import { useUi } from '../store/ui.js';
 import { Avatar } from './Avatar.js';
 import { AddMembersDialog } from './dialogs/AddMembersDialog.js';
-import { HashIcon, LockIcon, MenuIcon, UsersIcon } from './Icons.js';
+import { HashIcon, LockIcon, MenuIcon, SettingsIcon, UsersIcon } from './Icons.js';
+import { ChannelSettingsDialog } from './dialogs/ChannelSettingsDialog.js';
+import { useGuildAccess } from '../hooks/usePermission.js';
 import { ChannelHeaderSlots } from '../modules/slots.js';
 import { usePresenceOf } from './ProfilePopover.js';
 
@@ -21,6 +23,12 @@ export function ChannelHeader({ channel }: Props) {
   const setMembersOpen = useUi((state) => state.setMembersOpen);
   const channels = useApp((state) => state.channels);
   const [adding, setAdding] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const guildId = channel.guildId ?? '';
+  const access = useGuildAccess(guildId, channel.guildId ? channel.id : undefined);
+  const me = useApp((state) => state.me?.id);
+  const canEdit = access.has('manage_channels') || channel.createdBy === me;
+  const canPermissions = access.has('manage_roles');
   const dmStatus = usePresenceOf(channel.dmUser?.id ?? '');
 
   const isDm = channel.kind === 'dm';
@@ -87,6 +95,26 @@ export function ChannelHeader({ channel }: Props) {
               open={adding}
               onOpenChange={setAdding}
             />
+          </>
+        )}
+        {!isDm && (canEdit || canPermissions) && (
+          <>
+            <button
+              className="icon-button"
+              aria-label="Channel settings"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <SettingsIcon />
+            </button>
+            {settingsOpen && (
+              <ChannelSettingsDialog
+                channel={channel}
+                open={settingsOpen}
+                onOpenChange={setSettingsOpen}
+                canEdit={canEdit}
+                canPermissions={canPermissions}
+              />
+            )}
           </>
         )}
         <ChannelHeaderSlots channelId={channel.id} />

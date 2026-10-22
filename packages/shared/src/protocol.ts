@@ -18,6 +18,7 @@ import {
   Nonce,
   UserStatus,
 } from './chat.js';
+import { ChannelOverwrite, Role } from './permissions.js';
 
 export const MAX_FRAME_BYTES = 16 * 1024;
 export const BACKFILL_LIMIT = 200;
@@ -69,6 +70,21 @@ const userEvents = [
   z.object({ type: z.literal('guild.removed'), guildId: Id }),
   z.object({ type: z.literal('guild.member_joined'), guildId: Id, user: DirectoryUser }),
   z.object({ type: z.literal('guild.member_left'), guildId: Id, userId: Id }),
+  z.object({ type: z.literal('guild.role_created'), guildId: Id, role: Role }),
+  z.object({ type: z.literal('guild.role_updated'), guildId: Id, role: Role }),
+  z.object({ type: z.literal('guild.role_deleted'), guildId: Id, roleId: Id }),
+  z.object({
+    type: z.literal('guild.member_updated'),
+    guildId: Id,
+    userId: Id,
+    roleIds: z.array(Id),
+    nickname: z.string().nullable(),
+  }),
+  z.object({
+    type: z.literal('channel.overwrites_updated'),
+    channelId: Id,
+    overwrites: z.array(ChannelOverwrite),
+  }),
   z.object({
     type: z.literal('guild.modules_updated'),
     guildId: Id,

@@ -35,6 +35,7 @@ import type { Database } from './db/schema.js';
 import { AppError } from './errors.js';
 import { messageRoutes } from './messages/routes.js';
 import { MessageService } from './messages/service.js';
+import { PERMISSIONS_INVALIDATE_TOPIC, PermissionService } from './permissions/service.js';
 import { PresenceService } from './presence/service.js';
 import { RateLimiter } from './rate-limit.js';
 import { EventBus } from './realtime/events.js';
@@ -42,6 +43,8 @@ import { Hub } from './realtime/hub.js';
 import { realtimeRoutes } from './realtime/routes.js';
 import { TypingService } from './realtime/typing.js';
 import { LocalDiskStorage, type Storage } from './uploads/storage.js';
+import { roleRoutes } from './roles/routes.js';
+import { RoleService } from './roles/service.js';
 import { userRoutes } from './users/routes.js';
 import { MessageDecorators } from './messages/decorators.js';
 import { DomainEvents } from './modules/domain-events.js';
@@ -138,7 +141,19 @@ export async function buildApp({
   const decorators = new MessageDecorators();
   const limiter = (name: string, max: number, windowSeconds: number) =>
     new RateLimiter(redis, name, max, windowSeconds);
-  const channels = new ChannelService(db, events, domain);
+  const active = activeModules(modules, config.MODULES_DISABLED);
+  const moduleState = new GuildModuleState(db, redis, active);
+  hub
+    .listen(MODULES_INVALIDATE_TOPIC, (guildId) => moduleState.invalidate(guildId))
+    .catch((err: unknown) => app.log.warn({ err }, 'module state invalidation subscribe failed'));
+  const perms = new PermissionService(db, redis, moduleState.permissions);
+  hub
+    .listen(PERMISSIONS_INVALIDATE_TOPIC, (guildId) => perms.invalidate(guildId))
+    .catch((err: unknown) => app.log.warn({ err }, 'permission invalidation subscribe failed'));
+  // Joining and leaving change who is in the guild, which the permission cache also holds.
+  domain.on('member.joined', ({ guildId }) => perms.changed(guildId));
+  domain.on('member.left', ({ guildId }) => perms.changed(guildId));
+  const channels = new ChannelService(db, events, domain, perms);
   const messages = new MessageService(
     db,
     events,
@@ -146,6 +161,7 @@ export async function buildApp({
     limiter('messages', config.MESSAGE_RATE_MAX, config.MESSAGE_RATE_WINDOW_SECONDS),
     domain,
     decorators,
+    perms,
   );
   const users = new UserStore(db, undefined, domain);
   const presence = new PresenceService(
@@ -156,23 +172,18 @@ export async function buildApp({
     app.log,
   );
   const files = storage ?? new LocalDiskStorage(config.UPLOAD_DIR);
-  const guilds = new GuildService(db, events, channels, presence, files, domain);
-  const typing = new TypingService(redis, events, channels);
+  const guilds = new GuildService(db, events, channels, presence, files, domain, perms);
+  const roles = new RoleService(db, events, perms, channels, guilds);
+  const typing = new TypingService(redis, events, channels, perms);
   const allowlist = parseAllowlist(config.OUTBOUND_PRIVATE_ALLOWLIST);
   const bots = new BotService(
     db,
     events,
-    guilds,
     new OutboundValidator(allowlist),
     config.MAX_BOTS_PER_USER,
     domain,
+    perms,
   );
-
-  const active = activeModules(modules, config.MODULES_DISABLED);
-  const moduleState = new GuildModuleState(db, redis, active);
-  hub
-    .listen(MODULES_INVALIDATE_TOPIC, (guildId) => moduleState.invalidate(guildId))
-    .catch((err: unknown) => app.log.warn({ err }, 'module state invalidation subscribe failed'));
   const host = new ModuleHost({
     modules: active,
     env,
@@ -187,6 +198,7 @@ export async function buildApp({
     state: moduleState,
     messages,
     channels,
+    perms,
   });
 
   const commandRegistry = new CommandRegistry(db, host.commands, moduleState);
@@ -200,13 +212,14 @@ export async function buildApp({
     app.log,
     host.commands,
     moduleState,
+    perms,
   );
   const webhooks = new WebhookService(
     db,
     channels,
-    guilds,
     messages,
     limiter('webhooks', config.WEBHOOK_RATE_MAX, config.WEBHOOK_RATE_WINDOW_SECONDS),
+    perms,
   );
   app.addHook('onReady', async () => {
     presence.start();
@@ -243,12 +256,13 @@ export async function buildApp({
       });
       await api.register(userRoutes, { users, presence });
       await api.register(guildRoutes, { guilds, channels });
+      await api.register(roleRoutes, { roles, guilds, perms });
       await api.register(channelRoutes, { channels });
       await api.register(messageRoutes, { channels, messages });
       await api.register(botRoutes, { bots });
       await api.register(commandRoutes, { registry: commandRegistry, interactions });
       await api.register(webhookRoutes, { webhooks });
-      await api.register(moduleRoutes, { state: moduleState, guilds, events });
+      await api.register(moduleRoutes, { state: moduleState, guilds, events, perms });
       await api.register(realtimeRoutes, {
         hub,
         channels,

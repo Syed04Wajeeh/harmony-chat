@@ -89,8 +89,8 @@ export function SettingsLayout({ title, subtitle, base, items }: LayoutProps) {
 
 interface PageProps {
   title: string;
-  /** Where the phone's back arrow goes. */
-  back: string;
+  /** Where the phone's back arrow goes: a route, or a handler for a page with its own sub-view. */
+  back: string | (() => void);
   children: ReactNode;
 }
 
@@ -102,11 +102,16 @@ export function SettingsPage({ title, back, children }: PageProps) {
   return (
     <div className="settings-page">
       <header className="settings-page-header">
-        {!desktop && (
-          <Link to={back} className="icon-button" aria-label="Back">
-            <ArrowLeftIcon />
-          </Link>
-        )}
+        {!desktop &&
+          (typeof back === 'string' ? (
+            <Link to={back} className="icon-button" aria-label="Back">
+              <ArrowLeftIcon />
+            </Link>
+          ) : (
+            <button className="icon-button" aria-label="Back" onClick={back}>
+              <ArrowLeftIcon />
+            </button>
+          ))}
         <h1 ref={heading} tabIndex={-1}>
           {title}
         </h1>

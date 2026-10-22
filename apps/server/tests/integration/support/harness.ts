@@ -322,6 +322,19 @@ export async function createChannel(
 
 export async function addMember(db: Kysely<Database>, channelId: string, login: string) {
   const userId = await ensureUser(db, login);
+  // Being in a channel means being in its guild; permissions are resolved per guild.
+  await db
+    .insertInto('guild_members')
+    .columns(['guild_id', 'user_id'])
+    .expression((eb) =>
+      eb
+        .selectFrom('channels')
+        .select(['channels.guild_id', eb.val(userId).as('user_id')])
+        .where('channels.id', '=', channelId)
+        .where('channels.guild_id', 'is not', null),
+    )
+    .onConflict((oc) => oc.doNothing())
+    .execute();
   await db
     .insertInto('channel_members')
     .values({ channel_id: channelId, user_id: userId, last_read_message_id: null })

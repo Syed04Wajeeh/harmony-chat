@@ -204,8 +204,33 @@ export interface ModuleContext<TConfig = unknown, TSettings = unknown> {
   outbox: { enqueue(trx: Transaction<Database>, event: OutboxEvent): Promise<void> };
   limiter(name: string, max: number, windowSeconds: number): RateLimiter;
 
-  /** Declares a permission key for the role system; nothing enforces it yet. */
-  permissions: { define(key: string, description: string): void };
+  permissions: {
+    /** Declares `<moduleId>.<key>` for roles to grant. Enforce it with `has` or `require`. */
+    define(key: string, description: string): void;
+    /**
+     * `key` is a core permission (`manage_messages`) or one this module defined (`create`).
+     * Answers from the in-process permission cache. DMs (a null guild) have no roles: allowed.
+     */
+    has(
+      user: Pick<DirectoryUser, 'id' | 'isAdmin'>,
+      guildId: string | null,
+      key: string,
+      channelId?: string,
+    ): Promise<boolean>;
+    /** Like `require`, for a channel id when the guild is not at hand (the lookup is cached). */
+    requireInChannel(
+      user: Pick<DirectoryUser, 'id' | 'isAdmin'>,
+      channelId: string,
+      key: string,
+    ): Promise<void>;
+    /** Like `has`, but throws 403 `missing_permission`. */
+    require(
+      user: Pick<DirectoryUser, 'id' | 'isAdmin'>,
+      guildId: string | null,
+      key: string,
+      channelId?: string,
+    ): Promise<void>;
+  };
 
   onReady(fn: () => void | Promise<void>): void;
   onClose(fn: () => void | Promise<void>): void;

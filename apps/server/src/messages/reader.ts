@@ -7,6 +7,7 @@ import {
   type Reaction,
 } from '@harmony/shared';
 import type { Database } from '../db/schema.js';
+import type { AuthorRef } from '../permissions/service.js';
 import { MessageDecorators } from './decorators.js';
 
 export interface MessageRow {
@@ -47,9 +48,15 @@ export const attachmentUrl = (id: string, filename: string): string =>
  * Reads messages in their API shape. Every list goes through `hydrate`, which loads reactions,
  * attachments and mentions for the whole page with one query each, never per message.
  */
+/** Resolves guild nicknames for message authors; see PermissionService. */
+export type NicknameSource = (
+  authors: readonly AuthorRef[],
+) => (string | null)[] | Promise<(string | null)[]>;
+
 export class MessageReader {
   constructor(
     private readonly db: Kysely<Database>,
+    private readonly nicknames: NicknameSource,
     private readonly decorators: MessageDecorators = new MessageDecorators(),
   ) {}
 
@@ -141,13 +148,14 @@ export class MessageReader {
     } = {},
   ): Promise<Message[]> {
     const visible = rows.filter((row) => !row.deleted_at).map((row) => row.id);
-    const [reactions, attachments, mentions, modules] = await Promise.all([
+    const [reactions, attachments, mentions, modules, authorNicknames] = await Promise.all([
       known.reactions ?? this.reactions(visible),
       known.attachments ?? this.attachments(visible),
       known.mentions ?? this.mentions(visible),
       this.decorate(rows),
+      this.nicknames(rows.map((row) => ({ channelId: row.channel_id, userId: row.author_id }))),
     ]);
-    return rows.map((row) => {
+    return rows.map((row, index) => {
       const deleted = row.deleted_at !== null;
       return {
         id: row.id,
@@ -159,6 +167,7 @@ export class MessageReader {
           avatarUrl: row.author_avatar,
           ...(row.author_kind === 'bot' && { isBot: true }),
         },
+        ...(authorNicknames[index] && { authorNickname: authorNicknames[index] }),
         content: deleted ? '' : row.content,
         createdAt: row.created_at.toISOString(),
         editedAt: row.edited_at?.toISOString() ?? null,

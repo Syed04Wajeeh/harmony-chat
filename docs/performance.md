@@ -256,6 +256,106 @@ of the same code. It is one run, on a shared host, so read a 10 ms difference as
 finding. Raw: `loadtest/results/2026-10-22-fanout-modules-two-900.k6.json`. The stack and its volumes were
 removed afterwards.
 
+## Phase 5b regression investigation
+
+**Symptom.** The first fan-out run after roles and permissions (Phase 5b) at a 900 msg/s target
+achieved 749.5 msg/s with p50 1,344 ms and p95 1,415 ms (`2026-10-22-fanout-perms-two-900.k6.json`).
+Before 5b the same scenario gave 899 msg/s and p95 9 to 10 ms. It was unknown whether that was real
+or an artifact of how the world had been seeded.
+
+**Same-day baseline.** Two images were built the same day: `main` (checked out in a temporary git
+worktree, used only to build) and the 5b branch. Each run used a freshly created `harmony-load`
+stack (same compose file, caps and scripts as above; two app instances, one worker), a world made
+with `loadtest/scripts/setup.ts` through the REST API (20 guilds, 11 users each; not raw SQL),
+200 receivers, 5 s warm-up, 30 s at 900/s, 8 s drain. Host load average at the start was 1.8 to
+4.4 (guard: below 6) and at least 9 GB were available. Runs alternated between images.
+
+| Run                      | Image            | Achieved msg/s | Delivered/s | Errors | Missing | p50 ms | p95 ms | p99 ms | Max ms | Postgres CPU p75 (cap 200 %) |
+| ------------------------ | ---------------- | -------------- | ----------- | ------ | ------- | ------ | ------ | ------ | ------ | ---------------------------- |
+| perms (earlier, one run) | 5b               | 749.5          | 7,495       | 0      | 0       | 1,344  | 1,415  | 1,447  | 1,478  | not kept                     |
+| main r1                  | main             | 897.9          | 8,979       | 0      | 0       | 4      | 12     | 63     | 225    | 171                          |
+| 5b r1                    | 5b, before fix   | 815.6          | 8,156       | 0      | 0       | 993    | 1,293  | 1,319  | 1,358  | 206                          |
+| main r2                  | main             | 898.5          | 8,985       | 0      | 0       | 4      | 10     | 77     | 185    | 168                          |
+| 5b r2                    | 5b, before fix   | 766.7          | 7,667       | 0      | 0       | 1,290  | 1,377  | 1,397  | 1,475  | 207                          |
+| main r3                  | main             | 897.7          | 8,977       | 0      | 0       | 4      | 11     | 73     | 192    | 166                          |
+| main r4                  | main             | 897.6          | 8,976       | 0      | 0       | 4      | 12     | 83     | 253    | 167                          |
+| fix r1                   | 5b, with the fix | 897.9          | 8,979       | 0      | 0       | 4      | 11     | 77     | 280    | 170                          |
+| main r5                  | main             | 897.8          | 8,978       | 0      | 0       | 4      | 10     | 61     | 235    | 166                          |
+| fix r2                   | 5b, with the fix | 897.2          | 8,972       | 0      | 0       | 4      | 12     | 96     | 323    | 171                          |
+| main r6                  | main             | 897.8          | 8,978       | 0      | 0       | 4      | 13     | 90     | 262    | 170                          |
+| fix r3                   | 5b, with the fix | 898.1          | 8,981       | 0      | 0       | 4      | 11     | 74     | 248    | 170                          |
+
+Raw files: `loadtest/results/2026-10-22-fanout-reg-<image>-r<n>-two-900.k6.json` and `.stats.csv`
+(`<image>` is `main`, `5b` or `fix`). Main r3 and r4 ran between two attempts at the fix, which is
+why their numbers are listed before the final fix runs. The first attempt at main r2 and 5b r2 produced no result files (the output was discarded, most likely
+the host guard refusing a busy host) and both were repeated a few minutes later.
+
+**The regression was real.** All ten 5b runs (the earlier one, r1, r2, and seven under the profiling
+overlay: 741 to 796 msg/s) fell short of 900 msg/s with p50 near or above one second; all ten main
+runs (the six above and four under the overlay) were at 897.6 to 898.5 msg/s with p95 10 to 13 ms
+in the tabulated six. It was not the seed: the world here was built
+through the API, as for main. Delivery stayed correct (0 missing, 0 errors); the loss is purely
+capacity. The apps were not the limit (a V8 CPU profile of a 5b app instance under load was 68.8 %
+idle, 4.1 % Kysely, 7.1 % socket `writev`), but Postgres was pinned at its 2-CPU cap (p75 206 to 207 %
+against 166 to 171 % for main at a higher send rate).
+
+**Cause, with evidence.**
+
+1. `pg_stat_statements` (execution time only) for one 900/s run each, 5b against main: the same six
+   statements per send, no extra ones (the permission cache was loaded 40 times for 20 guilds on
+   two instances, i.e. never reloaded during the run), but every statement was slower on 5b: the
+   `messages` insert 0.271 against 0.140 ms, the message re-read 0.182 against 0.049 ms, the
+   outbox insert 0.074 against 0.030 ms. Because 5b was saturated, part of that is queueing for
+   the CPU cap, so it only says that the database was doing more work per message, not where.
+2. The only changed statement on the send path is the message re-read: 5b joined `channels` and
+   `guild_members` into it to return the author's nickname. `EXPLAIN ANALYZE` shows a good plan
+   (primary-key lookups, 0.29 ms execution), so the cost had to be elsewhere.
+3. With `pg_stat_statements.track_planning` on, the same 5b run showed that statement at 1.361 ms
+   mean planning time plus 0.308 ms execution, 37.2 s of the 55.2 s of tracked time in the run. The
+   driver sends the query unprepared, so Postgres plans it on every send. Measured warm in one
+   session (planning time of `EXPLAIN`, same message id, repeated): 0.35 ms with the two extra
+   joins, 0.14 ms for the query as it was on main, 0.17 ms with the nickname as a scalar subquery.
+   The first `EXPLAIN` in a new session costs about 3 ms because of cold catalog caches, so a single
+   measurement overstates this; the repeated numbers are the ones used here.
+4. Isolation test: an image identical to 5b except that the nickname column was a constant `null`
+   reached 897.2 and 894.5 msg/s with p50 4 and 5 ms (raw files not kept). So the nickname lookup,
+   and nothing else in 5b, was responsible. The 6-statement send test passed throughout, because the
+   regression was in the statements' cost, not their number.
+
+I did not add a temporary debug counter for permission cache loads; `pg_stat_statements` already
+counts every load (40 for the whole run).
+
+**What did not work.** Replacing the joins by a scalar subquery inside the same SQL statement
+improved it but did not close it: 874.9 and 875.6 msg/s (p50 369 and 391 ms) with a join inside the
+subquery, 887.4 and 889.9 msg/s (p50 222 and 135 ms, p95 341 and 271 ms) with the nested form.
+Postgres stayed at about 207 % in both. Those raw files were not kept.
+
+**Fix.** The message query is back to its main-branch shape (users and the reply parent only). The
+nickname comes from the in-process permission cache, which already holds every member of a guild
+for the permission checks: `PermissionService.nicknames` answers from it, and a nickname change calls
+`perms.changed` so the guild is dropped on every instance. Inside a transaction the reader uses
+`cachedNicknames`, which never waits (a miss gives no nickname rather than borrowing a second
+pooled connection while holding one), and the service calls `warm(channelId)` first. The first
+version of this fix did not do that and deadlocked the pool at load: 14 and 10 messages were
+accepted in 30 s, with the first requests of each guild all waiting for a second connection while
+holding the first. Security semantics are unchanged: nicknames are display data, and no permission
+check was touched. An integration test checks that a changed nickname is on the next message.
+
+**After.** Rows "fix r1" to "fix r3" above: 897.2 to 898.1 msg/s, p50 4 ms, p95 11 to 12 ms, p99
+74 to 96 ms, 0 errors, 0 missing deliveries, Postgres at 170 to 171 % (p75), all within the spread of
+the six main runs (897.6 to 898.5 msg/s, p95 10 to 13 ms, p99 61 to 90 ms, Postgres 166 to 171 %).
+
+**Conditions and limits.** Same host, same caps, one run per stack; k6 shares the machine; the
+host load average during runs ranged from 0.4 to 6.9 (the 5b r2 run saw 6.9 at its peak, which is
+above the guard's start-of-run limit but the effect it measured, over 1,000 ms latency, repeated in
+runs that started at 4 to 5). The nickname is read from a cache that is dropped within a Redis
+round trip of a change, so a message sent on another instance in that gap can carry the previous
+nickname. Every message list (history, search, pins) takes nicknames from the same cache; the search module
+joins `channels` itself again, as it did before 5b.
+Lesson: a change that looks free in `EXPLAIN ANALYZE` can still cost on a hot path through
+planning; `track_planning` belongs in the profiling overlay, and any new join in the message
+query needs a send-rate run.
+
 ## The bottleneck and the fix
 
 **Data.** Fan-out saturated at about 700 msg/s with one or two instances while the app processes

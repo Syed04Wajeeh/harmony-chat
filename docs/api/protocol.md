@@ -17,13 +17,15 @@ behavior and gives examples.
 - Errors are `{ "code": "...", "message": "..." }` with the HTTP status shown below. Common to
   all endpoints:
 
-| Status  | code              | Meaning                                                                                                                                             |
-| ------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400     | `invalid_request` | Body, query or params failed validation                                                                                                             |
-| 401/403 | auth codes        | `no_identity`, `proxy_required`, `not_allowed`, `bad_origin`; bots: `invalid_token`, `missing_scope`, `human_only`, `bot_not_allowed`               |
-| 403     | `forbidden`       | Authenticated but not allowed (usually: not a member)                                                                                               |
-| 404     | `*_not_found`     | Resource does not exist (`channel_not_found`, `message_not_found`, `guild_not_found`, `user_not_found`, `attachment_not_found`, `invite_not_found`) |
-| 429     | `rate_limited`    | Too many requests, sends, reactions or uploads                                                                                                      |
+| Status  | code                 | Meaning                                                                                                                                                               |
+| ------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400     | `invalid_request`    | Body, query or params failed validation                                                                                                                               |
+| 401/403 | auth codes           | `no_identity`, `proxy_required`, `not_allowed`, `bad_origin`; bots: `invalid_token`, `missing_scope`, `human_only`, `bot_not_allowed`                                 |
+| 403     | `forbidden`          | Authenticated but not allowed (usually: not a member)                                                                                                                 |
+| 403     | `missing_permission` | A member without the [permission](../permissions.md) the action needs; the message names it                                                                           |
+| 403     | `role_hierarchy`     | The target role or member ranks at or above you                                                                                                                       |
+| 404     | `*_not_found`        | Resource does not exist (`channel_not_found`, `message_not_found`, `guild_not_found`, `user_not_found`, `attachment_not_found`, `invite_not_found`, `role_not_found`) |
+| 429     | `rate_limited`       | Too many requests, sends, reactions or uploads                                                                                                                        |
 
 - A channel, message or guild you cannot access answers **403 `forbidden`**, not 404, when it
   exists. Unknown ids answer 404.
@@ -36,10 +38,14 @@ behavior and gives examples.
   only; it is never required to create guilds or channels.
 - **Channel**: `kind: "text"` belongs to exactly one guild (`guildId`); `kind: "dm"` has
   `guildId: null`, `name: null`, exactly two members and lives outside any guild.
-- **Visibility**: a public text channel is visible to every guild member (they all get a
-  membership row automatically, including when they join the guild later). A private channel
-  (`isPrivate: true`) is visible only to the members added to it. DMs are private to their two
-  users.
+- **Roles and permissions**: what a member may do is decided by their roles and by per-channel
+  overwrites; see [permissions.md](../permissions.md). `403 missing_permission` means "you are a
+  member but lack the key". The guild owner and instance admins hold every permission.
+- **Visibility**: whoever holds `view_channel` in a text channel is a member of it (they get a
+  membership row automatically, including when they join the guild later or are granted a role). A
+  private channel (`isPrivate: true`) is one where @everyone is denied `view_channel`; it is visible
+  to the members it is allowed for, **and always to the guild owner and instance admins**. DMs are
+  private to their two users.
 - **Unread counts** (`unreadCount`, `mentionCount`) never exceed 100; `100` means "100 or more".
   They count messages after `lastReadMessageId` that are not yours and not deleted.
 - **Default guild**: new users are added to the default guild ("Harmony") on their first request.
@@ -66,6 +72,18 @@ behavior and gives examples.
 { "id": "11", "guildId": "3", "kind": "text", "name": "general", "topic": "Hello",
   "isPrivate": false, "createdBy": "7", "dmUser": null }
 
+// Role (position 0 is always @everyone, isDefault true; higher outranks lower)
+{ "id": "21", "guildId": "3", "name": "Moderator", "color": 16711680, "position": 2,
+  "hoist": true, "mentionable": false, "permissions": ["manage_messages", "polls.create"], "isDefault": false }
+
+// ChannelOverwrite (targetType "role" | "member")
+{ "channelId": "11", "targetType": "role", "targetId": "20", "allow": [], "deny": ["view_channel"] }
+
+// GuildMember = DirectoryUser + status, joinedAt, roleIds (without @everyone), nickname, topRoleColor
+{ "id": "7", "login": "ada@example.com", "displayName": "Ada", "avatarUrl": null, "isAdmin": false,
+  "status": "online", "joinedAt": "2026-10-22T09:00:00.000Z", "roleIds": ["21"], "nickname": "Ada L.",
+  "topRoleColor": 16711680 }
+
 // ChannelSummary = Channel + your read state. For a DM, name is null and dmUser is the other person.
 { "id": "11", "guildId": "3", "kind": "text", "name": "general", "topic": "Hello",
   "isPrivate": false, "createdBy": "7", "dmUser": null,
@@ -75,6 +93,7 @@ behavior and gives examples.
 {
   "id": "981", "channelId": "11",
   "author": { "id": "7", "login": "ada@example.com", "displayName": "Ada", "avatarUrl": null },
+  "authorNickname": "Ada L.",
   "content": "hello <@8>",
   "createdAt": "2026-10-22T09:15:00.000Z",
   "editedAt": null,
@@ -92,6 +111,9 @@ behavior and gives examples.
 ```
 
 Message notes:
+
+- `authorNickname` is the author's nickname in the message's guild; it is absent for DMs, authors
+  without a nickname and people who left. It is the nickname at the time the message is served.
 
 - `modules` is present only on messages a module attached data to, keyed by module id (see
   [Modules](#modules)). Clients validate each entry themselves and ignore ids they do not know.
@@ -142,10 +164,10 @@ becomes owner and member, and a `general` channel is created. Errors: `400`.
 
 ### `PATCH /api/guilds/:id`
 
-Owner (or instance admin) only. Body: any of `{ "name": string, "iconAttachmentId": uuid | null }`
+Needs `manage_guild`. Body: any of `{ "name": string, "iconAttachmentId": uuid | null }`
 (at least one). The icon must be an image (png, jpeg, gif or webp) uploaded by you with
 `POST /api/uploads` and not yet attached to a message; `null` removes it. Response `200` Guild.
-Errors: `400 invalid_icon`, `403`, `404 guild_not_found`.
+Errors: `400 invalid_icon`, `403 missing_permission`, `404 guild_not_found`.
 
 ### `DELETE /api/guilds/:id`
 
@@ -159,20 +181,44 @@ Errors: `400 owner_cannot_leave` (the owner must delete the guild), `403` if not
 
 ### `GET /api/guilds/:id/channels`
 
-Members only. Response `200` `{ "channels": ChannelSummary[] }`: public channels plus private
-channels you belong to, archived channels excluded.
+Members only. Response `200` `{ "channels": ChannelSummary[] }`: the channels where you hold
+`view_channel` (public ones, private ones you may see, and all of them for the owner and instance
+admins), archived channels excluded.
 
 ### `POST /api/guilds/:id/channels`
 
-Any member. Body `{ "name": "dev-chat", "topic"?: string (<=256), "isPrivate"?: boolean }`;
+Needs `create_channels`. Body `{ "name": "dev-chat", "topic"?: string (<=256), "isPrivate"?: boolean }`;
 `name` matches `^[a-z0-9-]{1,32}$` and is unique within the guild. Response `201` ChannelSummary.
-A public channel appears for every guild member (`channel.joined`); a private one only for you.
-Errors: `400`, `403`, `409 name_taken`.
+A public channel appears for every member who holds `view_channel` (`channel.joined`); a private one
+is created with an @everyone deny and an allow for you, and appears for you, the owner and instance
+admins. Errors: `400`, `403 missing_permission`, `409 name_taken`.
 
 ### `GET /api/guilds/:id/members`
 
-Members only. Response `200`
-`{ "members": [ DirectoryUser & { "status": "online"|"idle"|"dnd"|"offline", "joinedAt": "..." } ] }`.
+Members only. Response `200` `{ "members": GuildMember[] }`. `roleIds` lists the roles the member
+holds (not @everyone), `nickname` is `null` when unset and `topRoleColor` is the color of their
+highest role that has one.
+
+### `POST /api/guilds/:id/transfer`
+
+Humans only; **the owner only** (an instance admin cannot). Body `{ "userId": "8" }`, a human member.
+Response `200` Guild with the new `ownerId`. The previous owner becomes an ordinary member, subject
+to roles. Errors: `400 invalid_request` (yourself, a bot), `403 forbidden`, `404 user_not_found`.
+Members receive `guild.updated`, and `channel.joined` / `channel.removed` where access changed.
+
+### `DELETE /api/guilds/:id/members/:userId`
+
+Humans only. Removes a member (a kick). Needs `kick_members` and a higher rank than the target
+(`403 role_hierarchy`). Response `204`. The removed user receives `channel.removed` for every
+channel of the guild and then `guild.removed`; the others receive `guild.member_left`. Errors:
+`400 invalid_request` (yourself), `403 missing_permission`, `404 user_not_found`.
+
+### `PATCH /api/guilds/:id/members/:userId`
+
+Humans only. Body `{ "nickname": "Ada L." | null }` (trimmed, 1-32 chars; `null` clears). Your own
+needs `change_nickname`; someone else's needs `manage_nicknames` and a higher rank than them.
+Response `204`; members receive `guild.member_updated`, and new messages carry the nickname as
+`authorNickname`. Errors: `403 missing_permission`, `403 role_hierarchy`, `404 user_not_found`.
 
 ### `POST /api/guilds/:id/invites`
 
@@ -213,6 +259,86 @@ changes and no use is consumed. The use count is checked and incremented atomica
 `maxUses` is never exceeded. After joining, fetch `GET /api/guilds/:id/channels`. Errors:
 `404 invite_not_found`, `410 invite_expired`.
 
+## Roles and permissions
+
+How roles combine, the key list and the hierarchy are in [permissions.md](../permissions.md). Role
+writes need `manage_roles` and a role strictly below your highest one (owners and instance admins are
+exempt), and cannot hand out permissions you do not hold. All of these are humans-only except the
+two reads.
+
+### `GET /api/guilds/:id/roles`
+
+Members (bots with `channels.read`). Response `200` `{ "roles": Role[] }`, highest position first,
+@everyone last.
+
+### `POST /api/guilds/:id/roles`
+
+Body `{ "name": string (1-100), "color"?: int 0..16777215 | null, "hoist"?: boolean,
+"mentionable"?: boolean, "permissions"?: string[] }`. Response `201` Role, created just above
+@everyone. Errors: `400 invalid_permission` (unknown key), `403 missing_permission`, `409 too_many_roles`
+(250 per server). Members receive `guild.role_created`.
+
+### `PATCH /api/guilds/:id/roles/:roleId`
+
+Body: any of the create fields (at least one). For @everyone only `permissions` may change
+(`400 default_role`). Changing `permissions` re-evaluates who can see which channels. Response `200`
+Role; members receive `guild.role_updated`. Errors: `403 role_hierarchy`, `404 role_not_found`.
+
+### `PATCH /api/guilds/:id/roles/order`
+
+Body `{ "roleIds": ["22", "21"] }`: every role except @everyone exactly once, highest first.
+Response `200` `{ "roles": Role[] }`. Errors: `400 invalid_order`, `403 role_hierarchy`. Members receive
+`guild.role_updated` for each role that moved.
+
+### `DELETE /api/guilds/:id/roles/:roleId`
+
+Response `204`. Holders lose it (and `guild.member_updated` is sent for each); members receive
+`guild.role_deleted`. Errors: `400 default_role`, `403 role_hierarchy`, `404 role_not_found`.
+
+### `PUT /api/guilds/:id/members/:userId/roles/:roleId` and `DELETE` (same path)
+
+Assigns or removes a role. Idempotent, response `204`. Members receive `guild.member_updated`; users
+whose channel access changed receive `channel.joined` / `channel.removed`. Errors: `400 default_role`,
+`403 role_hierarchy`, `404 role_not_found`, `404 user_not_found`.
+
+### `GET /api/guilds/:id/permissions/@me?channelId=<id>`
+
+Members (bots with `channels.read`). What you can do, server-wide or in one channel (overwrites
+applied). Response `200`:
+
+```json
+{
+  "permissions": ["view_channel", "send_messages", "..."],
+  "administrator": false,
+  "isOwner": false,
+  "topPosition": 2
+}
+```
+
+For owners, instance admins and `administrator` holders `permissions` is every key and
+`administrator` is `true`. `topPosition` is your highest role position, to hide controls the
+hierarchy would refuse.
+
+### `GET /api/channels/:id/overwrites`
+
+Humans only; needs `manage_roles`. Response `200` `{ "overwrites": ChannelOverwrite[] }`.
+
+### `PUT /api/channels/:id/overwrites/:targetType/:targetId`
+
+`targetType` is `role` or `member`. Body `{ "allow": string[], "deny": string[] }` (replaces the
+pair; both default to `[]`). Only keys marked "Channel" in the permissions table can be used. You can
+allow only what you hold in that channel, and set overwrites only for roles below you or members you
+outrank (yourself included). Setting a `view_channel` deny on @everyone makes the channel private
+(`isPrivate`). Response `200` `{ "overwrites": ChannelOverwrite[] }` (all of the channel's).
+Everyone in the channel receives `channel.overwrites_updated`; users who gain or lose access receive
+`channel.joined` / `channel.removed`. Errors: `400 invalid_overwrite` (a key in both lists),
+`400 invalid_permission`, `400 dm_immutable`, `403 missing_permission`, `403 role_hierarchy`,
+`404 role_not_found`, `404 user_not_found`.
+
+### `DELETE /api/channels/:id/overwrites/:targetType/:targetId`
+
+Removes one overwrite. Same response, events and errors.
+
 ## Channels
 
 ### `GET /api/channels`
@@ -234,10 +360,10 @@ the same pair always yields the same channel, whoever starts it. The other user 
 ### `PATCH /api/channels/:id`
 
 Body: any of `{ "name": string, "topic": string | null, "archived": boolean }` (at least one).
-Allowed for the channel's creator, the guild owner and instance admins who are members of the
-channel. Response `200` Channel. Members get `channel.updated`; archiving sends
+Allowed for the channel's creator and anyone with `manage_channels` in it (the owner and instance
+admins included) who is a member of the channel. Response `200` Channel. Members get `channel.updated`; archiving sends
 `channel.removed` (and unarchiving `channel.joined`) to every member. Errors: `400 dm_immutable`,
-`403`, `409 name_taken`.
+`403 missing_permission`, `409 name_taken`.
 
 ### `GET /api/channels/:id/members`
 
@@ -245,16 +371,19 @@ Members only. Response `200` `{ "members": DirectoryUser[] }`.
 
 ### `POST /api/channels/:id/members`
 
-Private text channels only. Any member can add a guild member. Body `{ "userId": "8" }`.
+Private text channels only. Any member of the channel can add a guild member; this writes a member
+overwrite allowing `view_channel`. Body `{ "userId": "8" }`.
 Response `204`; the added user receives `channel.joined`. Errors: `400 public_channel`,
 `400 dm_immutable`, `404 user_not_found` (not in this guild), `409 channel_archived`.
 
 ### `DELETE /api/channels/:id/members/:userId`
 
 Private text channels only. Removing yourself is leaving. Removing others requires being the
-channel creator, guild owner or instance admin (and a member). Response `204`; the removed user
-receives `channel.removed` and their live subscription ends. Errors: `400 public_channel`,
-`400 dm_immutable`, `403`.
+channel creator or `manage_channels` (and a member); this writes a member overwrite denying
+`view_channel`. Response `204`; the removed user receives `channel.removed` and their live
+subscription ends. The owner, instance admins and holders of `administrator` cannot be removed this way: nothing can
+deny them. Errors: `400 public_channel`, `400 dm_immutable`,
+`403 missing_permission`.
 
 ### `POST /api/channels/:id/leave`
 
@@ -283,7 +412,8 @@ id as `before`. Deleted messages are included as tombstones.
 
 ### `POST /api/channels/:id/messages`
 
-Members only. Body:
+Members who hold `send_messages` in the channel (and `attach_files` when `attachmentIds` is given).
+Body:
 
 ```json
 {
@@ -299,7 +429,7 @@ Members only. Body:
 be your own uploads that are not yet attached. Response `201` Message. The message is also
 broadcast as `message.created` (carrying `nonce`) to subscribers, including your own sockets.
 Errors: `400 invalid_reply` (not in this channel or deleted), `400 invalid_attachments`,
-`403`, `409 channel_archived`, `429`.
+`403` (`forbidden` or `missing_permission`), `409 channel_archived`, `429`.
 
 ### `PATCH /api/messages/:id`
 
@@ -309,12 +439,13 @@ Message; broadcast as `message.updated`. Newly mentioned users get a `mention`. 
 
 ### `DELETE /api/messages/:id`
 
-Author or instance admin. Soft delete. Response `204` (also if already deleted); broadcast as
+The author, or anyone with `manage_messages` in the channel. Soft delete. Response `204` (also if already deleted); broadcast as
 `message.deleted`.
 
 ### `PUT /api/messages/:id/reactions/:emoji` and `DELETE` (same path)
 
-Members only. `:emoji` is URL-encoded: a single Unicode emoji (`%F0%9F%91%8D`) or a custom
+Members; adding needs `add_reactions` in the channel, removing your own reaction needs nothing.
+`:emoji` is URL-encoded: a single Unicode emoji (`%F0%9F%91%8D`) or a custom
 shortcode `:name:` (`^:[a-z0-9_]{2,32}:$`, encoded as `%3Aname%3A`). Response `204`; both are
 idempotent. Broadcast as `reaction.added` / `reaction.removed` only when something changed.
 A message holds at most 20 distinct emoji. Errors: `400 invalid_emoji`, `400 reaction_limit`,
@@ -322,7 +453,8 @@ A message holds at most 20 distinct emoji. Errors: `400 invalid_emoji`, `400 rea
 
 ### `PUT /api/messages/:id/pin` and `DELETE /api/messages/:id/pin`
 
-Any member. Response `200` Message (with `pinnedAt`/`pinnedBy` set or cleared). Broadcast as
+Needs `manage_messages` or `pins.pin` in the channel (@everyone has `pins.pin` by default). Response
+`200` Message (with `pinnedAt`/`pinnedBy` set or cleared). Broadcast as
 `message.updated` when it changed.
 
 ### `GET /api/channels/:id/pins`
@@ -374,11 +506,12 @@ Members (bots with `channels.read`). `{modules: [GuildModule]}` for every module
 ```
 
 `settingsSchema` is a JSON Schema (or `null`) that a client can turn into a form. `permissions` are
-declared for a future role system and are not enforced.
+the keys the module defines; roles can hold them and the module enforces them (see
+[permissions.md](../permissions.md#module-permissions)).
 
 ### `PUT /api/guilds/:id/modules/:moduleId`
 
-Humans only; the guild owner or an instance admin. Body `{enabled?, settings?}` (at least one).
+Humans only; needs `manage_guild`. Body `{enabled?, settings?}` (at least one).
 `settings` is merged into the current settings and validated against the module's schema. Returns the
 updated `GuildModule`. Errors: `400 invalid_settings`, `404 module_not_found`, `409 module_required`
 (not optional), `409 dependency_disabled`, `409 module_in_use`.
@@ -433,7 +566,9 @@ creates a poll as the caller.
 
 ### `POST /api/uploads`
 
-`multipart/form-data` with exactly one file field (any field name). Limits: 10 MiB by default
+`multipart/form-data` with exactly one file field (any field name). Optional query `?channelId=<id>`:
+when given, you must hold `attach_files` there (`403 missing_permission`) so a refused upload fails
+before the bytes are stored; sending the message always checks it again. Limits: 10 MiB by default
 (`UPLOAD_MAX_BYTES`), per-user rate limit. The file type is detected from its content; the
 declared type and name are not trusted. Response `201` Attachment (`width`/`height` are set for
 png, jpeg, gif and webp, else `null`):
@@ -505,7 +640,8 @@ frames the server closes the socket with code 1008. Typing pings are further thr
 
 Failures arrive as `error` frames (below); `message.send` failures echo the `nonce`.
 Non-members get `{"type":"error","code":"forbidden",...}` for `subscribe`, `message.send`,
-`read` and `typing`.
+`read` and `typing`. `message.send` without `send_messages` answers `missing_permission` (with the
+nonce); a `typing` frame without it is dropped silently.
 
 ### Server to client
 
@@ -559,6 +695,11 @@ long disconnect if that matters.
 { "type": "guild.removed", "guildId": "3" }
 { "type": "guild.member_joined", "guildId": "3", "user": { "...DirectoryUser": "..." } }
 { "type": "guild.member_left", "guildId": "3", "userId": "8" }
+{ "type": "guild.role_created", "guildId": "3", "role": { "...Role": "..." } }
+{ "type": "guild.role_updated", "guildId": "3", "role": { "...Role": "..." } }
+{ "type": "guild.role_deleted", "guildId": "3", "roleId": "21" }
+{ "type": "guild.member_updated", "guildId": "3", "userId": "8", "roleIds": ["21"], "nickname": "Ada L." }
+{ "type": "channel.overwrites_updated", "channelId": "11", "overwrites": [ { "...ChannelOverwrite": "..." } ] }
 { "type": "guild.modules_updated", "guildId": "3", "moduleId": "polls", "enabled": false, "settings": { "allowMultipleChoice": true } }
 { "type": "interaction.ephemeral", "interactionId": "5", "channelId": "11", "command": "echo", "botId": "9", "content": "only you", "nonce": "abc" }
 { "type": "interaction.pending", "interactionId": "5", "channelId": "11", "command": "roll", "botId": "9", "expiresAt": "2026-10-22T09:30:00.000Z", "nonce": "abc" }
@@ -572,6 +713,13 @@ long disconnect if that matters.
 - On `guild.joined` fetch `GET /api/guilds/:id/channels` for the guild's channels.
 - `botId` in `interaction.*` frames is `null` for built-in commands, which add `source` (the module's
   name).
+- `guild.role_*` and `guild.member_updated` go to every member of the guild; `roleIds` there is the
+  member's full role set (without @everyone). A client recomputes what it shows from these and
+  from `GET /api/guilds/:id/permissions/@me`, which stays the authority: the server checks every
+  request itself. `channel.overwrites_updated` goes to the channel's members (it is not sent to people
+  who just lost access; they get `channel.removed`).
+- Access changes always arrive as `channel.joined` / `channel.removed`, whatever caused them (a role
+  change, an overwrite, a kick): add or drop the sidebar entry and subscription.
 - `guild.modules_updated` is sent to every member of the guild when a module is switched or its settings
   change. Update the cached state and show or hide that module's UI.
 - `mention` means someone mentioned you in a message or edit (never your own). Combine with
@@ -641,7 +789,7 @@ Authorization: Bot hb_<botId>_<43 base64url characters>
 | `DELETE /api/bots/:id`                                | `204`. Revokes the token, removes the bot from every guild; its past messages stay.                                                                             |
 | `POST /api/bots/:id/token`                            | `{token}`; the old token stops working immediately.                                                                                                             |
 | `POST /api/bots/:id/signing-secret`                   | `{signingSecret}`; takes effect immediately for new requests.                                                                                                   |
-| `POST /api/guilds/:id/bots` `{botId}`                 | `204`. You must own both the bot and the guild (instance admins count as guild owners). Creates a normal guild membership.                                      |
+| `POST /api/guilds/:id/bots` `{botId}`                 | `204`. You must own the bot and hold `manage_guild` in the guild. Creates a normal guild membership.                                                            |
 | `DELETE /api/guilds/:id/bots/:botId`                  | `204`. The guild's manager or the bot's owner.                                                                                                                  |
 | `GET /api/bots/:id/deliveries?status=&before=&limit=` | Event delivery log, newest first: `{deliveries: Delivery[]}`.                                                                                                   |
 | `POST /api/bots/:id/deliveries/:deliveryId/redeliver` | `202`. Resets attempts and queues the delivery again.                                                                                                           |
@@ -657,12 +805,12 @@ admin may reach hosts listed in `OUTBOUND_PRIVATE_ALLOWLIST`. Redirects are neve
 
 ### Incoming webhooks
 
-| Endpoint                          | Notes                                                                                                                                                                                                                              |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/channels/:id/webhooks` | Human, guild owner or instance admin who can see the channel. `{name, avatarAttachmentId?}` returns `201 {id, channelId, name, avatarUrl, createdBy, createdAt, url}`; `url` is `/api/webhooks/:id/:token` and is shown only once. |
-| `GET /api/channels/:id/webhooks`  | `{webhooks: Webhook[]}` (no tokens).                                                                                                                                                                                               |
-| `DELETE /api/webhooks/:id`        | `204`. Existing messages stay.                                                                                                                                                                                                     |
-| `POST /api/webhooks/:id/:token`   | Posts a message. No other authentication; the path token is the credential. `204`, or `200` with the `Message` when `?wait=true`.                                                                                                  |
+| Endpoint                          | Notes                                                                                                                                                                                                                   |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/channels/:id/webhooks` | Human with `manage_guild` who can see the channel. `{name, avatarAttachmentId?}` returns `201 {id, channelId, name, avatarUrl, createdBy, createdAt, url}`; `url` is `/api/webhooks/:id/:token` and is shown only once. |
+| `GET /api/channels/:id/webhooks`  | `{webhooks: Webhook[]}` (no tokens).                                                                                                                                                                                    |
+| `DELETE /api/webhooks/:id`        | `204`. Existing messages stay.                                                                                                                                                                                          |
+| `POST /api/webhooks/:id/:token`   | Posts a message. No other authentication; the path token is the credential. `204`, or `200` with the `Message` when `?wait=true`.                                                                                       |
 
 The execute endpoint accepts a Discord-compatible payload, plus Slack's `text`:
 

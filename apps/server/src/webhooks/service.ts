@@ -12,9 +12,9 @@ import { generateSecret, hashSecret, verifySecret } from '../bots/token.js';
 import type { ChannelService } from '../channels/service.js';
 import type { Database } from '../db/schema.js';
 import { AppError } from '../errors.js';
-import type { GuildService } from '../guilds/service.js';
 import { attachmentUrl } from '../messages/reader.js';
 import type { MessageService } from '../messages/service.js';
+import type { PermissionService } from '../permissions/service.js';
 import type { RateLimiter } from '../rate-limit.js';
 
 type Actor = Pick<DirectoryUser, 'id' | 'isAdmin'>;
@@ -28,12 +28,12 @@ export class WebhookService {
   constructor(
     private readonly db: Kysely<Database>,
     private readonly channels: ChannelService,
-    private readonly guilds: GuildService,
     private readonly messages: MessageService,
     private readonly limiter: RateLimiter,
+    private readonly perms: PermissionService,
   ) {}
 
-  /** Guild owners and instance admins manage webhooks; the creator must be able to see the channel. */
+  /** Webhooks need manage_guild; the creator must be able to see the channel. */
   async create(
     actor: Actor,
     channelId: string,
@@ -146,7 +146,7 @@ export class WebhookService {
     if (!channel.guild_id) {
       throw new AppError(400, 'webhooks_unavailable', 'Webhooks only work in guild channels');
     }
-    await this.guilds.requireManager(actor, channel.guild_id);
+    await this.perms.require(actor, channel.guild_id, 'manage_guild');
   }
 
   private async fetch(channelId: string, webhookId?: string): Promise<Webhook[]> {

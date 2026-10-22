@@ -504,3 +504,83 @@ test.describe('modules', () => {
     });
   }
 });
+
+test.describe('roles', () => {
+  test('roles editor, hoisted member list and channel permissions', async ({ browser }) => {
+    const { api, ids, guildId, channels } = seeded;
+    const make = (name: string, color: number, hoist: boolean, permissions: string[] = []) =>
+      api.ada.createRole(guildId, { name, color, hoist, permissions });
+    // New roles land at the bottom, so the first one created ends up highest.
+    const moderator = await make('Moderator', 0xe5534b, true, [
+      'manage_messages',
+      'kick_members',
+      'manage_nicknames',
+    ]);
+    const librarian = await make('Librarian', 0x2da58e, true, ['manage_channels', 'pins.pin']);
+    const nightOwl = await make('Night owl', 0xa371f7, false);
+    const earlyBird = await make('Early bird', 0xd4a72c, false);
+    await api.ada.assignRole(guildId, ids.linus, moderator.id);
+    await api.ada.assignRole(guildId, ids.grace, librarian.id);
+    await api.ada.assignRole(guildId, ids.grace, nightOwl.id);
+    await api.ada.assignRole(guildId, ids.margaret, librarian.id);
+    await api.ada.assignRole(guildId, ids.alan, earlyBird.id);
+    await api.ada.setNickname(guildId, ids.margaret, 'Maggie');
+    const everyone = (await api.ada.roles(guildId)).find((role) => role.isDefault)?.id ?? '';
+    await api.ada.putOverwrite(channels.offTopic, 'role', everyone, { deny: ['attach_files'] });
+    await api.ada.putOverwrite(channels.offTopic, 'role', librarian.id, {
+      allow: ['manage_messages'],
+    });
+    await api.ada.putOverwrite(channels.offTopic, 'member', ids.alan, { deny: ['add_reactions'] });
+
+    for (const [prefix, options] of [
+      ['desktop', DESKTOP],
+      ['mobile', PHONE],
+    ] as const) {
+      const settings = await visit(
+        browser,
+        'ada@example.com',
+        options,
+        `/settings/server/${guildId}/roles`,
+      );
+      await settings.page.getByRole('button', { name: 'Librarian' }).first().click();
+      await settings.page.getByLabel('Role name').waitFor();
+      await settings.page.waitForTimeout(500);
+      await settings.page.screenshot({ path: shot(`${prefix}-roles`) });
+      await settings.page.getByRole('tab', { name: 'Permissions' }).click();
+      await settings.page.waitForTimeout(400);
+      await settings.page.screenshot({ path: shot(`${prefix}-roles-permissions`) });
+      await settings.context.close();
+    }
+
+    const members = await visit(browser, 'ada@example.com', DESKTOP, general());
+    await settle(members.page);
+    await members.page.getByRole('complementary', { name: 'Members' }).waitFor();
+    await members.page.getByText('Moderator').first().waitFor();
+    await members.page.waitForTimeout(500);
+    await members.page.screenshot({ path: shot('desktop-members-roles') });
+    await members.context.close();
+
+    const phone = await visit(browser, 'ada@example.com', PHONE, general());
+    await settle(phone.page);
+    await phone.page.getByRole('button', { name: 'Member list' }).tap();
+    await phone.page.getByText('Moderator').first().waitFor();
+    await phone.page.waitForTimeout(600);
+    await phone.page.screenshot({ path: shot('mobile-members-roles') });
+    await phone.context.close();
+
+    const channel = await visit(
+      browser,
+      'ada@example.com',
+      DESKTOP,
+      `/channels/${guildId}/${channels.offTopic}`,
+    );
+    await settle(channel.page);
+    await channel.page.getByRole('button', { name: 'Channel settings' }).click();
+    await channel.page.getByRole('tab', { name: 'Permissions' }).click();
+    await channel.page.getByRole('tab', { name: 'Librarian' }).click();
+    await channel.page.getByText('Manage messages').first().waitFor();
+    await channel.page.waitForTimeout(500);
+    await channel.page.screenshot({ path: shot('desktop-channel-permissions') });
+    await channel.context.close();
+  });
+});

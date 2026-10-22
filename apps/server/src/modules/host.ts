@@ -1,13 +1,19 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type { Redis } from 'ioredis';
 import type { Kysely } from 'kysely';
-import { ChannelEvent, MODULE_FRAME_TYPE, ModuleFrame } from '@harmony/shared';
+import {
+  CORE_PERMISSION_KEYS,
+  ChannelEvent,
+  MODULE_FRAME_TYPE,
+  ModuleFrame,
+} from '@harmony/shared';
 import { parseEnv } from '../config.js';
 import type { Database } from '../db/schema.js';
 import { enqueueEvent } from '../events/outbox.js';
 import type { ChannelService } from '../channels/service.js';
 import type { MessageDecorators } from '../messages/decorators.js';
 import type { MessageService } from '../messages/service.js';
+import type { PermissionService } from '../permissions/service.js';
 import { RateLimiter } from '../rate-limit.js';
 import type { EventBus } from '../realtime/events.js';
 import type { Storage } from '../uploads/storage.js';
@@ -33,6 +39,7 @@ export interface ModuleHostDeps {
   state: GuildModuleState;
   messages: MessageService;
   channels: ChannelService;
+  perms: PermissionService;
 }
 
 type Hook = () => void | Promise<void>;
@@ -84,6 +91,14 @@ export class ModuleHost {
     const permissions: { key: string; description: string }[] = [];
     deps.state.permissions.set(id, permissions);
     const coreFrames = new Set(module.coreFrames ?? []);
+    const qualify = (key: string): string => {
+      if (CORE_PERMISSION_KEYS.has(key)) return key;
+      const full = `${id}.${key}`;
+      if (!permissions.some((p) => p.key === full)) {
+        throw new ModuleError(`Module "${id}" checked "${key}", which it never defined`);
+      }
+      return full;
+    };
 
     /** A module's own frames are namespaced; core frames only if the module declared them. */
     const checked = (frame: ModuleFrameOut): ModuleFrame => {
@@ -186,6 +201,16 @@ export class ModuleHost {
         new RateLimiter(deps.redis, `${id}.${name}`, max, windowSeconds),
 
       permissions: {
+        has: (user, guildId, key, channelId) =>
+          guildId === null
+            ? Promise.resolve(true)
+            : deps.perms.has(user, guildId, qualify(key), channelId),
+        require: (user, guildId, key, channelId) =>
+          guildId === null
+            ? Promise.resolve()
+            : deps.perms.require(user, guildId, qualify(key), channelId),
+        requireInChannel: (user, channelId, key) =>
+          deps.perms.requireInChannel(user, channelId, qualify(key)),
         define: (key, description) => {
           const full = `${id}.${key}`;
           if (permissions.some((p) => p.key === full)) {

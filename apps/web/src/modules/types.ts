@@ -53,6 +53,8 @@ export interface ComposerAction {
   id: string;
   icon: IconComponent;
   label: string;
+  /** Hidden for people who lack this permission here (a module's own key, such as `polls.create`). */
+  permission?: string;
   onSelect: (context: ComposerContext) => void;
 }
 

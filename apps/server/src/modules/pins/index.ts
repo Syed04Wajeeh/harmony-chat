@@ -1,4 +1,10 @@
-import { ChannelParams, Message, MessageParams, PinsResponse } from '@harmony/shared';
+import {
+  ChannelParams,
+  Message,
+  MessageParams,
+  PinsResponse,
+  type DirectoryUser,
+} from '@harmony/shared';
 import { forbidden, notFound } from '../../messages/service.js';
 import { defineModule } from '../types.js';
 
@@ -14,10 +20,17 @@ export const pins = defineModule({
   register(ctx) {
     ctx.permissions.define('pin', 'Pin and unpin messages');
 
-    async function setPinned(userId: string, messageId: string, pinned: boolean) {
+    async function setPinned(user: DirectoryUser, messageId: string, pinned: boolean) {
+      const userId = user.id;
       const target = await ctx.messages.find(messageId, userId);
       if (!target.isMember) throw forbidden();
       if (target.deleted_at) throw notFound();
+      // Moderators always can; `pins.pin` lets a guild open pinning to everyone, as it was.
+      if (
+        !(await ctx.permissions.has(user, target.guild_id, 'manage_messages', target.channel_id))
+      ) {
+        await ctx.permissions.require(user, target.guild_id, 'pin', target.channel_id);
+      }
       const { message } = await ctx.messages.update(target, async (trx) => {
         const changed = await trx
           .updateTable('messages')
@@ -63,7 +76,7 @@ export const pins = defineModule({
           config: { scope: 'messages.write', module: 'pins', moduleScope: 'message' },
           schema: { params: MessageParams, response: { 200: Message } },
         },
-        (request) => setPinned(request.user.id, request.params.id, true),
+        (request) => setPinned(request.user, request.params.id, true),
       );
 
       app.delete(
@@ -72,7 +85,7 @@ export const pins = defineModule({
           config: { scope: 'messages.write', module: 'pins', moduleScope: 'message' },
           schema: { params: MessageParams, response: { 200: Message } },
         },
-        (request) => setPinned(request.user.id, request.params.id, false),
+        (request) => setPinned(request.user, request.params.id, false),
       );
     });
   },

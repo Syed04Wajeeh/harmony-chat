@@ -3,12 +3,14 @@ import {
   Bot,
   CreatedBot,
   CreatedWebhook,
+  EffectivePermissions,
   ErrorResponse,
   Guild,
   GuildMembersResponse,
   GuildModule,
   GuildModulesResponse,
   GuildSummary,
+  Channel,
   ChannelSummary,
   Invite,
   InvitePreview,
@@ -16,6 +18,8 @@ import {
   ListChannelsResponse,
   ListCommandsResponse,
   ListDeliveriesResponse,
+  ListOverwritesResponse,
+  ListRolesResponse,
   ListGuildsResponse,
   ListMessagesResponse,
   ListUsersResponse,
@@ -28,9 +32,13 @@ import {
   ReadState,
   RotatedSigningSecret,
   RotatedToken,
+  Role,
   type CreateBotBody,
   type CreateChannelBody,
+  type CreateRoleBody,
   type CreateWebhookBody,
+  type PutOverwriteBody,
+  type UpdateRoleBody,
   type DELIVERY_STATUSES,
   type UpdateBotBody,
   type UpdateGuildBody,
@@ -118,6 +126,57 @@ export const api = {
       body,
       schema: GuildModule,
     }),
+  updateChannel: (id: string, body: { name?: string; topic?: string | null }) =>
+    request(`/api/channels/${id}`, { method: 'PATCH', body, schema: Channel }),
+  roles: async (guildId: string, signal?: AbortSignal) =>
+    (await request(`/api/guilds/${guildId}/roles`, { schema: ListRolesResponse, signal })).roles,
+  createRole: (guildId: string, body: CreateRoleBody) =>
+    request(`/api/guilds/${guildId}/roles`, { method: 'POST', body, schema: Role }),
+  updateRole: (guildId: string, roleId: string, body: UpdateRoleBody) =>
+    request(`/api/guilds/${guildId}/roles/${roleId}`, { method: 'PATCH', body, schema: Role }),
+  deleteRole: (guildId: string, roleId: string) =>
+    request(`/api/guilds/${guildId}/roles/${roleId}`, { method: 'DELETE' }),
+  reorderRoles: async (guildId: string, roleIds: readonly string[]) =>
+    (
+      await request(`/api/guilds/${guildId}/roles/order`, {
+        method: 'PATCH',
+        body: { roleIds },
+        schema: ListRolesResponse,
+      })
+    ).roles,
+  assignRole: (guildId: string, userId: string, roleId: string) =>
+    request(`/api/guilds/${guildId}/members/${userId}/roles/${roleId}`, { method: 'PUT' }),
+  revokeRole: (guildId: string, userId: string, roleId: string) =>
+    request(`/api/guilds/${guildId}/members/${userId}/roles/${roleId}`, { method: 'DELETE' }),
+  setNickname: (guildId: string, userId: string, nickname: string | null) =>
+    request(`/api/guilds/${guildId}/members/${userId}`, { method: 'PATCH', body: { nickname } }),
+  kickMember: (guildId: string, userId: string) =>
+    request(`/api/guilds/${guildId}/members/${userId}`, { method: 'DELETE' }),
+  permissions: (guildId: string, channelId?: string, signal?: AbortSignal) =>
+    request(`/api/guilds/${guildId}/permissions/@me${channelId ? `?channelId=${channelId}` : ''}`, {
+      schema: EffectivePermissions,
+      signal,
+    }),
+  overwrites: async (channelId: string, signal?: AbortSignal) =>
+    (
+      await request(`/api/channels/${channelId}/overwrites`, {
+        schema: ListOverwritesResponse,
+        signal,
+      })
+    ).overwrites,
+  putOverwrite: async (
+    channelId: string,
+    targetType: 'role' | 'member',
+    targetId: string,
+    body: PutOverwriteBody,
+  ) =>
+    (
+      await request(`/api/channels/${channelId}/overwrites/${targetType}/${targetId}`, {
+        method: 'PUT',
+        body,
+        schema: ListOverwritesResponse,
+      })
+    ).overwrites,
   createInvite: (guildId: string) =>
     request(`/api/guilds/${guildId}/invites`, { method: 'POST', body: {}, schema: Invite }),
   invitePreview: (code: string, signal?: AbortSignal) =>

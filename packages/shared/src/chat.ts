@@ -106,6 +106,8 @@ export const Message = z.object({
   id: Id,
   channelId: Id,
   author: User,
+  /** The author's nickname in the message's guild, when they have one. */
+  authorNickname: z.string().nullable().optional(),
   /** Empty for deleted messages. */
   content: z.string(),
   createdAt: z.iso.datetime(),
@@ -184,13 +186,6 @@ export const UpdateGuildBody = z
     message: 'Nothing to update',
   });
 export type UpdateGuildBody = z.infer<typeof UpdateGuildBody>;
-
-export const GuildMember = DirectoryUser.extend({
-  status: PresenceStatus,
-  joinedAt: z.iso.datetime(),
-});
-export type GuildMember = z.infer<typeof GuildMember>;
-export const GuildMembersResponse = z.object({ members: z.array(GuildMember) });
 
 export const ListDmsResponse = ListChannelsResponse;
 

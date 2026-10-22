@@ -97,7 +97,7 @@ export function handleConnection(
         await channels.markRead(user, frame.channelId, frame.messageId);
         return;
       case 'typing':
-        await typing.notify(user.id, frame.channelId);
+        await typing.notify(user, frame.channelId);
         return;
       case 'presence.set':
         await users.setStatus(user.id, frame.status);
