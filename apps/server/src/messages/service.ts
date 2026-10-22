@@ -54,7 +54,7 @@ export class MessageService {
     private readonly decorators: MessageDecorators,
     private readonly perms: PermissionService,
   ) {
-    this.reader = new MessageReader(db, decorators);
+    this.reader = new MessageReader(db, (authors) => perms.nicknames(authors), decorators);
   }
 
   /**
@@ -87,6 +87,7 @@ export class MessageService {
     if (channel.archived_at) throw new AppError(409, 'channel_archived', 'Channel is archived');
 
     const attachmentIds = [...new Set(input.attachmentIds ?? [])];
+    await this.perms.warm(channelId);
     const { message, notify } = await this.db.transaction().execute(async (trx) => {
       if (replyToId) {
         const parent = await trx
@@ -148,7 +149,7 @@ export class MessageService {
       // exactly what the loaded message will carry.
       const notify = await this.syncMentions(trx, row.id, channelId, author.id, content, true);
       await input.module?.setup(trx, row.id);
-      const message = await new MessageReader(trx, this.decorators).loadCreated(row.id, {
+      const message = await this.inTransaction(trx).loadCreated(row.id, {
         mentions: notify,
         hasAttachments: attachmentIds.length > 0,
       });
@@ -166,6 +167,15 @@ export class MessageService {
     return message;
   }
 
+  /** A reader for use inside a transaction: it must not wait on the pool, so nicknames are cache-only. */
+  private inTransaction(trx: Transaction<Database>): MessageReader {
+    return new MessageReader(
+      trx,
+      (authors) => this.perms.cachedNicknames(authors),
+      this.decorators,
+    );
+  }
+
   async edit(actor: Actor, messageId: string, content: string): Promise<Message> {
     const target = await this.find(messageId, actor.id);
     if (!target.isMember) throw forbidden();
@@ -174,6 +184,7 @@ export class MessageService {
       throw new AppError(403, 'forbidden', 'Only the author can edit a message');
     }
 
+    await this.perms.warm(target.channel_id);
     const { message, notify } = await this.db.transaction().execute(async (trx) => {
       await trx
         .updateTable('messages')
@@ -181,7 +192,7 @@ export class MessageService {
         .where('id', '=', messageId)
         .execute();
       const notify = await this.syncMentions(trx, messageId, target.channel_id, actor.id, content);
-      const message = await new MessageReader(trx, this.decorators).loadOne(messageId);
+      const message = await this.inTransaction(trx).loadOne(messageId);
       await this.emit(trx, target.guild_id, target.channel_id, 'message.updated', { message });
       return { message, notify };
     });
@@ -244,9 +255,10 @@ export class MessageService {
     target: Pick<MessageTarget, 'id' | 'channel_id' | 'guild_id'>,
     change: (trx: Transaction<Database>) => Promise<boolean>,
   ): Promise<{ changed: boolean; message: Message }> {
+    await this.perms.warm(target.channel_id);
     const { changed, message } = await this.db.transaction().execute(async (trx) => {
       const changed = await change(trx);
-      const message = await new MessageReader(trx, this.decorators).loadOne(target.id);
+      const message = await this.inTransaction(trx).loadOne(target.id);
       if (changed) {
         await this.emit(trx, target.guild_id, target.channel_id, 'message.updated', { message });
       }

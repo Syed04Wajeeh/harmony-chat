@@ -61,7 +61,11 @@ export class DevApi {
     targetId: string,
     body: { allow?: string[]; deny?: string[] },
   ) {
-    return this.call('PUT', `/api/channels/${channelId}/overwrites/${targetType}/${targetId}`, body);
+    return this.call(
+      'PUT',
+      `/api/channels/${channelId}/overwrites/${targetType}/${targetId}`,
+      body,
+    );
   }
 
   me() {

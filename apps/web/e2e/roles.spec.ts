@@ -14,7 +14,9 @@ test('a role with manage_messages lets a member delete others’ messages, and a
 
   const guild = await owner.createGuild(`Roles ${run}`);
   await member.acceptInvite((await owner.createInvite(guild.id)).code);
-  const general = (await owner.channels()).find((c) => c.guildId === guild.id && c.name === 'general');
+  const general = (await owner.channels()).find(
+    (c) => c.guildId === guild.id && c.name === 'general',
+  );
   if (!general) throw new Error('general missing');
   const ideas = await owner.createChannel(guild.id, 'ideas');
   const memberId = (await member.me()).id;
@@ -24,7 +26,9 @@ test('a role with manage_messages lets a member delete others’ messages, and a
   await memberContext.addCookies([{ name: 'dev_login', value: memberLogin, url: baseURL }]);
   const memberPage = await memberContext.newPage();
   await memberPage.goto(`/channels/${guild.id}/${general.id}`);
-  const message = memberPage.locator('.message', { hasText: 'a message the member may not remove' });
+  const message = memberPage.locator('.message', {
+    hasText: 'a message the member may not remove',
+  });
   await message.hover();
   await message.getByRole('button', { name: 'More actions' }).click();
   await expect(memberPage.getByRole('menuitem', { name: 'Copy text' })).toBeVisible();
@@ -46,7 +50,11 @@ test('a role with manage_messages lets a member delete others’ messages, and a
   await ownerPage.getByRole('switch', { name: 'Manage messages' }).check();
   await ownerPage.getByRole('button', { name: 'Save changes' }).click();
   await ownerPage.getByRole('tab', { name: 'Members' }).click();
-  await ownerPage.getByRole('listitem').filter({ hasText: `member-${run}` }).getByRole('button', { name: 'Add' }).click();
+  await ownerPage
+    .getByRole('listitem')
+    .filter({ hasText: `member-${run}` })
+    .getByRole('button', { name: 'Add' })
+    .click();
 
   // No reload: the role arrives over the socket and the menu entry appears.
   await expect(async () => {

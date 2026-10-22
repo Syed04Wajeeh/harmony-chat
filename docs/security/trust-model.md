@@ -71,6 +71,32 @@ upgrade whose `Origin` is missing or differs from the chat's own origin. GET
 endpoints have no side effects, and CORS stops a foreign page from reading
 their responses.
 
+## Roles, permissions and who can see what
+
+Authentication says who someone is; roles decide what they may do in a server
+([permissions.md](../permissions.md)). The checks live in one service on the server; the client hides
+controls only as a convenience and every request is checked again.
+
+- **The owner and instance admins can see every channel, private ones included.** Before roles a
+  private channel was invisible to everyone who had not been added to it, the owner and admins
+  included. Now both hold every permission, so they are members of every channel and receive its
+  live events. This is deliberate: a server must stay
+  recoverable and moderatable when the person who made a private channel is gone, and the instance
+  admin is the person who runs the machine and could read the database anyway. The consequence is
+  that nothing said in a private channel is private from them. The migration added them to the
+  existing private channels.
+- **Hierarchy.** Nobody can act on a role or member at or above their own highest role, and nobody
+  can hand out a permission they do not hold. The owner and instance admins are exempt, and only the
+  owner can transfer a server.
+- **Bots** are ordinary members under the same rules, plus their token scopes, and cannot use the
+  role, overwrite, nickname, kick or transfer endpoints.
+- **Residual risk.** Permission data is cached in each app process and invalidated over Redis,
+  with a five-minute reload as a safety net. If Redis loses an invalidation message, an instance
+  can keep applying an old role set for up to five minutes, so a permission that was just revoked
+  may still work on that instance. Access to a channel is not subject to this: it is the
+  `channel_members` table, updated in the same transaction as the change, and every send and read
+  checks it in the database.
+
 ## Network exposure
 
 - nginx is published on `127.0.0.1:8470` only (and the bot ingress on `127.0.0.1:8471`, see

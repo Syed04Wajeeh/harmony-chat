@@ -12,6 +12,7 @@ modules off for that server, and an operator can switch any module off for the w
 - [Lifecycle and ordering](#lifecycle-and-ordering)
 - [Hot-path guarantees](#hot-path-guarantees)
 - [Per-guild state](#per-guild-state)
+- [Permissions](#permissions)
 - [Slash commands](#slash-commands)
 - [The web side](#the-web-side)
 - [Write a module in 15 minutes](#write-a-module-in-15-minutes)
@@ -81,7 +82,7 @@ interface HarmonyModule {
 | `ctx.publish.channel(id, frame)` / `.user(id, frame)`                                                                       | Publish a frame through Redis, so every instance delivers it to its own sockets. The frame type must start with `<moduleId>.` (or be listed in `coreFrames`).                                                                                                                                                                                 |
 | `ctx.db`, `ctx.log`, `ctx.config`                                                                                           | Database handle, a logger that tags every line with the module id, and your parsed environment.                                                                                                                                                                                                                                               |
 | `ctx.settings.get(guildId)`                                                                                                 | The server's settings, typed by `guildSettings`. Cached; no query per call.                                                                                                                                                                                                                                                                   |
-| `ctx.permissions.define(key, text)`                                                                                         | Declares `<moduleId>.<key>` for the role system. Stored and reported with the module; nothing enforces it yet.                                                                                                                                                                                                                                |
+| `ctx.permissions.define / has / require / requireInChannel`                                                                 | Declare `<moduleId>.<key>` for roles to grant, and check it (or a core key) for a user. See [Permissions](#permissions).                                                                                                                                                                                                                      |
 | `ctx.channels.requireMember`, `ctx.outbox.enqueue`, `ctx.limiter`, `ctx.storage`, `ctx.redis`, `ctx.onReady`, `ctx.onClose` | Small helpers: access checks, bot events, a Redis-backed rate limiter, file storage, a Redis handle for locks, lifecycle hooks.                                                                                                                                                                                                               |
 
 `registerWorker` runs in the worker process, which loads the same module list. It gets `ctx.db`,
@@ -138,6 +139,40 @@ defaults: optional modules are enabled, settings are the schema's defaults.
   `module_in_use`).
 - Every write sends `guild.modules_updated` to each member so open clients update at once, and
   publishes the guild id on Redis so every instance drops its cached copy.
+
+## Permissions
+
+Roles and the resolution rules are in [permissions.md](permissions.md). A module takes part in two ways.
+
+**Declare keys** in `register`. They are namespaced with the module id, listed in the role editor
+under the module's name, and reported by `GET /api/guilds/:id/modules`:
+
+```ts
+ctx.permissions.define('create', 'Create polls'); // becomes "polls.create"
+```
+
+**Check them**, with the same function the core uses:
+
+```ts
+ctx.permissions.has(user, guildId, 'create', channelId?): Promise<boolean>
+ctx.permissions.require(user, guildId, 'create', channelId?): Promise<void>   // 403 missing_permission
+ctx.permissions.requireInChannel(user, channelId, 'create'): Promise<void>    // when only the channel is known
+```
+
+- `user` is anything with `id` and `isAdmin` (`request.user` works).
+- `key` is a core key (`manage_messages`, `attach_files`) or a key **this module defined**, written
+  without the prefix. Checking a key the module never defined throws a `ModuleError`, so a typo
+  fails loudly in the first test instead of silently denying.
+- Pass `channelId` to include the channel's overwrites; leave it out for the server-wide answer.
+- A `null` guild (a DM) has no roles and answers `true` / passes.
+- Answers come from the in-process permission cache: no query once the server is warm, and
+  changes made on another instance arrive over Redis. Do not call these from inside a
+  transaction on a cold server for a guild you have not touched yet; check first, then open it.
+
+The shipped modules use it as follows: `polls` checks `polls.create` and `polls.vote`, `pins`
+accepts `manage_messages` or `pins.pin`, `reactions` requires `add_reactions` to add, and `uploads`
+requires `attach_files` when `?channelId=` is given. Keys are stored as text on roles, so a role
+keeps a module's keys while the module is switched off.
 
 ## Slash commands
 

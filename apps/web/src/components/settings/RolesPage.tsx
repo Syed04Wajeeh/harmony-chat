@@ -8,7 +8,7 @@ import { ROLE_PALETTE, parseHex, toHex } from '../../lib/roleColor.js';
 import { attempt, loadGuildMembers, loadGuildModules, loadRoles } from '../../store/actions.js';
 import { useApp } from '../../store/store.js';
 import { Avatar } from '../Avatar.js';
-import { ArrowLeftIcon, ChevronDownIcon, PlusIcon } from '../Icons.js';
+import { ChevronDownIcon, PlusIcon } from '../Icons.js';
 import { ConfirmDialog } from '../Overlay.js';
 import { RoleDot } from '../RoleDot.js';
 import { SettingsPage } from './SettingsLayout.js';
@@ -177,14 +177,12 @@ function RoleEditor({
   access,
   modules,
   onDeleted,
-  onBack,
 }: {
   guildId: string;
   role: Role;
   access: Access;
   modules: readonly GuildModule[];
   onDeleted: () => void;
-  onBack: () => void;
 }) {
   const [tab, setTab] = useState<'display' | 'permissions' | 'members'>('display');
   const [name, setName] = useState(role.name);
@@ -221,9 +219,6 @@ function RoleEditor({
   return (
     <section className="role-editor" aria-label={`Edit ${role.name}`}>
       <header className="role-editor-header">
-        <button className="icon-button role-back" aria-label="Back to roles" onClick={onBack}>
-          <ArrowLeftIcon />
-        </button>
         <RoleDot color={color} />
         <h2>{role.isDefault ? '@everyone' : name || 'Role'}</h2>
       </header>
@@ -416,7 +411,10 @@ export function RolesPage() {
   }
 
   return (
-    <SettingsPage title="Roles" back={`/settings/server/${guildId}`}>
+    <SettingsPage
+      title="Roles"
+      back={selected ? () => setSelectedId(null) : `/settings/server/${guildId}`}
+    >
       <div className="roles-layout" data-editing={selected ? '' : undefined}>
         <aside className="role-list" aria-label="Roles">
           <button
@@ -475,7 +473,6 @@ export function RolesPage() {
             access={access}
             modules={modules ?? []}
             onDeleted={() => setSelectedId(null)}
-            onBack={() => setSelectedId(null)}
           />
         ) : (
           <p className="role-empty settings-card-description">

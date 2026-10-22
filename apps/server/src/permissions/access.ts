@@ -21,6 +21,7 @@ export interface RoleRecord extends RoleGrant {
 }
 
 export interface MemberRecord {
+  nickname: string | null;
   roleIds: string[];
   isInstanceAdmin: boolean;
 }
@@ -52,16 +53,17 @@ export async function loadGuildAccess(db: Executor, guildId: string): Promise<Gu
     .execute();
   const { rows: memberRows } = await sql<{
     user_id: string;
+    nickname: string | null;
     is_admin: boolean;
     role_ids: string[];
   }>`
-    select gm.user_id, u.is_admin,
+    select gm.user_id, gm.nickname, u.is_admin,
       coalesce(array_agg(mr.role_id::text) filter (where mr.role_id is not null), '{}') as role_ids
     from guild_members gm
     join users u on u.id = gm.user_id
     left join member_roles mr on mr.guild_id = gm.guild_id and mr.user_id = gm.user_id
     where gm.guild_id = ${guildId}
-    group by gm.user_id, u.is_admin
+    group by gm.user_id, gm.nickname, u.is_admin
   `.execute(db);
   const overwriteRows = await db
     .selectFrom('channel_overwrites')
@@ -115,7 +117,7 @@ export async function loadGuildAccess(db: Executor, guildId: string): Promise<Gu
     members: new Map(
       memberRows.map((row) => [
         row.user_id,
-        { roleIds: row.role_ids, isInstanceAdmin: row.is_admin },
+        { nickname: row.nickname, roleIds: row.role_ids, isInstanceAdmin: row.is_admin },
       ]),
     ),
     overwrites,

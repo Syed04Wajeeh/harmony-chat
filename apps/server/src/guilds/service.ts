@@ -291,6 +291,7 @@ export class GuildService {
       .returning('user_id')
       .executeTakeFirst();
     if (!updated) throw new AppError(404, 'user_not_found', 'Not a member');
+    await this.perms.changed(guildId);
     await this.announceMember(guildId, userId);
   }
 

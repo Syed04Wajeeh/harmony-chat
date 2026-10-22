@@ -96,10 +96,6 @@
   font-weight: var(--weight-heavy);
 }
 
-.role-back {
-  display: none;
-}
-
 .role-tabs,
 .overwrite-targets {
   display: flex;
@@ -265,10 +261,6 @@
 
   .roles-layout:not([data-editing]) .role-empty {
     display: none;
-  }
-
-  .role-back {
-    display: inline-flex;
   }
 
   .role-actions {

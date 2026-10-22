@@ -508,12 +508,8 @@ test.describe('modules', () => {
 test.describe('roles', () => {
   test('roles editor, hoisted member list and channel permissions', async ({ browser }) => {
     const { api, ids, guildId, channels } = seeded;
-    const make = (
-      name: string,
-      color: number,
-      hoist: boolean,
-      permissions: string[] = [],
-    ) => api.ada.createRole(guildId, { name, color, hoist, permissions });
+    const make = (name: string, color: number, hoist: boolean, permissions: string[] = []) =>
+      api.ada.createRole(guildId, { name, color, hoist, permissions });
     // New roles land at the bottom, so the first one created ends up highest.
     const moderator = await make('Moderator', 0xe5534b, true, [
       'manage_messages',

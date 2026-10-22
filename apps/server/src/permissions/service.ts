@@ -30,6 +30,8 @@ const MAX_CHANNELS = 20_000;
 interface Entry {
   loadedAt: number;
   access: Promise<GuildAccess | null>;
+  /** Set once the load finished, for callers that must not wait (see `cachedNicknames`). */
+  ready?: GuildAccess;
 }
 
 /**
@@ -86,6 +88,12 @@ export class PermissionService {
     }
     const entry: Entry = { loadedAt: Date.now(), access: loadGuildAccess(this.db, guildId) };
     this.cache.set(guildId, entry);
+    entry.access.then(
+      (loaded) => {
+        if (loaded) entry.ready = loaded;
+      },
+      () => undefined,
+    );
     // A failed load must not be remembered.
     entry.access.catch(() => {
       if (this.cache.get(guildId) === entry) this.cache.delete(guildId);
@@ -146,6 +154,39 @@ export class PermissionService {
     return row.guild_id;
   }
 
+  /**
+   * Guild nicknames of message authors, in the order given; null for DMs, non-members and members
+   * without one. Served from the cached guild, so listing or sending messages costs no query.
+   */
+  nicknames(pairs: readonly AuthorRef[]): Promise<(string | null)[]> {
+    return Promise.all(
+      pairs.map(async ({ channelId, userId }) => {
+        const guildId = await this.guildOf(channelId);
+        if (!guildId) return null;
+        return (await this.access(guildId))?.members.get(userId)?.nickname ?? null;
+      }),
+    );
+  }
+
+  /**
+   * Like `nicknames` but never waits and never queries: a cold cache gives null. For code that
+   * holds a transaction, where waiting on another pooled connection could exhaust the pool; call
+   * `warm` before opening the transaction.
+   */
+  cachedNicknames(pairs: readonly AuthorRef[]): (string | null)[] {
+    return pairs.map(({ channelId, userId }) => {
+      const guildId = this.guildOfChannel.get(channelId);
+      const entry = guildId ? this.cache.get(guildId) : undefined;
+      return entry?.ready?.members.get(userId)?.nickname ?? null;
+    });
+  }
+
+  /** Loads what `cachedNicknames` needs for a channel. */
+  async warm(channelId: string): Promise<void> {
+    const guildId = await this.guildOf(channelId);
+    if (guildId) await this.access(guildId);
+  }
+
   async effective(
     subject: Subject,
     guildId: string,
@@ -161,6 +202,11 @@ export class PermissionService {
       topPosition: rankOf(access, subject).top,
     };
   }
+}
+
+export interface AuthorRef {
+  channelId: string;
+  userId: string;
 }
 
 export const missing = (key: string) =>

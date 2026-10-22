@@ -497,6 +497,26 @@ describe('roles and permissions', () => {
       expect(after.messages.at(-1)?.authorNickname).toBe('Ally');
     });
 
+    it('puts the current nickname on new messages without a database read', async () => {
+      const w = await world();
+      const rename = (nickname: string) =>
+        w.as(w.alice)(`/api/guilds/${w.guildId}/members/${w.ids.alice}`, {
+          method: 'PATCH',
+          body: { nickname },
+        });
+      const send = async () =>
+        (
+          await w.as(w.alice)(`/api/channels/${w.channelId}/messages`, {
+            method: 'POST',
+            body: { content: 'hello' },
+          })
+        ).body as { authorNickname?: string };
+      await rename('Ally');
+      expect((await send()).authorNickname).toBe('Ally');
+      await rename('Al');
+      expect((await send()).authorNickname).toBe('Al');
+    });
+
     it('reports effective permissions for the caller, per channel', async () => {
       const w = await world();
       const everyone = await w.everyone();
