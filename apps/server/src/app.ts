@@ -170,7 +170,9 @@ export async function buildApp({
 
   const active = activeModules(modules, config.MODULES_DISABLED);
   const moduleState = new GuildModuleState(db, redis, active);
-  void hub.listen(MODULES_INVALIDATE_TOPIC, (guildId) => moduleState.invalidate(guildId));
+  hub
+    .listen(MODULES_INVALIDATE_TOPIC, (guildId) => moduleState.invalidate(guildId))
+    .catch((err: unknown) => app.log.warn({ err }, 'module state invalidation subscribe failed'));
   const host = new ModuleHost({
     modules: active,
     env,
