@@ -1,7 +1,7 @@
 import type { Redis } from 'ioredis';
 import { sql, type Kysely } from 'kysely';
-import type { Database } from '../db/schema.js';
-import type { Storage } from './storage.js';
+import type { Database } from '../../db/schema.js';
+import type { Storage } from '../../uploads/storage.js';
 
 const LOCK_KEY = 'harmony:lock:upload-cleanup';
 const BATCH = 500;

@@ -8,12 +8,14 @@ import type { Kysely } from 'kysely';
 import type { Redis } from 'ioredis';
 import { inject } from 'vitest';
 import WebSocket from 'ws';
-import { ServerFrame } from '@harmony/shared';
+import { ModuleFrame, ServerFrame } from '@harmony/shared';
 import { buildApp } from '../../../src/app.js';
 import { loadConfig, type Config } from '../../../src/config.js';
 import { createDb } from '../../../src/db.js';
 import type { Database } from '../../../src/db/schema.js';
 import { createGuildWithGeneral } from '../../../src/guilds/membership.js';
+import { modules as defaultModules } from '../../../src/modules/index.js';
+import type { HarmonyModule } from '../../../src/modules/types.js';
 import { createRedis } from '../../../src/redis.js';
 
 export const PROXY_SECRET = 'test-proxy-secret-test-proxy-secret-0123456789';
@@ -30,7 +32,11 @@ export interface TestApp {
 export interface Infra {
   db: Kysely<Database>;
   redis: Redis;
-  startApp(overrides?: Record<string, string>, appDb?: Kysely<Database>): Promise<TestApp>;
+  startApp(
+    overrides?: Record<string, string>,
+    appDb?: Kysely<Database>,
+    modules?: readonly HarmonyModule[],
+  ): Promise<TestApp>;
   stop(): Promise<void>;
 }
 
@@ -42,8 +48,8 @@ export function createInfra(): Infra {
   return {
     db,
     redis,
-    async startApp(overrides = {}, appDb = db) {
-      const config = loadConfig({
+    async startApp(overrides = {}, appDb = db, modules = defaultModules) {
+      const env = {
         NODE_ENV: 'test',
         LOG_LEVEL: 'silent',
         DATABASE_URL: inject('databaseUrl'),
@@ -54,8 +60,9 @@ export function createInfra(): Infra {
         INSTANCE_ID: `test-${randomUUID().slice(0, 8)}`,
         UPLOAD_DIR: mkdtempSync(path.join(tmpdir(), 'harmony-uploads-')),
         ...overrides,
-      });
-      const app = await buildApp({ config, db: appDb, redis });
+      };
+      const config = loadConfig(env);
+      const app = await buildApp({ config, db: appDb, redis, env, modules });
       apps.push(app);
       await app.listen({ port: 0, host: '127.0.0.1' });
       const { port } = app.server.address() as AddressInfo;
@@ -111,13 +118,16 @@ export function api(target: TestApp, login: string) {
 /** A WebSocket client that records every parsed server frame. */
 export class TestSocket {
   readonly frames: ServerFrame[] = [];
+  /** Frames that belong to modules (`<moduleId>.<name>`). */
+  readonly moduleFrames: ModuleFrame[] = [];
   private constructor(readonly socket: WebSocket) {
     socket.on('message', (data) => {
-      this.frames.push(
-        ServerFrame.parse(
-          JSON.parse(new TextDecoder().decode(Array.isArray(data) ? Buffer.concat(data) : data)),
-        ),
+      const json: unknown = JSON.parse(
+        new TextDecoder().decode(Array.isArray(data) ? Buffer.concat(data) : data),
       );
+      const core = ServerFrame.safeParse(json);
+      if (core.success) this.frames.push(core.data);
+      else this.moduleFrames.push(ModuleFrame.parse(json));
     });
   }
 
@@ -163,6 +173,19 @@ export class TestSocket {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     return this.of(type);
+  }
+
+  ofModule(type: string): ModuleFrame[] {
+    return this.moduleFrames.filter((frame) => frame.type === type);
+  }
+
+  async waitForModule(type: string, count = 1, timeoutMs = 5000): Promise<ModuleFrame[]> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.ofModule(type).length < count) {
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${count} ${type} frame(s)`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return this.ofModule(type);
   }
 
   async subscribe(channelId: string, lastSeenId?: string): Promise<void> {

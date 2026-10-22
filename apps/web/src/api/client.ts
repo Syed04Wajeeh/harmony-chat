@@ -6,6 +6,8 @@ import {
   ErrorResponse,
   Guild,
   GuildMembersResponse,
+  GuildModule,
+  GuildModulesResponse,
   GuildSummary,
   ChannelSummary,
   Invite,
@@ -32,6 +34,7 @@ import {
   type DELIVERY_STATUSES,
   type UpdateBotBody,
   type UpdateGuildBody,
+  type UpdateGuildModuleBody,
   type UserStatus,
 } from '@harmony/shared';
 
@@ -66,7 +69,8 @@ export async function parseError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, 'http_error', message);
 }
 
-async function request<T = void>(path: string, options: RequestOptions<T> = {}): Promise<T> {
+/** Modules use this for their own endpoints. */
+export async function request<T = void>(path: string, options: RequestOptions<T> = {}): Promise<T> {
   const { method = 'GET', body, schema, signal } = options;
   const res = await fetch(path, {
     method,
@@ -105,6 +109,15 @@ export const api = {
       .channels,
   guildMembers: async (id: string, signal?: AbortSignal) =>
     (await request(`/api/guilds/${id}/members`, { schema: GuildMembersResponse, signal })).members,
+  guildModules: async (guildId: string, signal?: AbortSignal) =>
+    (await request(`/api/guilds/${guildId}/modules`, { schema: GuildModulesResponse, signal }))
+      .modules,
+  updateGuildModule: (guildId: string, moduleId: string, body: UpdateGuildModuleBody) =>
+    request(`/api/guilds/${guildId}/modules/${enc(moduleId)}`, {
+      method: 'PUT',
+      body,
+      schema: GuildModule,
+    }),
   createInvite: (guildId: string) =>
     request(`/api/guilds/${guildId}/invites`, { method: 'POST', body: {}, schema: Invite }),
   invitePreview: (code: string, signal?: AbortSignal) =>

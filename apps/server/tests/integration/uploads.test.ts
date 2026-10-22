@@ -3,7 +3,7 @@ import { readdir } from 'node:fs/promises';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Attachment, ListMessagesResponse, Message } from '@harmony/shared';
-import { UploadCleaner } from '../../src/uploads/cleaner.js';
+import { UploadCleaner } from '../../src/modules/uploads/cleaner.js';
 import { LocalDiskStorage } from '../../src/uploads/storage.js';
 import {
   PROXY_SECRET,

@@ -447,3 +447,60 @@ test.describe('integrations', () => {
     });
   }
 });
+
+let pollCreated = false;
+/** One poll with votes, created by whichever form runs first. */
+async function ensurePoll() {
+  if (pollCreated) return;
+  pollCreated = true;
+  const { api, channels } = seeded;
+  const poll = await api.ada.createPoll(channels.general, 'Which book should we read next?', [
+    'Piranesi',
+    'The Left Hand of Darkness',
+    'Klara and the Sun',
+    'Middlemarch',
+  ]);
+  await api.ada.votePoll(poll.id, [1]);
+  await api.linus.votePoll(poll.id, [1]);
+  await api.grace.votePoll(poll.id, [3]);
+  await api.alan.votePoll(poll.id, [1]);
+  await api.margaret.votePoll(poll.id, [2]);
+}
+
+test.describe('modules', () => {
+  for (const [prefix, options] of [
+    ['mobile', PHONE],
+    ['desktop', DESKTOP],
+  ] as const) {
+    test(`${prefix} polls and the modules page`, async ({ browser }) => {
+      await ensurePoll();
+
+      const channel = await visit(browser, 'ada@example.com', options, general());
+      await settle(channel.page);
+      await channel.page.locator('.poll').last().scrollIntoViewIfNeeded();
+      await channel.page.waitForTimeout(500);
+      await channel.page.screenshot({ path: shot(`${prefix}-poll`) });
+
+      await channel.page.getByRole('button', { name: 'Add to message' }).click();
+      await channel.page.getByRole('menuitem', { name: 'Create poll' }).click();
+      const dialog = channel.page.getByRole('dialog', { name: 'Create a poll' });
+      await dialog.getByLabel('Question').fill('Friday: tea or coffee?');
+      await dialog.getByLabel('Option 1').fill('Tea');
+      await dialog.getByLabel('Option 2').fill('Coffee');
+      await channel.page.waitForTimeout(500);
+      await channel.page.screenshot({ path: shot(`${prefix}-poll-create`) });
+      await channel.context.close();
+
+      const modules = await visit(
+        browser,
+        'ada@example.com',
+        options,
+        `/settings/server/${seeded.guildId}/modules`,
+      );
+      await modules.page.getByRole('switch', { name: 'Polls enabled' }).waitFor();
+      await modules.page.waitForTimeout(500);
+      await modules.page.screenshot({ path: shot(`${prefix}-modules`) });
+      await modules.context.close();
+    });
+  }
+});

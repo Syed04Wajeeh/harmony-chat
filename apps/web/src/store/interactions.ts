@@ -4,7 +4,9 @@ interface Base {
   /** Unique within the channel; an interaction can have several ephemeral replies. */
   key: string;
   interactionId: string;
-  botId: string;
+  /** Null for built-in commands, which come from a module named by `source`. */
+  botId: string | null;
+  source?: string;
   command: string;
 }
 

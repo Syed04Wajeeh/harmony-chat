@@ -14,6 +14,7 @@ import { AppError } from '../errors.js';
 import { enqueueEvent, OUTBOX_CHANNEL } from '../events/outbox.js';
 import type { GuildService } from '../guilds/service.js';
 import { addGuildMember } from '../guilds/membership.js';
+import type { DomainEvents } from '../modules/domain-events.js';
 import type { EventBus } from '../realtime/events.js';
 import type { OutboundValidator } from '../outbound/validator.js';
 import { formatBotToken, generateSecret, generateSigningSecret, hashSecret } from './token.js';
@@ -36,6 +37,7 @@ export class BotService {
     private readonly guilds: GuildService,
     private readonly validator: OutboundValidator,
     private readonly maxBotsPerUser: number,
+    private readonly domain: DomainEvents,
   ) {}
 
   async create(owner: DirectoryUser, body: CreateBotBody): Promise<CreatedBot> {
@@ -200,6 +202,16 @@ export class BotService {
         .filter((id) => id !== botId)
         .map((id) => this.events.toUser(id, { type: 'guild.member_joined', guildId, user })),
     );
+    this.domain.emit('member.joined', {
+      guildId,
+      user: {
+        id: user.id,
+        login: user.login,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
+        isBot: true,
+      },
+    });
   }
 
   /** The guild's manager or the bot's owner may remove a bot from a guild. */
@@ -368,6 +380,7 @@ export class BotService {
   }
 
   private async announceLeft(guildId: string, botId: string): Promise<void> {
+    this.domain.emit('member.left', { guildId, userId: botId });
     const members = await this.memberIds(guildId);
     await Promise.all(
       members.map((id) =>

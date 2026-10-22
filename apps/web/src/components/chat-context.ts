@@ -11,9 +11,7 @@ export interface MessageHandlers {
   onCancelEdit: () => void;
   onSaveEdit: (message: Message, content: string) => Promise<void>;
   onDelete: (message: Message) => void;
-  onTogglePin: (message: Message) => void;
   onCopy: (message: Message) => void;
-  onReact: (message: Message, emoji: string) => void;
   onOpenSheet: (message: Message) => void;
   onJump: (messageId: string) => void;
   onOpenImage: (attachment: Attachment) => void;

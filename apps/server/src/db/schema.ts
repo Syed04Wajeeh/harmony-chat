@@ -74,6 +74,7 @@ export interface MessagesTable {
   display_name_override: Generated<string | null>;
   avatar_url_override: Generated<string | null>;
   embeds: Generated<unknown>;
+  modules: Generated<string[]>;
   search: ColumnType<string, never, never>;
 }
 
@@ -173,6 +174,14 @@ export interface EventDeliveriesTable {
   delivered_at: Date | null;
 }
 
+export interface GuildModulesTable {
+  guild_id: string;
+  module_id: string;
+  enabled: Generated<boolean>;
+  settings: ColumnType<Record<string, unknown>, string | undefined, string>;
+  updated_at: Generated<Date>;
+}
+
 export interface Database {
   users: UsersTable;
   guilds: GuildsTable;
@@ -190,4 +199,5 @@ export interface Database {
   interactions: InteractionsTable;
   event_outbox: EventOutboxTable;
   event_deliveries: EventDeliveriesTable;
+  guild_modules: GuildModulesTable;
 }

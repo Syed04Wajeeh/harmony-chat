@@ -1,0 +1,164 @@
+/* Slots and pages contributed by modules (src/modules, Server settings > Modules). */
+
+/* Polls */
+.poll {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  max-width: 440px;
+  border-radius: var(--radius-card);
+  background: var(--color-bg-raised);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.poll-options {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.poll-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  overflow: hidden;
+  border-radius: var(--radius-control);
+  background: var(--color-bg-input);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  text-align: left;
+  transition: box-shadow var(--duration-fast);
+}
+
+.poll-option:enabled:hover {
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
+.poll-option[data-mine] {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.poll-option:disabled {
+  cursor: default;
+}
+
+.poll-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--color-bg-active);
+  transition: width var(--duration) var(--ease);
+}
+
+.poll-option[data-mine] .poll-bar {
+  background: var(--color-accent-soft);
+}
+
+.poll-label,
+.poll-count {
+  position: relative;
+}
+
+.poll-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.poll-option[data-mine] .poll-label {
+  color: var(--color-accent-text);
+  font-weight: var(--weight-medium);
+}
+
+.poll-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+}
+
+.poll-percent {
+  color: var(--color-text-muted);
+  font-weight: normal;
+}
+
+.poll-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+@media (pointer: coarse) {
+  .poll-option {
+    min-height: 48px;
+  }
+}
+
+/* Create poll dialog */
+.poll-fields {
+  display: grid;
+  gap: var(--space-2);
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.poll-fields legend {
+  margin-bottom: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.poll-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.poll-field input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--color-bg-input);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
+.poll-field input:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.poll-add {
+  justify-self: start;
+  gap: var(--space-1);
+}
+
+/* Server settings > Modules */
+.module-card {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.module-card .schema-form {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.module-tag {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+.field-hint {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}

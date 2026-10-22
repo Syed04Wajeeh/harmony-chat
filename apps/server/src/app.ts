@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import multipart from '@fastify/multipart';
 import websocket from '@fastify/websocket';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
@@ -42,23 +41,39 @@ import { EventBus } from './realtime/events.js';
 import { Hub } from './realtime/hub.js';
 import { realtimeRoutes } from './realtime/routes.js';
 import { TypingService } from './realtime/typing.js';
-import { searchRoutes } from './search/routes.js';
-import { UploadCleaner } from './uploads/cleaner.js';
-import { uploadRoutes } from './uploads/routes.js';
-import { UploadService } from './uploads/service.js';
 import { LocalDiskStorage, type Storage } from './uploads/storage.js';
 import { userRoutes } from './users/routes.js';
+import { MessageDecorators } from './messages/decorators.js';
+import { DomainEvents } from './modules/domain-events.js';
+import { moduleGate } from './modules/gate.js';
+import { GuildModuleState, MODULES_INVALIDATE_TOPIC } from './modules/guild-state.js';
+import { ModuleHost } from './modules/host.js';
+import { modules as defaultModules } from './modules/index.js';
+import { activeModules } from './modules/registry.js';
+import { moduleRoutes } from './modules/routes.js';
+import type { HarmonyModule } from './modules/types.js';
 
 export interface AppDeps {
   config: Config;
   db: Kysely<Database>;
   redis: Redis;
   storage?: Storage;
+  /** Where modules read their settings from; defaults to the process environment. */
+  env?: NodeJS.ProcessEnv;
+  /** The module list; defaults to `modules/index.ts`. Tests pass their own. */
+  modules?: readonly HarmonyModule[];
 }
 
 const API_PREFIXES = ['/api/', '/healthz', '/readyz'];
 
-export async function buildApp({ config, db, redis, storage }: AppDeps): Promise<FastifyInstance> {
+export async function buildApp({
+  config,
+  db,
+  redis,
+  storage,
+  env = process.env,
+  modules = defaultModules,
+}: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     genReqId: () => crypto.randomUUID(),
     logger: {
@@ -119,17 +134,20 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
   });
 
   const events = new EventBus(redis);
+  const domain = new DomainEvents(app.log);
+  const decorators = new MessageDecorators();
   const limiter = (name: string, max: number, windowSeconds: number) =>
     new RateLimiter(redis, name, max, windowSeconds);
-  const channels = new ChannelService(db, events);
+  const channels = new ChannelService(db, events, domain);
   const messages = new MessageService(
     db,
     events,
     channels,
     limiter('messages', config.MESSAGE_RATE_MAX, config.MESSAGE_RATE_WINDOW_SECONDS),
-    limiter('reactions', config.REACTION_RATE_MAX, config.MESSAGE_RATE_WINDOW_SECONDS),
+    domain,
+    decorators,
   );
-  const users = new UserStore(db);
+  const users = new UserStore(db, undefined, domain);
   const presence = new PresenceService(
     redis,
     db,
@@ -138,7 +156,7 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
     app.log,
   );
   const files = storage ?? new LocalDiskStorage(config.UPLOAD_DIR);
-  const guilds = new GuildService(db, events, channels, presence, files);
+  const guilds = new GuildService(db, events, channels, presence, files, domain);
   const typing = new TypingService(redis, events, channels);
   const allowlist = parseAllowlist(config.OUTBOUND_PRIVATE_ALLOWLIST);
   const bots = new BotService(
@@ -147,8 +165,29 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
     guilds,
     new OutboundValidator(allowlist),
     config.MAX_BOTS_PER_USER,
+    domain,
   );
-  const commandRegistry = new CommandRegistry(db);
+
+  const active = activeModules(modules, config.MODULES_DISABLED);
+  const moduleState = new GuildModuleState(db, redis, active);
+  void hub.listen(MODULES_INVALIDATE_TOPIC, (guildId) => moduleState.invalidate(guildId));
+  const host = new ModuleHost({
+    modules: active,
+    env,
+    instanceId: config.INSTANCE_ID,
+    log: app.log,
+    db,
+    redis,
+    storage: files,
+    events,
+    domain,
+    decorators,
+    state: moduleState,
+    messages,
+    channels,
+  });
+
+  const commandRegistry = new CommandRegistry(db, host.commands, moduleState);
   const interactions = new InteractionService(
     db,
     events,
@@ -157,6 +196,8 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
     limiter('commands', config.COMMAND_RATE_MAX, config.COMMAND_RATE_WINDOW_SECONDS),
     { deadlineMs: config.INTERACTION_DEADLINE_MS, allowlist },
     app.log,
+    host.commands,
+    moduleState,
   );
   const webhooks = new WebhookService(
     db,
@@ -165,25 +206,13 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
     messages,
     limiter('webhooks', config.WEBHOOK_RATE_MAX, config.WEBHOOK_RATE_WINDOW_SECONDS),
   );
-  const uploads = new UploadService(db, files);
-  const cleaner = new UploadCleaner(
-    db,
-    redis,
-    files,
-    {
-      orphanTtlMs: config.UPLOAD_ORPHAN_TTL_MS,
-      intervalMs: config.UPLOAD_CLEANUP_INTERVAL_MS,
-      instanceId: config.INSTANCE_ID,
-    },
-    app.log,
-  );
-  app.addHook('onReady', () => {
+  app.addHook('onReady', async () => {
     presence.start();
-    cleaner.start();
+    await host.start();
   });
   app.addHook('onClose', async () => {
     presence.stop();
-    cleaner.stop();
+    await host.stop();
     await interactions.drain();
   });
 
@@ -210,9 +239,6 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
         skipOnError: true,
         errorResponseBuilder: () => new AppError(429, 'rate_limited', 'Too many requests'),
       });
-      await api.register(multipart, {
-        limits: { fileSize: config.UPLOAD_MAX_BYTES, files: 1, fields: 5 },
-      });
       await api.register(userRoutes, { users, presence });
       await api.register(guildRoutes, { guilds, channels });
       await api.register(channelRoutes, { channels });
@@ -220,11 +246,7 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
       await api.register(botRoutes, { bots });
       await api.register(commandRoutes, { registry: commandRegistry, interactions });
       await api.register(webhookRoutes, { webhooks });
-      await api.register(searchRoutes, { reader: messages.reader });
-      await api.register(uploadRoutes, {
-        uploads,
-        limiter: limiter('uploads', config.UPLOAD_RATE_MAX, config.UPLOAD_RATE_WINDOW_SECONDS),
-      });
+      await api.register(moduleRoutes, { state: moduleState, guilds, events });
       await api.register(realtimeRoutes, {
         hub,
         channels,
@@ -233,11 +255,15 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
         presence,
         typing,
         interactions,
+        frames: host.frames,
         instanceId: config.INSTANCE_ID,
         presenceHeartbeatMs: config.PRESENCE_HEARTBEAT_MS,
         frameBurst: config.WS_FRAME_BURST,
         frameRefillPerSecond: config.WS_FRAME_REFILL_PER_SECOND,
       });
+      // Modules come last: they can rely on authentication, rate limits and error handling above.
+      api.addHook('preHandler', moduleGate(moduleState, db));
+      await host.load(api);
     },
     { prefix: '/api' },
   );

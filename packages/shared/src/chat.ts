@@ -124,6 +124,8 @@ export const Message = z.object({
   /** Per-message name and avatar given by a webhook caller; clients show them in place of the author's. */
   displayNameOverride: z.string().nullable().optional(),
   avatarUrlOverride: z.string().nullable().optional(),
+  /** Data attached by modules, keyed by module id. Clients validate each entry themselves. */
+  modules: z.record(z.string(), z.unknown()).optional(),
 });
 export type Message = z.infer<typeof Message>;
 

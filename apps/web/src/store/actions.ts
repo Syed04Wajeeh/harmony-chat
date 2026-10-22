@@ -209,6 +209,15 @@ export async function loadGuildMembers(guildId: string): Promise<void> {
   }
 }
 
+/** Which modules are on in a guild, and their settings. Needed once per guild per session. */
+export async function loadGuildModules(guildId: string): Promise<void> {
+  try {
+    appStore.getState().setGuildModules(guildId, await api.guildModules(guildId));
+  } catch (error) {
+    reportError(error, "Could not load the server's modules");
+  }
+}
+
 export async function loadChannelMembers(channelId: string): Promise<void> {
   try {
     appStore.getState().setChannelMembers(channelId, await api.channelMembers(channelId));

@@ -12,6 +12,7 @@ import {
 import { toDirectoryUser } from '../auth/user-store.js';
 import type { Database } from '../db/schema.js';
 import { AppError } from '../errors.js';
+import type { DomainEvents } from '../modules/domain-events.js';
 import type { EventBus } from '../realtime/events.js';
 
 type ChannelRow = Selectable<Database['channels']>;
@@ -66,6 +67,7 @@ export class ChannelService {
   constructor(
     private readonly db: Kysely<Database>,
     private readonly events: EventBus,
+    private readonly domain: DomainEvents,
   ) {}
 
   /** Loads a channel the actor belongs to: 404 if it does not exist, 403 if they are not a member. */
@@ -216,6 +218,7 @@ export class ChannelService {
         this.events.toUser(userId, { type: 'channel.joined', channel: summary }),
       ),
     );
+    this.domain.emit('channel.created', { guildId, channel: toChannel(row) });
     return summary;
   }
 

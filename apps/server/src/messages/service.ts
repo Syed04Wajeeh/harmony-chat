@@ -1,7 +1,5 @@
 import type { Kysely, Transaction } from 'kysely';
 import {
-  MAX_REACTIONS_PER_MESSAGE,
-  isValidEmoji,
   parseMentions,
   type DirectoryUser,
   type Embed,
@@ -12,8 +10,11 @@ import type { ChannelService } from '../channels/service.js';
 import type { Database } from '../db/schema.js';
 import { enqueueEvent } from '../events/outbox.js';
 import { AppError } from '../errors.js';
+import type { DomainEvents } from '../modules/domain-events.js';
+import type { MessageTarget } from '../modules/types.js';
 import type { RateLimiter } from '../rate-limit.js';
 import type { EventBus } from '../realtime/events.js';
+import type { MessageDecorators } from './decorators.js';
 import { MessageReader, type Page } from './reader.js';
 
 export type { Page };
@@ -28,11 +29,17 @@ export interface SendMessageInput {
   embeds?: readonly Embed[] | undefined;
   /** Set for incoming-webhook messages: per-message overrides, no membership or user limit. */
   source?: { webhookId: string; displayName?: string | undefined; avatarUrl?: string | undefined };
+  /**
+   * Set by a module that attaches data to the message: the message is marked with the module's
+   * id, and `setup` writes the module's own rows in the same transaction.
+   */
+  module?: {
+    id: string;
+    setup(trx: Transaction<Database>, messageId: string): Promise<void>;
+  };
 }
 
 type Actor = Pick<DirectoryUser, 'id' | 'isAdmin'>;
-
-const MAX_PINS = 50;
 
 export class MessageService {
   readonly reader: MessageReader;
@@ -42,9 +49,10 @@ export class MessageService {
     private readonly events: EventBus,
     private readonly channels: ChannelService,
     private readonly sendLimiter: RateLimiter,
-    private readonly reactionLimiter: RateLimiter,
+    private readonly domain: DomainEvents,
+    private readonly decorators: MessageDecorators,
   ) {
-    this.reader = new MessageReader(db);
+    this.reader = new MessageReader(db, decorators);
   }
 
   /**
@@ -112,6 +120,7 @@ export class MessageService {
           pinned_at: null,
           pinned_by: null,
           ...(input.embeds?.length && { embeds: JSON.stringify(input.embeds) }),
+          ...(input.module && { modules: [input.module.id] }),
           ...(source && {
             webhook_id: source.webhookId,
             display_name_override: source.displayName ?? null,
@@ -130,7 +139,8 @@ export class MessageService {
       // A new message has no mention rows yet, so nothing to delete, and what was inserted is
       // exactly what the loaded message will carry.
       const notify = await this.syncMentions(trx, row.id, channelId, author.id, content, true);
-      const message = await new MessageReader(trx).loadCreated(row.id, {
+      await input.module?.setup(trx, row.id);
+      const message = await new MessageReader(trx, this.decorators).loadCreated(row.id, {
         mentions: notify,
         hasAttachments: attachmentIds.length > 0,
       });
@@ -144,6 +154,7 @@ export class MessageService {
       ...(nonce && { nonce }),
     });
     await this.notifyMentions(channelId, message.id, notify);
+    this.domain.emit('message.created', { guildId: channel.guild_id, channelId, message });
     return message;
   }
 
@@ -162,12 +173,17 @@ export class MessageService {
         .where('id', '=', messageId)
         .execute();
       const notify = await this.syncMentions(trx, messageId, target.channel_id, actor.id, content);
-      const message = await new MessageReader(trx).loadOne(messageId);
+      const message = await new MessageReader(trx, this.decorators).loadOne(messageId);
       await this.emit(trx, target.guild_id, target.channel_id, 'message.updated', { message });
       return { message, notify };
     });
     await this.events.toChannel(target.channel_id, { type: 'message.updated', message });
     await this.notifyMentions(target.channel_id, messageId, notify);
+    this.domain.emit('message.updated', {
+      guildId: target.guild_id,
+      channelId: target.channel_id,
+      message,
+    });
     return message;
   }
 
@@ -199,124 +215,39 @@ export class MessageService {
       channelId: target.channel_id,
       messageId,
     });
-  }
-
-  async addReaction(actor: Actor, messageId: string, emoji: string): Promise<void> {
-    const target = await this.reactable(actor, messageId, emoji);
-    const added = await this.db.transaction().execute(async (trx) => {
-      // Serializes reactions on one message so the distinct-emoji cap cannot be raced past.
-      await trx
-        .selectFrom('messages')
-        .select('id')
-        .where('id', '=', messageId)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-      const distinct = await trx
-        .selectFrom('message_reactions')
-        .select('emoji')
-        .where('message_id', '=', messageId)
-        .groupBy('emoji')
-        .execute();
-      const known = distinct.some((row) => row.emoji === emoji);
-      if (!known && distinct.length >= MAX_REACTIONS_PER_MESSAGE) {
-        throw new AppError(400, 'reaction_limit', 'This message has too many different reactions');
-      }
-      const row = await trx
-        .insertInto('message_reactions')
-        .values({ message_id: messageId, user_id: actor.id, emoji })
-        .onConflict((oc) => oc.doNothing())
-        .returning('user_id')
-        .executeTakeFirst();
-      if (row) {
-        await this.emit(trx, target.guild_id, target.channel_id, 'reaction.added', {
-          channelId: target.channel_id,
-          messageId,
-          emoji,
-          userId: actor.id,
-        });
-      }
-      return row !== undefined;
+    this.domain.emit('message.deleted', {
+      guildId: target.guild_id,
+      channelId: target.channel_id,
+      messageId,
     });
-    if (added) {
-      await this.events.toChannel(target.channel_id, {
-        type: 'reaction.added',
-        channelId: target.channel_id,
-        messageId,
-        emoji,
-        userId: actor.id,
-      });
-    }
   }
 
-  async removeReaction(actor: Actor, messageId: string, emoji: string): Promise<void> {
-    const target = await this.reactable(actor, messageId, emoji);
-    const removed = await this.db.transaction().execute(async (trx) => {
-      const row = await trx
-        .deleteFrom('message_reactions')
-        .where('message_id', '=', messageId)
-        .where('user_id', '=', actor.id)
-        .where('emoji', '=', emoji)
-        .returning('user_id')
-        .executeTakeFirst();
-      if (row) {
-        await this.emit(trx, target.guild_id, target.channel_id, 'reaction.removed', {
-          channelId: target.channel_id,
-          messageId,
-          emoji,
-          userId: actor.id,
-        });
-      }
-      return row !== undefined;
-    });
-    if (removed) {
-      await this.events.toChannel(target.channel_id, {
-        type: 'reaction.removed',
-        channelId: target.channel_id,
-        messageId,
-        emoji,
-        userId: actor.id,
-      });
-    }
-  }
-
-  async setPinned(actor: Actor, messageId: string, pinned: boolean): Promise<Message> {
-    const target = await this.find(messageId, actor.id);
-    if (!target.isMember) throw forbidden();
-    if (target.deleted_at) throw notFound();
+  /**
+   * For modules that keep their own state in a message's columns (pins): runs `change` in a
+   * transaction, and if it reports a change, announces the message as updated everywhere
+   * (outbox, realtime, in-process event). Returns the message either way.
+   */
+  async update(
+    target: Pick<MessageTarget, 'id' | 'channel_id' | 'guild_id'>,
+    change: (trx: Transaction<Database>) => Promise<boolean>,
+  ): Promise<{ changed: boolean; message: Message }> {
     const { changed, message } = await this.db.transaction().execute(async (trx) => {
-      const changed = await trx
-        .updateTable('messages')
-        .set(
-          pinned
-            ? { pinned_at: new Date(), pinned_by: actor.id }
-            : { pinned_at: null, pinned_by: null },
-        )
-        .where('id', '=', messageId)
-        .where('pinned_at', pinned ? 'is' : 'is not', null)
-        .returning('id')
-        .executeTakeFirst();
-      const message = await new MessageReader(trx).loadOne(messageId);
+      const changed = await change(trx);
+      const message = await new MessageReader(trx, this.decorators).loadOne(target.id);
       if (changed) {
         await this.emit(trx, target.guild_id, target.channel_id, 'message.updated', { message });
       }
       return { changed, message };
     });
-    if (changed)
+    if (changed) {
       await this.events.toChannel(target.channel_id, { type: 'message.updated', message });
-    return message;
-  }
-
-  async pins(actor: Actor, channelId: string): Promise<Message[]> {
-    await this.channels.requireMember(channelId, actor.id);
-    const rows = await this.reader
-      .query()
-      .where('messages.channel_id', '=', channelId)
-      .where('messages.pinned_at', 'is not', null)
-      .where('messages.deleted_at', 'is', null)
-      .orderBy('messages.pinned_at', 'desc')
-      .limit(MAX_PINS)
-      .execute();
-    return this.reader.hydrate(rows);
+      this.domain.emit('message.updated', {
+        guildId: target.guild_id,
+        channelId: target.channel_id,
+        message,
+      });
+    }
+    return { changed, message };
   }
 
   /** Keyset pagination: newest `limit` messages older than `before`, returned oldest first. */
@@ -342,18 +273,8 @@ export class MessageService {
     return this.reader.pageAsFetched(rows, limit);
   }
 
-  private async reactable(actor: Actor, messageId: string, emoji: string) {
-    if (!isValidEmoji(emoji)) throw new AppError(400, 'invalid_emoji', 'Not a valid emoji');
-    const target = await this.find(messageId, actor.id);
-    if (!target.isMember) throw forbidden();
-    if (target.deleted_at) throw notFound();
-    if (!(await this.reactionLimiter.consume(actor.id))) {
-      throw new AppError(429, 'rate_limited', 'You are reacting too quickly');
-    }
-    return target;
-  }
-
-  private async find(messageId: string, userId: string) {
+  /** The message with the caller's membership of its channel; 404 if it does not exist. */
+  async find(messageId: string, userId: string): Promise<MessageTarget> {
     const row = await this.db
       .selectFrom('messages')
       .select(['id', 'channel_id', 'author_id', 'deleted_at'])
@@ -378,7 +299,7 @@ export class MessageService {
       .where('id', '=', messageId)
       .executeTakeFirst();
     if (!row) throw notFound();
-    return { ...row, isMember: row.is_member };
+    return { ...row, isMember: Boolean(row.is_member) };
   }
 
   /**
@@ -443,5 +364,6 @@ export class MessageService {
   }
 }
 
-const notFound = () => new AppError(404, 'message_not_found', 'Message not found');
-const forbidden = () => new AppError(403, 'forbidden', 'You are not a member of this channel');
+export const notFound = () => new AppError(404, 'message_not_found', 'Message not found');
+export const forbidden = () =>
+  new AppError(403, 'forbidden', 'You are not a member of this channel');

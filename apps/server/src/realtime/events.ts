@@ -4,6 +4,7 @@ import {
   channelTopic,
   userTopic,
   type ChannelEvent,
+  type ModuleFrame,
   type PresenceEvent,
   type UserEvent,
 } from '@harmony/shared';
@@ -18,6 +19,15 @@ export class EventBus {
 
   toUser(userId: string, event: UserEvent): Promise<unknown> {
     return this.redis.publish(userTopic(userId), JSON.stringify(event));
+  }
+
+  /** Frames from modules; the caller has already checked they belong to the module. */
+  moduleToChannel(channelId: string, frame: ModuleFrame): Promise<unknown> {
+    return this.redis.publish(channelTopic(channelId), JSON.stringify(frame));
+  }
+
+  moduleToUser(userId: string, frame: ModuleFrame): Promise<unknown> {
+    return this.redis.publish(userTopic(userId), JSON.stringify(frame));
   }
 
   toEveryone(event: PresenceEvent): Promise<unknown> {

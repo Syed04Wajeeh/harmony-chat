@@ -3,6 +3,7 @@ import { WebSocket } from 'ws';
 import {
   CHANNEL_TOPIC_PREFIX,
   ChannelEvent,
+  ModuleFrame,
   PRESENCE_TOPIC,
   PresenceEvent,
   USER_TOPIC_PREFIX,
@@ -40,6 +41,7 @@ export interface HubLogger {
 export class Hub {
   private readonly rooms = new Map<string, Room>();
   private readonly clients = new Set<HubClient>();
+  private readonly listeners = new Map<string, (payload: string) => void>();
   private readonly heartbeat: NodeJS.Timeout;
 
   constructor(
@@ -73,6 +75,12 @@ export class Hub {
     this.clients.add(client);
     client.ready = this.enter(userTopic(user.id), client);
     return client;
+  }
+
+  /** Subscribes this instance to a Redis topic for its own use, not for sockets. */
+  listen(topic: string, listener: (payload: string) => void): Promise<unknown> {
+    this.listeners.set(topic, listener);
+    return this.subscriber.subscribe(topic);
   }
 
   /** Resolves once messages published from now on will reach this client. */
@@ -129,6 +137,11 @@ export class Hub {
   }
 
   private dispatch(topic: string, payload: string): void {
+    const listener = this.listeners.get(topic);
+    if (listener) {
+      listener(payload);
+      return;
+    }
     try {
       if (topic === PRESENCE_TOPIC) {
         const json = JSON.stringify(PresenceEvent.parse(JSON.parse(payload)));
@@ -141,14 +154,17 @@ export class Hub {
 
       if (topic.startsWith(CHANNEL_TOPIC_PREFIX)) {
         // Validated once, serialized once; every local socket gets the same string.
-        const out = JSON.stringify(ChannelEvent.parse(json));
+        const out = JSON.stringify(parseChannelFrame(json));
         for (const client of room.clients) this.sendJson(client, out);
       } else if (topic.startsWith(USER_TOPIC_PREFIX)) {
-        const frame = UserEvent.parse(json);
+        const core = UserEvent.safeParse(json);
+        const out = JSON.stringify(core.success ? core.data : ModuleFrame.parse(json));
         for (const client of [...room.clients]) {
           // Losing membership ends the live subscription too, not just future subscribes.
-          if (frame.type === 'channel.removed') this.leave(client, frame.channelId);
-          this.send(client, frame);
+          if (core.success && core.data.type === 'channel.removed') {
+            this.leave(client, core.data.channelId);
+          }
+          this.sendJson(client, out);
         }
       }
     } catch (err) {
@@ -166,4 +182,10 @@ export class Hub {
       client.socket.ping();
     }
   }
+}
+
+/** Core events first (the hot path); anything else must be a well-formed module frame. */
+function parseChannelFrame(json: unknown): ChannelEvent | ModuleFrame {
+  const core = ChannelEvent.safeParse(json);
+  return core.success ? core.data : ModuleFrame.parse(json);
 }

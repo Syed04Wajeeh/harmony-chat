@@ -86,11 +86,15 @@ behavior and gives examples.
     "id": "0b0c2d5e-6a53-4f5e-9d8e-0d6b1c1f0a11", "filename": "cat.png", "contentType": "image/png",
     "sizeBytes": 20481, "width": 640, "height": 480,
     "url": "/api/attachments/0b0c2d5e-6a53-4f5e-9d8e-0d6b1c1f0a11/cat.png" } ],
-  "mentions": ["8"]
+  "mentions": ["8"],
+  "modules": { "polls": { "...Poll": "..." } }
 }
 ```
 
 Message notes:
+
+- `modules` is present only on messages a module attached data to, keyed by module id (see
+  [Modules](#modules)). Clients validate each entry themselves and ignore ids they do not know.
 
 - `content` may be empty only when the message has attachments (or is deleted).
 - A deleted message is served as a tombstone: `deleted: true`, `content: ""`, no attachments,
@@ -314,7 +318,7 @@ Members only. `:emoji` is URL-encoded: a single Unicode emoji (`%F0%9F%91%8D`) o
 shortcode `:name:` (`^:[a-z0-9_]{2,32}:$`, encoded as `%3Aname%3A`). Response `204`; both are
 idempotent. Broadcast as `reaction.added` / `reaction.removed` only when something changed.
 A message holds at most 20 distinct emoji. Errors: `400 invalid_emoji`, `400 reaction_limit`,
-`404`, `429`.
+`404`, `429`. Provided by the `reactions` module: `404 module_disabled` in guilds that switched it off.
 
 ### `PUT /api/messages/:id/pin` and `DELETE /api/messages/:id/pin`
 
@@ -324,6 +328,7 @@ Any member. Response `200` Message (with `pinnedAt`/`pinnedBy` set or cleared). 
 ### `GET /api/channels/:id/pins`
 
 Members only. Response `200` `{ "messages": Message[] }`, newest pin first, at most 50.
+Pinning is provided by the `pins` module: `404 module_disabled` in guilds that switched it off.
 
 ## Search
 
@@ -334,6 +339,95 @@ messages. `q` (1-200 chars) uses web-search syntax: words are ANDed, `"quoted ph
 and `-exclude` work. Matching is on whole words with no stemming. `channelId` narrows to one
 channel (not a member: empty result). Page by passing the last returned id as `before`.
 Response `200` `{ "messages": Message[], "hasMore": boolean }` (newest first, unlike history).
+Provided by the `search` module: guilds that switched it off are left out of the results.
+
+## Modules
+
+Features beyond the core are modules (see [docs/modules.md](../modules.md)). Each server can switch
+optional modules off; the instance can switch any off with `MODULES_DISABLED`.
+
+### `GET /api/guilds/:id/modules`
+
+Members (bots with `channels.read`). `{modules: [GuildModule]}` for every module the instance runs:
+
+```json
+{
+  "id": "polls",
+  "name": "Polls",
+  "description": "Ask a question and let people vote...",
+  "optional": true,
+  "enabled": true,
+  "dependsOn": [],
+  "settings": { "allowMultipleChoice": true },
+  "settingsSchema": {
+    "type": "object",
+    "properties": {
+      "allowMultipleChoice": {
+        "type": "boolean",
+        "default": true,
+        "title": "Allow multiple choice"
+      }
+    }
+  },
+  "permissions": [{ "key": "polls.create", "description": "Create polls" }]
+}
+```
+
+`settingsSchema` is a JSON Schema (or `null`) that a client can turn into a form. `permissions` are
+declared for a future role system and are not enforced.
+
+### `PUT /api/guilds/:id/modules/:moduleId`
+
+Humans only; the guild owner or an instance admin. Body `{enabled?, settings?}` (at least one).
+`settings` is merged into the current settings and validated against the module's schema. Returns the
+updated `GuildModule`. Errors: `400 invalid_settings`, `404 module_not_found`, `409 module_required`
+(not optional), `409 dependency_disabled`, `409 module_in_use`.
+
+Every member is sent `guild.modules_updated` (below). A disabled module's routes answer
+`404 module_disabled` for that guild, its slash commands disappear from autocomplete, and its
+built-in commands stop running there. Data already stored is kept.
+
+### Module frames
+
+Modules add WebSocket frames named `<moduleId>.<name>`; ids that start a core frame (`message`,
+`reaction`, `guild`, `channel`, `read`, `presence`, `interaction`, ...) are reserved. Server-to-client
+module frames travel on the same channel and user topics as core events. A client that does not know
+a module ignores its frames. Client-to-server module frames are validated by the module; a malformed
+or unknown one gets `invalid_frame`. Bots may send a module frame only if the module names a scope
+for it and the bot holds it.
+
+### Polls
+
+A poll is a message whose `modules.polls` holds the tallies; its `content` is the question.
+
+```json
+{
+  "multiple": false,
+  "closed": false,
+  "closedAt": null,
+  "totalVoters": 3,
+  "options": [
+    { "id": 1, "label": "Pizza", "votes": 2, "voterIds": ["7", "8"] },
+    { "id": 2, "label": "Ramen", "votes": 1, "voterIds": ["9"] }
+  ]
+}
+```
+
+`totalVoters` counts distinct people and is the denominator for percentages. `voterIds` lists everyone
+who voted for the option (polls are not anonymous).
+
+| Endpoint                                                        | Notes                                                                                                                                                                                             |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/channels/:id/polls` `{question, options, multiple?}` | Scope `messages.write`. 1 to 300 characters of question, 2 to 10 different options of up to 100 characters. `201` with the `Message`. `400 multiple_choice_disabled` if the server turned it off. |
+| `GET /api/polls/:id`                                            | `:id` is the message id. Scope `messages.read`. `200` with the `Poll`.                                                                                                                            |
+| `PUT /api/polls/:id/votes` `{optionIds}`                        | Scope `messages.write`. Replaces your votes; `[]` retracts them. One id on a single-choice poll (`400 single_choice`), `400 invalid_option`, `409 poll_closed`. Returns the `Poll`.               |
+| `POST /api/polls/:id/close`                                     | Scope `messages.write`. Author only (`403`). Idempotent. Returns the `Poll`.                                                                                                                      |
+
+Server to client, on the channel topic: `{"type":"polls.updated","channelId","messageId","poll"}`
+after every vote and when a poll closes. Client to server: `{"type":"polls.vote","messageId","optionIds"}`
+(scope `messages.write` for bots), the WebSocket twin of the vote endpoint; failures arrive as
+`error` frames. The built-in command `/poll question:<text> options:<a|b|c> [multiple:<true|false>]`
+creates a poll as the caller.
 
 ## Uploads
 
@@ -465,6 +559,7 @@ long disconnect if that matters.
 { "type": "guild.removed", "guildId": "3" }
 { "type": "guild.member_joined", "guildId": "3", "user": { "...DirectoryUser": "..." } }
 { "type": "guild.member_left", "guildId": "3", "userId": "8" }
+{ "type": "guild.modules_updated", "guildId": "3", "moduleId": "polls", "enabled": false, "settings": { "allowMultipleChoice": true } }
 { "type": "interaction.ephemeral", "interactionId": "5", "channelId": "11", "command": "echo", "botId": "9", "content": "only you", "nonce": "abc" }
 { "type": "interaction.pending", "interactionId": "5", "channelId": "11", "command": "roll", "botId": "9", "expiresAt": "2026-10-22T09:30:00.000Z", "nonce": "abc" }
 { "type": "interaction.failed", "interactionId": "5", "channelId": "11", "command": "roll", "botId": "9", "reason": "timeout", "nonce": "abc" }
@@ -475,6 +570,10 @@ long disconnect if that matters.
   unarchived. `channel.removed` is the reverse (removed, left, archived, guild left or deleted).
   Add or drop the sidebar entry and its subscription.
 - On `guild.joined` fetch `GET /api/guilds/:id/channels` for the guild's channels.
+- `botId` in `interaction.*` frames is `null` for built-in commands, which add `source` (the module's
+  name).
+- `guild.modules_updated` is sent to every member of the guild when a module is switched or its settings
+  change. Update the cached state and show or hide that module's UI.
 - `mention` means someone mentioned you in a message or edit (never your own). Combine with
   `read.updated` counts for badges.
 
@@ -621,7 +720,13 @@ unique per guild: `409 command_conflict` if another bot owns it. Removing a bot 
 removes its commands there.
 
 **List** (for autocomplete): `GET /api/guilds/:id/commands` returns
-`{commands: [{botId, botName, name, description, options}]}`.
+`{commands: [{botId, botName, name, description, options, moduleId?}]}`. Built-in commands from modules
+are listed with `botId: null`, `botName` set to the module's name and `moduleId`. Built-in and bot
+commands share one namespace per guild: a built-in name is reserved (registering it is
+`409 command_conflict`), a built-in wins at invocation in guilds where its module is enabled, and an
+older bot command of the same name is hidden there and works again where the module is off. Built-ins
+run in-process, to completion, before the `202`; their outcome is a message from the caller or an
+`interaction.ephemeral` frame, and their `interactionId` is a fresh number.
 
 **Invoke** (humans only), in a guild text channel you belong to. Either a WebSocket frame
 

@@ -1,10 +1,11 @@
+import { randomBytes } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import {
+  BotMessage,
   INTERACTION_TTL_SECONDS,
   InteractionResponse,
   stripMassMentions,
   validateCommandOptions,
-  type BotMessage,
   type CommandOption,
   type DirectoryUser,
   type InteractionFailureReason,
@@ -18,6 +19,8 @@ import type { ChannelService } from '../channels/service.js';
 import type { Database } from '../db/schema.js';
 import { AppError } from '../errors.js';
 import type { MessageService } from '../messages/service.js';
+import type { BuiltinCommands, RegisteredCommand } from '../modules/builtin-commands.js';
+import type { GuildModuleState } from '../modules/guild-state.js';
 import { OutboundError, type PrivateAllowlist } from '../outbound/policy.js';
 import { safeFetch } from '../outbound/safe-fetch.js';
 import type { RateLimiter } from '../rate-limit.js';
@@ -51,6 +54,8 @@ export class InteractionService {
     private readonly limiter: RateLimiter,
     private readonly options: { deadlineMs: number; allowlist: PrivateAllowlist },
     private readonly log: InteractionLogger,
+    private readonly builtins: BuiltinCommands,
+    private readonly moduleState: GuildModuleState,
   ) {}
 
   /** Waits for in-flight bot calls; used on shutdown and by tests. */
@@ -72,6 +77,12 @@ export class InteractionService {
     }
     if (channel.archived_at) throw new AppError(409, 'channel_archived', 'Channel is archived');
     const guildId = channel.guild_id;
+
+    // A built-in wins over a bot's command of the same name, but only where its module is on.
+    const builtin = this.builtins.get(body.name);
+    if (builtin && (await this.moduleState.isEnabled(guildId, builtin.moduleId))) {
+      return this.invokeBuiltin(builtin, user, channelId, guildId, body);
+    }
 
     const command = await this.db
       .selectFrom('bot_commands as c')
@@ -145,6 +156,44 @@ export class InteractionService {
       .finally(() => this.inflight.delete(run));
     this.inflight.add(run);
     return { interactionId: row.id };
+  }
+
+  /**
+   * Built-in commands run in this process, to completion, before the request is answered.
+   * Validation and the shape of the outcome match bot commands: a public message or an
+   * ephemeral note, delivered the same way. A public answer is posted as the caller.
+   */
+  private async invokeBuiltin(
+    builtin: RegisteredCommand,
+    user: DirectoryUser,
+    channelId: string,
+    guildId: string,
+    body: InvokeCommandBody,
+  ) {
+    const definitions = builtin.definition.options;
+    const checked = validateCommandOptions(definitions, body.options);
+    if (!checked.ok) throw new AppError(400, 'invalid_options', checked.error);
+    await this.checkReferences(definitions, checked.values, guildId, user.id);
+
+    const interactionId = BigInt(`0x${randomBytes(7).toString('hex')}`).toString();
+    const result = await builtin.handler({ user, guildId, channelId, options: checked.values });
+    if (result !== undefined) {
+      const answer = BotMessage.parse(result);
+      if (answer.ephemeral) {
+        await this.sendEphemeral(user.id, {
+          interactionId,
+          channelId,
+          command: body.name,
+          botId: null,
+          source: builtin.moduleName,
+          nonce: body.nonce,
+          message: answer,
+        });
+      } else {
+        await this.post(user, channelId, answer);
+      }
+    }
+    return { interactionId };
   }
 
   /** A bot's late answer to a deferred interaction; the interaction token is the credential. */
@@ -289,7 +338,8 @@ export class InteractionService {
       interactionId: string;
       channelId: string;
       command: string;
-      botId: string;
+      botId: string | null;
+      source?: string;
       nonce: string | undefined;
       message: BotMessage;
     },
@@ -300,6 +350,7 @@ export class InteractionService {
       channelId: info.channelId,
       command: info.command,
       botId: info.botId,
+      ...(info.source && { source: info.source }),
       content: info.message.content,
       ...(info.message.embeds && { embeds: info.message.embeds }),
       ...(info.nonce && { nonce: info.nonce }),

@@ -90,7 +90,8 @@ test('a bot made in the UI answers slash commands through the echo example', asy
     const box = page.getByRole('textbox', { name: /^Message #/ });
     await box.fill('/');
     const list = page.getByRole('listbox', { name: 'Slash commands' });
-    await expect(list.getByRole('option')).toHaveCount(2);
+    // Built-in commands from modules (/poll, /coinflip) are listed too.
+    await expect(list.getByRole('option').filter({ hasText: `Echo ${run}` })).toHaveCount(2);
     await expect(list).toContainText('Repeat text back');
     await expect(list).toContainText(`Echo ${run}`);
 

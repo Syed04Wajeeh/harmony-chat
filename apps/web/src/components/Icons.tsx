@@ -171,3 +171,13 @@ export const MoreIcon = (p: P) => (
     <circle cx="18.5" cy="12" r="1" />
   </Icon>
 );
+export const PollIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+  </Icon>
+);
+export const ModulesIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M10 3H4v6h6V3ZM20 3h-6v6h6V3ZM10 15H4v6h6v-6ZM17 13v8M13 17h8" />
+  </Icon>
+);

@@ -14,6 +14,7 @@ export function mergeMessages(
 export function tombstone(message: Message): Message {
   return {
     ...message,
+    modules: undefined,
     deleted: true,
     content: '',
     attachments: [],

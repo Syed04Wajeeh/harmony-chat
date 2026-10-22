@@ -17,8 +17,8 @@ export function InteractionItem({
   channelId: string;
 }) {
   const { nameOf, meId } = useMessageHandlers();
-  const bot = useApp((state) => state.users[item.botId]);
-  const name = bot?.displayName ?? 'The bot';
+  const bot = useApp((state) => (item.botId ? state.users[item.botId] : undefined));
+  const name = item.source ?? bot?.displayName ?? 'The bot';
   const dismiss = () => appStore.getState().dismissInteraction(channelId, item.key);
 
   if (item.kind === 'failed') {
@@ -36,7 +36,11 @@ export function InteractionItem({
     );
   }
 
-  const author = { id: item.botId, displayName: name, avatarUrl: bot?.avatarUrl ?? null };
+  const author = {
+    id: item.botId ?? item.source ?? 'app',
+    displayName: name,
+    avatarUrl: bot?.avatarUrl ?? null,
+  };
   return (
     <li className="message message-local" data-kind={item.kind}>
       <div className="message-row">
@@ -46,7 +50,7 @@ export function InteractionItem({
         <div className="message-body">
           <div className="message-header">
             <span className="message-author">{name}</span>
-            <AuthorBadge kind="bot" />
+            {item.botId && <AuthorBadge kind="bot" />}
             <span className="message-command">used /{item.command}</span>
           </div>
           {item.kind === 'pending' ? (

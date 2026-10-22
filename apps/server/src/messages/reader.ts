@@ -7,6 +7,7 @@ import {
   type Reaction,
 } from '@harmony/shared';
 import type { Database } from '../db/schema.js';
+import { MessageDecorators } from './decorators.js';
 
 export interface MessageRow {
   id: string;
@@ -27,6 +28,7 @@ export interface MessageRow {
   display_name_override: string | null;
   avatar_url_override: string | null;
   embeds: unknown;
+  modules: string[];
   parent_id: string | null;
   parent_author_id: string | null;
   parent_preview: string | null;
@@ -46,7 +48,10 @@ export const attachmentUrl = (id: string, filename: string): string =>
  * attachments and mentions for the whole page with one query each, never per message.
  */
 export class MessageReader {
-  constructor(private readonly db: Kysely<Database>) {}
+  constructor(
+    private readonly db: Kysely<Database>,
+    private readonly decorators: MessageDecorators = new MessageDecorators(),
+  ) {}
 
   query() {
     return this.db
@@ -72,6 +77,7 @@ export class MessageReader {
         'messages.display_name_override',
         'messages.avatar_url_override',
         'messages.embeds',
+        'messages.modules',
         'parent.id as parent_id',
         'parent.author_id as parent_author_id',
         'parent.deleted_at as parent_deleted_at',
@@ -135,10 +141,11 @@ export class MessageReader {
     } = {},
   ): Promise<Message[]> {
     const visible = rows.filter((row) => !row.deleted_at).map((row) => row.id);
-    const [reactions, attachments, mentions] = await Promise.all([
+    const [reactions, attachments, mentions, modules] = await Promise.all([
       known.reactions ?? this.reactions(visible),
       known.attachments ?? this.attachments(visible),
       known.mentions ?? this.mentions(visible),
+      this.decorate(rows),
     ]);
     return rows.map((row) => {
       const deleted = row.deleted_at !== null;
@@ -177,8 +184,38 @@ export class MessageReader {
         ...(!deleted &&
           Array.isArray(row.embeds) &&
           row.embeds.length > 0 && { embeds: row.embeds as Embed[] }),
+        ...(modules.has(row.id) && { modules: modules.get(row.id) }),
       };
     });
+  }
+
+  /**
+   * Asks each module for the data of the messages that carry its marker, one batched call per
+   * module. Rows without markers (nearly all of them) cost a length check and no query.
+   */
+  private async decorate(rows: MessageRow[]): Promise<Map<string, Record<string, unknown>>> {
+    const wanted = new Map<string, string[]>();
+    for (const row of rows) {
+      if (row.deleted_at || row.modules.length === 0) continue;
+      for (const moduleId of row.modules) {
+        if (!this.decorators.get(moduleId)) continue;
+        const ids = wanted.get(moduleId) ?? [];
+        ids.push(row.id);
+        wanted.set(moduleId, ids);
+      }
+    }
+    const result = new Map<string, Record<string, unknown>>();
+    await Promise.all(
+      [...wanted].map(async ([moduleId, ids]) => {
+        const data = await this.decorators.get(moduleId)?.(ids, this.db);
+        for (const [messageId, value] of data ?? []) {
+          const entry = result.get(messageId) ?? {};
+          entry[moduleId] = value;
+          result.set(messageId, entry);
+        }
+      }),
+    );
+    return result;
   }
 
   private async reactions(ids: string[]): Promise<Map<string, Reaction[]>> {

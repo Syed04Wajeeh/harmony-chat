@@ -1,6 +1,7 @@
 import type { RealtimeClient } from '../api/realtime.js';
 import { describeError } from '../lib/errors.js';
-import { fetchSnapshot, loadLatest, reportError } from './actions.js';
+import { fetchSnapshot, loadGuildModules, loadLatest, reportError } from './actions.js';
+import { routeModuleFrame } from '../modules/registry.js';
 import { getRealtime } from './connection.js';
 import { appStore } from './store.js';
 import { useUi } from './ui.js';
@@ -69,6 +70,10 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
         if (id !== activeChannelId) appStore.getState().dropHistory(id);
       appStore.getState().loadSnapshot(snapshot, me);
       if (activeChannelId) void loadLatest(activeChannelId);
+      // Module switches may have changed while the socket was down.
+      for (const guildId of Object.keys(appStore.getState().guildModules)) {
+        void loadGuildModules(guildId);
+      }
     } catch (error) {
       reportError(error, 'Could not refresh after reconnecting');
     }
@@ -99,6 +104,9 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
     }
     if (frame.type === 'channel.joined' || frame.type === 'guild.removed') syncSubscriptions();
   });
+  const offModuleFrame = realtime.onModuleFrame((frame) => {
+    routeModuleFrame(frame);
+  });
   const offStore = appStore.subscribe((state, previous) => {
     if (state.channels !== previous.channels) syncSubscriptions();
   });
@@ -110,6 +118,7 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
   return () => {
     offStatus();
     offFrame();
+    offModuleFrame();
     offStore();
     clearInterval(refill);
     clearTimeout(timer);

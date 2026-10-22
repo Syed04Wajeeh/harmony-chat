@@ -2,7 +2,8 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer } from '@testcontainers/redis';
 import type { TestProject } from 'vitest/node';
 import { createDb } from '../../src/db.js';
-import { createMigrator } from '../../src/migrator.js';
+import { migrateAll } from '../../src/migrator.js';
+import { modules } from '../../src/modules/index.js';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -19,7 +20,7 @@ export default async function setup(project: TestProject): Promise<() => Promise
   ]);
 
   const db = createDb(postgres.getConnectionUri());
-  const { error } = await createMigrator(db).migrateToLatest();
+  const { error } = await migrateAll(db, modules);
   await db.destroy();
   if (error) throw new Error('migration failed', { cause: error });
 

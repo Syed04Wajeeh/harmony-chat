@@ -1,22 +1,24 @@
-import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
+import multipart from '@fastify/multipart';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { AttachmentParams, UploadResponse } from '@harmony/shared';
-import { AppError } from '../errors.js';
-import type { RateLimiter } from '../rate-limit.js';
+import { AppError } from '../../errors.js';
+import type { RateLimiter } from '../../rate-limit.js';
 import type { UploadService } from './service.js';
 
 export interface UploadRoutesOptions {
   uploads: UploadService;
   limiter: RateLimiter;
+  maxBytes: number;
 }
 
 /** Only raster formats browsers cannot be tricked into executing are shown inline. */
 const INLINE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
-export const uploadRoutes: FastifyPluginCallbackZod<UploadRoutesOptions> = (
+export const uploadRoutes: FastifyPluginAsyncZod<UploadRoutesOptions> = async (
   app,
-  { uploads, limiter },
-  done,
+  { uploads, limiter, maxBytes },
 ) => {
+  await app.register(multipart, { limits: { fileSize: maxBytes, files: 1, fields: 5 } });
   app.post(
     '/uploads',
     { config: { humanOnly: true }, schema: { response: { 201: UploadResponse } } },
@@ -54,5 +56,4 @@ export const uploadRoutes: FastifyPluginCallbackZod<UploadRoutesOptions> = (
         .send(stream);
     },
   );
-  done();
 };

@@ -5,18 +5,15 @@ import { useApp } from '../store/store.js';
 import { useUi } from '../store/ui.js';
 import { Avatar } from './Avatar.js';
 import { AddMembersDialog } from './dialogs/AddMembersDialog.js';
-import { HashIcon, LockIcon, MenuIcon, SearchIcon, UsersIcon } from './Icons.js';
-import { PinsPopover } from './PinsPopover.js';
+import { HashIcon, LockIcon, MenuIcon, UsersIcon } from './Icons.js';
+import { ChannelHeaderSlots } from '../modules/slots.js';
 import { usePresenceOf } from './ProfilePopover.js';
 
 interface Props {
   channel: ChannelSummary;
-  onJump: (messageId: string) => void;
-  searchOpen: boolean;
-  onToggleSearch: () => void;
 }
 
-export function ChannelHeader({ channel, onJump, searchOpen, onToggleSearch }: Props) {
+export function ChannelHeader({ channel }: Props) {
   const desktop = useIsDesktop();
   const drawer = useUi((state) => state.drawer);
   const setDrawer = useUi((state) => state.setDrawer);
@@ -92,15 +89,7 @@ export function ChannelHeader({ channel, onJump, searchOpen, onToggleSearch }: P
             />
           </>
         )}
-        <PinsPopover channelId={channel.id} onJump={onJump} />
-        <button
-          className="icon-button"
-          aria-label="Search"
-          aria-pressed={searchOpen}
-          onClick={onToggleSearch}
-        >
-          <SearchIcon />
-        </button>
+        <ChannelHeaderSlots channelId={channel.id} />
         {!isDm && (
           <button
             className="icon-button"

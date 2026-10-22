@@ -26,11 +26,11 @@ network it sits on is shared with untrusted containers.
 
 ## Reaching it
 
-| Caller | Address |
-|---|---|
-| Script or cron job on the host | `http://127.0.0.1:8471` |
-| Container in another Compose project on the same host | attach the ingress to that project's network (below), then `http://harmony-integrations:8081` |
-| Device on the tailnet | the public URL, e.g. `https://chat.example.ts.net:18470` (webhook paths and bot tokens work there too) |
+| Caller                                                | Address                                                                                                |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Script or cron job on the host                        | `http://127.0.0.1:8471`                                                                                |
+| Container in another Compose project on the same host | attach the ingress to that project's network (below), then `http://harmony-integrations:8081`          |
+| Device on the tailnet                                 | the public URL, e.g. `https://chat.example.ts.net:18470` (webhook paths and bot tokens work there too) |
 
 Attaching to another project's network only changes Harmony's own container. Copy
 `docker-compose.override.example.yml` to `docker-compose.override.yml` (gitignored, as

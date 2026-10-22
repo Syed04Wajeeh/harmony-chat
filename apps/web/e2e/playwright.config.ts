@@ -25,6 +25,7 @@ export default defineConfig({
             'messaging.spec.ts',
             'uploads.spec.ts',
             'servers.spec.ts',
+            'polls.spec.ts',
           ],
           use: { viewport: { width: 1280, height: 800 } },
         },

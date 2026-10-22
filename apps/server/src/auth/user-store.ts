@@ -2,6 +2,7 @@ import { sql, type Kysely, type Selectable } from 'kysely';
 import type { DirectoryUser, Me, UserStatus } from '@harmony/shared';
 import type { Database } from '../db/schema.js';
 import { addGuildMember, createGuildWithGeneral } from '../guilds/membership.js';
+import type { DomainEvents } from '../modules/domain-events.js';
 import type { Identity } from './policy.js';
 
 interface CacheEntry {
@@ -35,6 +36,7 @@ export class UserStore {
   constructor(
     private readonly db: Kysely<Database>,
     private readonly ttlMs = 60_000,
+    private readonly domain?: DomainEvents,
   ) {}
 
   async resolve(identity: Identity): Promise<DirectoryUser> {
@@ -100,7 +102,8 @@ export class UserStore {
    * insert transaction, under an advisory lock so "no users yet" cannot be observed twice.
    */
   private async upsert(identity: Identity): Promise<Selectable<Database['users']>> {
-    return this.db.transaction().execute(async (trx) => {
+    let joinedGuildId: string | undefined;
+    const user = await this.db.transaction().execute(async (trx) => {
       await sql`select pg_advisory_xact_lock(${NEW_USER_LOCK})`.execute(trx);
       const { rows } = await sql<Selectable<Database['users']> & { inserted: boolean }>`
         insert into users (login, display_name, avatar_url, is_admin)
@@ -119,11 +122,27 @@ export class UserStore {
           .select('id')
           .where('is_default', '=', true)
           .executeTakeFirst();
-        if (fallback) await addGuildMember(trx, fallback.id, row.id);
-        else if (row.is_admin) await createGuildWithGeneral(trx, 'Harmony', row.id, true);
+        if (fallback) {
+          await addGuildMember(trx, fallback.id, row.id);
+          joinedGuildId = fallback.id;
+        } else if (row.is_admin) {
+          joinedGuildId = (await createGuildWithGeneral(trx, 'Harmony', row.id, true)).guildId;
+        }
       }
       return row;
     });
+    if (joinedGuildId) {
+      this.domain?.emit('member.joined', {
+        guildId: joinedGuildId,
+        user: {
+          id: user.id,
+          login: user.login,
+          displayName: user.display_name,
+          avatarUrl: user.avatar_url,
+        },
+      });
+    }
+    return user;
   }
 }
 

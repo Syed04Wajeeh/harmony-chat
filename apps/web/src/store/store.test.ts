@@ -406,3 +406,52 @@ describe('slash command interactions', () => {
     expect(state().users['9']?.isBot).toBe(true);
   });
 });
+
+describe('modules', () => {
+  const entry = (id: string, enabled: boolean) => ({
+    id,
+    name: id,
+    description: '',
+    optional: true,
+    enabled,
+    dependsOn: [],
+    settings: {},
+    settingsSchema: null,
+    permissions: [],
+  });
+
+  it('updates a loaded guild’s module from guild.modules_updated, and ignores unloaded guilds', () => {
+    state().setGuildModules('5', [entry('pins', true), entry('polls', true)]);
+    state().applyFrame({
+      type: 'guild.modules_updated',
+      guildId: '5',
+      moduleId: 'pins',
+      enabled: false,
+      settings: { a: 1 },
+    });
+    expect(state().guildModules['5']?.map((m) => [m.id, m.enabled])).toEqual([
+      ['pins', false],
+      ['polls', true],
+    ]);
+    state().applyFrame({
+      type: 'guild.modules_updated',
+      guildId: '6',
+      moduleId: 'pins',
+      enabled: false,
+      settings: {},
+    });
+    expect(state().guildModules['6']).toBeUndefined();
+  });
+
+  it('patches one cached message', () => {
+    state().patchMessage('10', '99', (m) => ({ ...m, modules: { polls: { x: 1 } } }));
+    expect(history().find((m) => m.id === '99')?.modules).toEqual({ polls: { x: 1 } });
+    expect(history().find((m) => m.id === '100')?.modules).toBeUndefined();
+  });
+
+  it('drops module data when a message is deleted', () => {
+    state().patchMessage('10', '99', (m) => ({ ...m, modules: { polls: {} } }));
+    state().applyFrame({ type: 'message.deleted', channelId: '10', messageId: '99' });
+    expect(history().find((m) => m.id === '99')?.modules).toBeUndefined();
+  });
+});

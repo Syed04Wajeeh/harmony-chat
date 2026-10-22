@@ -10,6 +10,7 @@ import {
   type InvitePreview,
   type PresenceStatus,
   type UpdateGuildBody,
+  type User,
 } from '@harmony/shared';
 import { toDirectoryUser } from '../auth/user-store.js';
 import type { ChannelService } from '../channels/service.js';
@@ -17,6 +18,7 @@ import type { Database } from '../db/schema.js';
 import { AppError } from '../errors.js';
 import { enqueueEvent } from '../events/outbox.js';
 import { attachmentUrl } from '../messages/reader.js';
+import type { DomainEvents } from '../modules/domain-events.js';
 import type { PresenceService } from '../presence/service.js';
 import type { EventBus } from '../realtime/events.js';
 import type { Storage } from '../uploads/storage.js';
@@ -47,6 +49,13 @@ const toGuild = (row: GuildRow): Guild => ({
   memberCount: row.member_count,
 });
 
+const toUser = ({ id, login, displayName, avatarUrl }: DirectoryUser): User => ({
+  id,
+  login,
+  displayName,
+  avatarUrl,
+});
+
 const notFound = () => new AppError(404, 'guild_not_found', 'Guild not found');
 
 export class GuildService {
@@ -56,6 +65,7 @@ export class GuildService {
     private readonly channels: ChannelService,
     private readonly presence: PresenceService,
     private readonly storage: Storage,
+    private readonly domain: DomainEvents,
   ) {}
 
   /** The user's guilds, each with their unread and mention counts summed over its channels. */
@@ -192,6 +202,7 @@ export class GuildService {
     await this.toMembers(guildId, (userId) =>
       this.events.toUser(userId, { type: 'guild.member_left', guildId, userId: actor.id }),
     );
+    this.domain.emit('member.left', { guildId, userId: actor.id });
   }
 
   async members(actor: Actor, guildId: string): Promise<GuildMember[]> {
@@ -317,6 +328,7 @@ export class GuildService {
           ? Promise.resolve()
           : this.events.toUser(memberId, { type: 'guild.member_joined', guildId, user }),
       );
+      this.domain.emit('member.joined', { guildId, user: toUser(user) });
     }
     return summary;
   }
@@ -326,6 +338,20 @@ export class GuildService {
     const [summary] = await this.list(userId, guildId);
     if (!summary) throw new Error('guild missing after create');
     await this.events.toUser(userId, { type: 'guild.joined', guild: summary });
+    const user = await this.db
+      .selectFrom('users')
+      .select(['id', 'login', 'display_name', 'avatar_url'])
+      .where('id', '=', userId)
+      .executeTakeFirstOrThrow();
+    this.domain.emit('member.joined', {
+      guildId,
+      user: {
+        id: user.id,
+        login: user.login,
+        displayName: user.display_name,
+        avatarUrl: user.avatar_url,
+      },
+    });
     return summary;
   }
 
@@ -341,7 +367,7 @@ export class GuildService {
     return toGuild(row);
   }
 
-  private async requireMember(guildId: string, userId: string) {
+  async requireMember(guildId: string, userId: string) {
     const guild = await this.db
       .selectFrom('guilds')
       .select(['id', 'owner_id'])
@@ -389,7 +415,7 @@ export class GuildService {
     return rows.map((row) => row.user_id);
   }
 
-  private async toMembers(guildId: string, publish: (userId: string) => Promise<unknown>) {
+  async toMembers(guildId: string, publish: (userId: string) => Promise<unknown>) {
     await Promise.all((await this.memberIds(guildId)).map(publish));
   }
 }

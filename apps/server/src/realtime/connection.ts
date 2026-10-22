@@ -14,6 +14,7 @@ import type { UserStore } from '../auth/user-store.js';
 import type { ChannelService } from '../channels/service.js';
 import { AppError } from '../errors.js';
 import type { MessageService } from '../messages/service.js';
+import type { ModuleFrames, WsFrameHandler } from '../modules/ws-frames.js';
 import type { PresenceService } from '../presence/service.js';
 import type { Hub } from './hub.js';
 import { TokenBucket } from './token-bucket.js';
@@ -27,6 +28,8 @@ export interface ConnectionDeps {
   presence: PresenceService;
   typing: TypingService;
   interactions: InteractionService;
+  /** Frame types contributed by modules. */
+  frames: ModuleFrames;
   instanceId: string;
   presenceHeartbeatMs: number;
   frameBurst: number;
@@ -111,17 +114,27 @@ export function handleConnection(
   }
 
   async function handleRaw(data: RawData, isBinary: boolean): Promise<void> {
-    const frame = isBinary ? null : parseClientFrame(rawToString(data));
-    if (!frame) {
+    const text = isBinary ? null : rawToString(data);
+    const frame = text === null ? null : parseClientFrame(text);
+    const fromModule = frame || text === null ? null : parseModuleFrame(text, deps.frames);
+    if (!frame && !fromModule) {
+      send({ type: 'error', code: 'invalid_frame', message: 'Malformed frame' });
+      return;
+    }
+    if (fromModule === 'invalid') {
       send({ type: 'error', code: 'invalid_frame', message: 'Malformed frame' });
       return;
     }
     const nonce =
-      frame.type === 'message.send' || (frame.type === 'command.invoke' && frame.nonce)
+      frame && (frame.type === 'message.send' || (frame.type === 'command.invoke' && frame.nonce))
         ? { nonce: frame.nonce }
         : {};
     try {
-      await handle(frame);
+      if (frame) await handle(frame);
+      else if (fromModule) {
+        requireModuleAccess(bot, fromModule.handler);
+        await fromModule.handler.run(fromModule.frame, { user, bot, log: connLog });
+      }
     } catch (error) {
       if (error instanceof AppError) {
         send({ type: 'error', code: error.code, message: error.message, ...nonce });
@@ -187,6 +200,26 @@ function requireFrameAccess(bot: BotPrincipal | null, frame: ClientFrame): void 
   if (!scope) throw new AppError(403, 'human_only', 'Bots cannot send this frame');
   if (!bot.scopes.includes(scope)) {
     throw new AppError(403, 'missing_scope', `This bot lacks the ${scope} scope`);
+  }
+}
+
+function parseModuleFrame(
+  raw: string,
+  frames: ModuleFrames,
+): { handler: WsFrameHandler; frame: unknown } | 'invalid' | null {
+  try {
+    return frames.parse(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+/** Bots may send a module's frame only if the module names a scope for it and the bot holds it. */
+function requireModuleAccess(bot: BotPrincipal | null, handler: WsFrameHandler): void {
+  if (!bot) return;
+  if (!handler.scope) throw new AppError(403, 'human_only', 'Bots cannot send this frame');
+  if (!bot.scopes.includes(handler.scope)) {
+    throw new AppError(403, 'missing_scope', `This bot lacks the ${handler.scope} scope`);
   }
 }
 

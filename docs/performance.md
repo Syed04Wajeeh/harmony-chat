@@ -237,6 +237,25 @@ Throughput flattens at about 1,000 requests/s regardless of concurrency; a sampl
 showed Postgres at about 162 % of its 2-CPU cap and each app at 63 %, so history reads are also
 bound by Postgres, and latency beyond the knee is queueing.
 
+## Re-check after the module system (Phase 5a)
+
+The module system adds nothing to the send path by construction (see [modules.md](modules.md), "Hot-path
+guarantees"), and an integration test asserts that a send issues the same 6 SQL statements with
+and without the shipped modules. To confirm that in a real run, the fan-out scenario was repeated once
+at the highest rate that passed before, on a freshly built temporary `harmony-load` stack (same
+compose file, caps and scripts; the host load average was 1.3 and 9.1 GB were available):
+
+| Run                              | Target msg/s | Achieved | Delivered/s | Errors | Missing | p50 ms | p95 ms | p99 ms | Max ms |
+| -------------------------------- | ------------ | -------- | ----------- | ------ | ------- | ------ | ------ | ------ | ------ |
+| Recorded, after the optimization | 900          | 899      | 8,988       | 0      | 0       | 4      | 9      | 39     | 160    |
+| After the module system          | 900          | 899.1    | 8,991       | 0      | 0       | 4      | 10     | 49     | 126    |
+
+26,973 messages were sent and all 269,730 deliveries arrived. There is no regression at this
+resolution: p50 and p95 are within a millisecond, and the p99 difference is the kind of spread seen between runs
+of the same code. It is one run, on a shared host, so read a 10 ms difference as noise rather than as a
+finding. Raw: `loadtest/results/2026-10-22-fanout-modules-two-900.k6.json`. The stack and its volumes were
+removed afterwards.
+
 ## The bottleneck and the fix
 
 **Data.** Fan-out saturated at about 700 msg/s with one or two instances while the app processes

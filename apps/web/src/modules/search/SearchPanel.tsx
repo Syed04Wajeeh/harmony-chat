@@ -1,12 +1,12 @@
 import type { Message } from '@harmony/shared';
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../api/client.js';
-import { useNameOf } from '../hooks/useNameOf.js';
-import { decodeMentions } from '../lib/mentions.js';
-import { formatTimestamp } from '../lib/time.js';
-import { reportError } from '../store/actions.js';
-import { useApp } from '../store/store.js';
-import { CloseIcon, SearchIcon } from './Icons.js';
+import { api } from '../../api/client.js';
+import { useNameOf } from '../../hooks/useNameOf.js';
+import { decodeMentions } from '../../lib/mentions.js';
+import { formatTimestamp } from '../../lib/time.js';
+import { reportError } from '../../store/actions.js';
+import { useApp } from '../../store/store.js';
+import { CloseIcon, SearchIcon } from '../../components/Icons.js';
 
 interface Props {
   channelId: string;

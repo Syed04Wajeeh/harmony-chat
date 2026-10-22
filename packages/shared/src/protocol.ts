@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { InteractionFailureReason, InvokeCommandBody } from './bots.js';
 import { Embeds } from './embeds.js';
+import { ModuleId } from './modules.js';
 import {
   ChannelSummary,
   Channel,
@@ -69,11 +70,19 @@ const userEvents = [
   z.object({ type: z.literal('guild.member_joined'), guildId: Id, user: DirectoryUser }),
   z.object({ type: z.literal('guild.member_left'), guildId: Id, userId: Id }),
   z.object({
+    type: z.literal('guild.modules_updated'),
+    guildId: Id,
+    moduleId: ModuleId,
+    enabled: z.boolean(),
+    settings: z.record(z.string(), z.unknown()),
+  }),
+  z.object({
     type: z.literal('interaction.ephemeral'),
     interactionId: Id,
     channelId: Id,
     command: z.string(),
-    botId: Id,
+    botId: Id.nullable(),
+    source: z.string().optional(),
     content: z.string(),
     embeds: Embeds.optional(),
     nonce: Nonce.optional(),
@@ -83,7 +92,8 @@ const userEvents = [
     interactionId: Id,
     channelId: Id,
     command: z.string(),
-    botId: Id,
+    botId: Id.nullable(),
+    source: z.string().optional(),
     expiresAt: z.iso.datetime(),
     nonce: Nonce.optional(),
   }),
@@ -92,7 +102,8 @@ const userEvents = [
     interactionId: Id,
     channelId: Id,
     command: z.string(),
-    botId: Id,
+    botId: Id.nullable(),
+    source: z.string().optional(),
     reason: InteractionFailureReason,
     nonce: Nonce.optional(),
   }),

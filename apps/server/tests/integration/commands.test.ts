@@ -17,6 +17,12 @@ import { Receiver, addBotToGuild, bare, botApi, createBot, type Reply } from './
 
 const uid = () => randomUUID().slice(0, 8);
 
+/** Built-in commands from modules are listed too; these tests are about the bots' commands. */
+const botCommandNames = (body: unknown): string[] =>
+  (body as { commands: { name: string; botId: string | null }[] }).commands
+    .filter((command) => command.botId !== null)
+    .map((command) => command.name);
+
 describe('slash commands', () => {
   let infra: Infra;
   let target: TestApp;
@@ -93,11 +99,7 @@ describe('slash commands', () => {
     const w = await world();
     const listed = await api(target, w.alice)(`/api/guilds/${w.guildId}/commands`);
     expect(listed.status).toBe(200);
-    expect(
-      (listed.body as { commands: { name: string; botName: string }[] }).commands.map(
-        (c) => c.name,
-      ),
-    ).toEqual(['echo', 'roll']);
+    expect(botCommandNames(listed.body)).toEqual(['echo', 'roll']);
 
     const overwrite = await w.asBot(`/api/bots/${w.bot.id}/guilds/${w.guildId}/commands`, {
       method: 'PUT',
@@ -105,9 +107,7 @@ describe('slash commands', () => {
     });
     expect(overwrite.status).toBe(200);
     const after = await api(target, w.alice)(`/api/guilds/${w.guildId}/commands`);
-    expect((after.body as { commands: { name: string }[] }).commands.map((c) => c.name)).toEqual([
-      'ping',
-    ]);
+    expect(botCommandNames(after.body)).toEqual(['ping']);
 
     const outsider = `outsider-${uid()}@example.com`;
     await ensureUser(infra.db, outsider);
@@ -519,7 +519,7 @@ describe('slash commands', () => {
     });
     expect(removed.status).toBe(204);
     const listed = await api(target, w.alice)(`/api/guilds/${w.guildId}/commands`);
-    expect(listed.body).toEqual({ commands: [] });
+    expect(botCommandNames(listed.body)).toEqual([]);
     expect((await w.invoke(w.alice, { name: 'echo', options: { text: 'x' } })).status).toBe(404);
   });
 });

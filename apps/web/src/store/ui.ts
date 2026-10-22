@@ -19,6 +19,9 @@ interface UiState {
   membersOpen: boolean;
   jump: JumpRequest | null;
   highlightId: string | null;
+  /** The module panel open beside the messages, by module id. */
+  channelPanel: string | null;
+  setChannelPanel: (moduleId: string | null) => void;
   pushToast: (message: string, kind?: Toast['kind']) => void;
   dismissToast: (id: number) => void;
   setDrawer: (drawer: UiState['drawer']) => void;
@@ -46,6 +49,8 @@ export const useUi = create<UiState>()((set) => ({
   membersOpen: readFlag('harmony.members', true),
   jump: null,
   highlightId: null,
+  channelPanel: null,
+  setChannelPanel: (channelPanel) => set({ channelPanel }),
   pushToast: (message, kind = 'error') => {
     const id = nextToastId++;
     set((state) => ({ toasts: [...state.toasts.slice(-3), { id, message, kind }] }));

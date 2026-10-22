@@ -1,20 +1,16 @@
 import * as Popover from '@radix-ui/react-popover';
 import type { Message } from '@harmony/shared';
 import { useEffect, useState } from 'react';
-import { api } from '../api/client.js';
-import { useNameOf } from '../hooks/useNameOf.js';
-import { decodeMentions } from '../lib/mentions.js';
-import { formatTimestamp } from '../lib/time.js';
-import { reportError } from '../store/actions.js';
-import { useApp } from '../store/store.js';
-import { PinIcon } from './Icons.js';
+import { api } from '../../api/client.js';
+import { useNameOf } from '../../hooks/useNameOf.js';
+import { decodeMentions } from '../../lib/mentions.js';
+import { formatTimestamp } from '../../lib/time.js';
+import { jumpToMessage, reportError } from '../../store/actions.js';
+import { useApp } from '../../store/store.js';
+import { PinIcon } from '../../components/Icons.js';
+import type { ChannelSlotProps } from '../types.js';
 
-interface Props {
-  channelId: string;
-  onJump: (messageId: string) => void;
-}
-
-export function PinsPopover({ channelId, onJump }: Props) {
+export function PinsPopover({ channelId }: ChannelSlotProps) {
   const [open, setOpen] = useState(false);
   const [pins, setPins] = useState<Message[] | null>(null);
   const nameOf = useNameOf();
@@ -56,7 +52,7 @@ export function PinsPopover({ channelId, onJump }: Props) {
                   className="pin-item"
                   onClick={() => {
                     setOpen(false);
-                    onJump(message.id);
+                    void jumpToMessage(channelId, message.id);
                   }}
                 >
                   <span className="pin-item-meta">

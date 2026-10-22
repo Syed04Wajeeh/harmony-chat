@@ -24,6 +24,7 @@ export function ServerSettingsLayout() {
       base={base}
       items={[
         { to: `${base}/overview`, label: 'Overview' },
+        { to: `${base}/modules`, label: 'Modules' },
         { to: `${base}/integrations`, label: 'Integrations', group: 'Apps' },
         { to: `${base}/bots`, label: 'Bots', group: 'Apps' },
       ]}

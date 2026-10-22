@@ -122,7 +122,15 @@ export const PutCommandsBody = z
   .max(MAX_COMMANDS_PER_GUILD)
   .refine((commands) => unique(commands.map((c) => c.name)), { message: 'Duplicate command name' });
 
-export const GuildCommand = CommandDefinition.extend({ botId: Id, botName: z.string() });
+/**
+ * `botId` is null for built-in commands, which come from a module: `botName` is then the
+ * module's name and `moduleId` its id.
+ */
+export const GuildCommand = CommandDefinition.extend({
+  botId: Id.nullable(),
+  botName: z.string(),
+  moduleId: z.string().optional(),
+});
 export type GuildCommand = z.infer<typeof GuildCommand>;
 export const ListCommandsResponse = z.object({ commands: z.array(GuildCommand) });
 export const PutCommandsResponse = z.object({ commands: z.array(CommandDefinition) });

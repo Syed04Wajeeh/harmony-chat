@@ -1,0 +1,4 @@
+docs/screenshots/
+loadtest/results/
+loadtest/.work/
+pnpm-lock.yaml

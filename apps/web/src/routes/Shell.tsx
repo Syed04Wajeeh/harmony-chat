@@ -13,7 +13,7 @@ import { useIsDesktop } from '../hooks/useMediaQuery.js';
 import { useVisualViewport } from '../hooks/useVisualViewport.js';
 import { channelPath, guildPath, HOME } from '../lib/paths.js';
 import { lastChannelFor, rememberChannel } from '../lib/storage.js';
-import { loadGuildChannels } from '../store/actions.js';
+import { loadGuildChannels, loadGuildModules } from '../store/actions.js';
 import { guildChannels, sortDms, sortGuilds } from '../store/selectors.js';
 import { useApp } from '../store/store.js';
 import { useUi } from '../store/ui.js';
@@ -27,6 +27,7 @@ export function Shell() {
   const { guildId, channelId } = useParams();
   const guilds = useApp((state) => state.guilds);
   const channelMap = useApp((state) => state.channels);
+  const modulesByGuild = useApp((state) => state.guildModules);
   const membersOpen = useUi((state) => state.membersOpen);
   const navigate = useNavigate();
   const channels = useMemo(() => Object.values(channelMap), [channelMap]);
@@ -43,6 +44,11 @@ export function Shell() {
   useEffect(() => {
     if (guild) rememberChannel('guild', guild.id);
   }, [guild]);
+
+  const guildModulesLoaded = inGuild && guildId in modulesByGuild;
+  useEffect(() => {
+    if (inGuild && guild && !guildModulesLoaded) void loadGuildModules(guildId);
+  }, [inGuild, guild, guildModulesLoaded, guildId]);
 
   useEffect(() => {
     useUi.getState().setDrawer(null);

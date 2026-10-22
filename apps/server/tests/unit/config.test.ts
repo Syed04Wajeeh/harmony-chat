@@ -19,7 +19,7 @@ describe('loadConfig', () => {
       ALLOWED_LOGINS: [],
       MESSAGE_RATE_MAX: 20,
       UPLOAD_DIR: '/data/uploads',
-      UPLOAD_MAX_BYTES: 10 * 1024 * 1024,
+      MODULES_DISABLED: [],
       PRESENCE_TTL_MS: 90_000,
       PRESENCE_HEARTBEAT_MS: 30_000,
       WS_FRAME_BURST: 30,

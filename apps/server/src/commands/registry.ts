@@ -8,10 +8,16 @@ import type {
 import type { BotPrincipal } from '../bots/auth.js';
 import type { Database } from '../db/schema.js';
 import { AppError } from '../errors.js';
+import { toGuildCommand, type BuiltinCommands } from '../modules/builtin-commands.js';
+import type { GuildModuleState } from '../modules/guild-state.js';
 
 /** Per-guild slash command definitions, registered by a bot or its owner. */
 export class CommandRegistry {
-  constructor(private readonly db: Kysely<Database>) {}
+  constructor(
+    private readonly db: Kysely<Database>,
+    private readonly builtins: BuiltinCommands,
+    private readonly moduleState: GuildModuleState,
+  ) {}
 
   /**
    * Bulk overwrite: afterwards the bot's commands in the guild are exactly `definitions`.
@@ -47,6 +53,10 @@ export class CommandRegistry {
     if (!member) throw new AppError(409, 'bot_not_in_guild', 'Add the bot to the guild first');
 
     const names = definitions.map((definition) => definition.name);
+    const reserved = names.find((name) => this.builtins.isReserved(name));
+    if (reserved) {
+      throw new AppError(409, 'command_conflict', `/${reserved} is a built-in command`);
+    }
     await this.db.transaction().execute(async (trx) => {
       if (names.length > 0) {
         const taken = await trx
@@ -92,7 +102,11 @@ export class CommandRegistry {
     return [...definitions];
   }
 
-  /** What members see for autocomplete. */
+  /**
+   * What members see for autocomplete: the built-in commands of the modules that are on in the
+   * guild, then the bots' commands (one that shares a built-in's name stays hidden, as the
+   * built-in is what runs).
+   */
   async list(actor: Pick<DirectoryUser, 'id'>, guildId: string): Promise<GuildCommand[]> {
     const guild = await this.db
       .selectFrom('guilds')
@@ -119,14 +133,27 @@ export class CommandRegistry {
         'bot_commands.options',
       ])
       .where('bot_commands.guild_id', '=', guildId)
-      .orderBy('bot_commands.name')
       .execute();
-    return rows.map((row) => ({
-      botId: row.bot_id,
-      botName: row.display_name,
-      name: row.name,
-      description: row.description,
-      options: row.options as CommandOption[],
-    }));
+    const enabled = await Promise.all(
+      this.builtins
+        .all()
+        .map(async (command) =>
+          (await this.moduleState.isEnabled(guildId, command.moduleId)) ? command : null,
+        ),
+    );
+    const builtin = enabled.flatMap((command) => (command ? [command] : []));
+    const shadowed = new Set(builtin.map((command) => command.definition.name));
+    return [
+      ...builtin.map(toGuildCommand),
+      ...rows
+        .filter((row) => !shadowed.has(row.name))
+        .map((row) => ({
+          botId: row.bot_id,
+          botName: row.display_name,
+          name: row.name,
+          description: row.description,
+          options: row.options as CommandOption[],
+        })),
+    ].sort((a, b) => a.name.localeCompare(b.name));
   }
 }

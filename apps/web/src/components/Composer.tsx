@@ -26,7 +26,9 @@ import { getRealtime } from '../store/connection.js';
 import { Avatar } from './Avatar.js';
 import { CommandFields, type ActiveCommand } from './CommandFields.js';
 import { EmojiPickerButton } from './EmojiPicker.js';
-import { CloseIcon, FileIcon, PaperclipIcon, SendIcon, SmileIcon } from './Icons.js';
+import { CloseIcon, FileIcon, PaperclipIcon, PlusIcon, SendIcon, SmileIcon } from './Icons.js';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from './Menu.js';
+import { useComposerActions, useComposerDialog } from '../modules/slots.js';
 
 const TYPING_THROTTLE_MS = 3000;
 const MAX_HEIGHT_PX = 160;
@@ -84,6 +86,8 @@ export function Composer({
     [channelMap, guildId],
   );
   const members = useMemo(() => [me, ...candidates], [me, candidates]);
+  const composerActions = useComposerActions(guildId);
+  const composerDialog = useComposerDialog();
 
   const textRef = useRef(text);
   useEffect(() => {
@@ -386,6 +390,30 @@ export function Composer({
             event.target.value = '';
           }}
         />
+        {composerActions.length > 0 && !active && (
+          <Menu>
+            <MenuTrigger className="icon-button composer-button" aria-label="Add to message">
+              <PlusIcon />
+            </MenuTrigger>
+            <MenuContent align="start" side="top">
+              {composerActions.map((action) => (
+                <MenuItem
+                  key={action.key}
+                  icon={<action.icon />}
+                  onSelect={() =>
+                    action.onSelect({
+                      channelId,
+                      guildId,
+                      openDialog: (Dialog) => composerDialog.open(Dialog, { channelId, guildId }),
+                    })
+                  }
+                >
+                  {action.label}
+                </MenuItem>
+              ))}
+            </MenuContent>
+          </Menu>
+        )}
         <button
           type="button"
           className="icon-button composer-button"
@@ -454,6 +482,7 @@ export function Composer({
           <SendIcon width={20} height={20} />
         </button>
       </div>
+      {composerDialog.dialog}
     </div>
   );
 }

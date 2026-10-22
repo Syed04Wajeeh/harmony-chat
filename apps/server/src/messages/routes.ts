@@ -6,8 +6,6 @@ import {
   ListMessagesResponse,
   Message,
   MessageParams,
-  PinsResponse,
-  ReactionParams,
   SendMessageBody,
 } from '@harmony/shared';
 import type { ChannelService } from '../channels/service.js';
@@ -57,15 +55,6 @@ export const messageRoutes: FastifyPluginCallbackZod<MessageRoutesOptions> = (
     },
   );
 
-  app.get(
-    '/channels/:id/pins',
-    {
-      config: { scope: 'messages.read' },
-      schema: { params: ChannelParams, response: { 200: PinsResponse } },
-    },
-    async (request) => ({ messages: await messages.pins(request.user, request.params.id) }),
-  );
-
   app.patch(
     '/messages/:id',
     {
@@ -84,40 +73,5 @@ export const messageRoutes: FastifyPluginCallbackZod<MessageRoutesOptions> = (
     },
   );
 
-  app.put(
-    '/messages/:id/reactions/:emoji',
-    { config: { scope: 'reactions.write' }, schema: { params: ReactionParams } },
-    async (request, reply) => {
-      await messages.addReaction(request.user, request.params.id, request.params.emoji);
-      return reply.code(204).send();
-    },
-  );
-
-  app.delete(
-    '/messages/:id/reactions/:emoji',
-    { config: { scope: 'reactions.write' }, schema: { params: ReactionParams } },
-    async (request, reply) => {
-      await messages.removeReaction(request.user, request.params.id, request.params.emoji);
-      return reply.code(204).send();
-    },
-  );
-
-  app.put(
-    '/messages/:id/pin',
-    {
-      config: { scope: 'messages.write' },
-      schema: { params: MessageParams, response: { 200: Message } },
-    },
-    (request) => messages.setPinned(request.user, request.params.id, true),
-  );
-
-  app.delete(
-    '/messages/:id/pin',
-    {
-      config: { scope: 'messages.write' },
-      schema: { params: MessageParams, response: { 200: Message } },
-    },
-    (request) => messages.setPinned(request.user, request.params.id, false),
-  );
   done();
 };

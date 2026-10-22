@@ -3,6 +3,9 @@ import { pino } from 'pino';
 import { loadWorkerConfig } from './config.js';
 import { createDb } from './db.js';
 import { EventWorker } from './events/worker.js';
+import { modules } from './modules/index.js';
+import { activeModules } from './modules/registry.js';
+import { startWorkerModules } from './modules/worker-host.js';
 
 const config = loadWorkerConfig();
 const log = pino({
@@ -20,6 +23,11 @@ const heartbeat = () => {
   }
 };
 
+const moduleJobs = await startWorkerModules(activeModules(modules, config.MODULES_DISABLED), {
+  db,
+  env: process.env,
+  log,
+});
 const worker = new EventWorker(db, config, log, Math.random, heartbeat);
 const beat = setInterval(heartbeat, 10_000);
 beat.unref();
@@ -32,6 +40,7 @@ async function shutdown(signal: string): Promise<void> {
   clearInterval(beat);
   try {
     await worker.stop();
+    await moduleJobs.stop();
     await db.destroy();
     process.exit(0);
   } catch (err) {

@@ -1,12 +1,11 @@
 import type { Message } from '@harmony/shared';
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react';
-import { useNavigate } from 'react-router';
 import { api } from '../api/client.js';
 import { useCoarsePointer } from '../hooks/useMediaQuery.js';
 import { useNameOf } from '../hooks/useNameOf.js';
 import { useUploads } from '../hooks/useUploads.js';
 import { useWindowFocus } from '../hooks/useWindowFocus.js';
-import { channelPath, HOME } from '../lib/paths.js';
+import { HOME } from '../lib/paths.js';
 import { rememberChannel } from '../lib/storage.js';
 import { decodeMentions } from '../lib/mentions.js';
 import { buildTimeline } from '../lib/timeline.js';
@@ -19,7 +18,6 @@ import {
   loadOlder,
   markRead,
   retryOutbox,
-  toggleReaction,
 } from '../store/actions.js';
 import type { LocalInteraction } from '../store/interactions.js';
 import { appStore, useApp } from '../store/store.js';
@@ -28,10 +26,10 @@ import { Lightbox } from './Attachments.js';
 import { ChannelHeader } from './ChannelHeader.js';
 import { MessageContext, type MessageHandlers } from './chat-context.js';
 import { Composer } from './Composer.js';
+import { ChannelPanels } from '../modules/slots.js';
 import { MessageList, type PendingMessage } from './MessageList.js';
 import { MessageSheet } from './MessageSheet.js';
 import { ConfirmDialog } from './Overlay.js';
-import { SearchPanel } from './SearchPanel.js';
 import { TypingIndicator } from './TypingIndicator.js';
 import type { Attachment } from '@harmony/shared';
 
@@ -53,7 +51,6 @@ export function ChannelView({ channelId }: { channelId: string }) {
   const coarse = useCoarsePointer();
   const focused = useWindowFocus();
   const uploads = useUploads();
-  const navigate = useNavigate();
 
   const [atBottom, setAtBottom] = useState(true);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -62,7 +59,6 @@ export function ChannelView({ channelId }: { channelId: string }) {
   const [sheet, setSheet] = useState<Message | null>(null);
   const [lightbox, setLightbox] = useState<Attachment | null>(null);
   const highlightId = useUi((state) => state.highlightId);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   // Frozen when the channel opens so the divider stays put while the marker advances.
@@ -80,7 +76,10 @@ export function ChannelView({ channelId }: { channelId: string }) {
     const store = appStore.getState();
     store.setActiveChannel(channelId);
     store.openHistory(channelId);
-    return () => appStore.getState().setActiveChannel(null);
+    return () => {
+      appStore.getState().setActiveChannel(null);
+      useUi.getState().setChannelPanel(null);
+    };
   }, [channelId]);
 
   useEffect(() => {
@@ -182,15 +181,6 @@ export function ChannelView({ channelId }: { channelId: string }) {
         }
       },
       onDelete: setDeleting,
-      onTogglePin: (message) => {
-        void attempt(
-          message.pinnedAt ? api.unpin(message.id) : api.pin(message.id),
-          'Could not change the pin',
-        ).then((updated) => {
-          if (updated)
-            appStore.getState().applyFrame({ type: 'message.updated', message: updated });
-        });
-      },
       onCopy: (message) => {
         const text = decodeMentions(message.content, nameOf).text;
         navigator.clipboard
@@ -198,7 +188,6 @@ export function ChannelView({ channelId }: { channelId: string }) {
           .then(() => useUi.getState().pushToast('Copied to clipboard', 'info'))
           .catch(() => useUi.getState().pushToast('Could not copy'));
       },
-      onReact: (message, emoji) => void toggleReaction(message, emoji),
       onOpenSheet: setSheet,
       onJump: (messageId) => void jumpToMessage(channelId, messageId),
       onOpenImage: setLightbox,
@@ -243,12 +232,7 @@ export function ChannelView({ channelId }: { channelId: string }) {
         onDragLeave={(event) => event.currentTarget === event.target && setDragging(false)}
         onDrop={onDrop}
       >
-        <ChannelHeader
-          channel={channel}
-          onJump={handlers.onJump}
-          searchOpen={searchOpen}
-          onToggleSearch={() => setSearchOpen((open) => !open)}
-        />
+        <ChannelHeader channel={channel} />
         <div className="channel-body">
           <MessageList
             items={items}
@@ -275,20 +259,7 @@ export function ChannelView({ channelId }: { channelId: string }) {
               </div>
             }
           />
-          {searchOpen && (
-            <SearchPanel
-              channelId={channelId}
-              channelLabel={label}
-              onClose={() => setSearchOpen(false)}
-              onPick={(message) => {
-                setSearchOpen(false);
-                void jumpToMessage(message.channelId, message.id).then(() => {
-                  const target = appStore.getState().channels[message.channelId];
-                  if (target && target.id !== channelId) void navigate(channelPath(target));
-                });
-              }}
-            />
-          )}
+          <ChannelPanels channelId={channelId} label={label} />
         </div>
         <TypingIndicator channelId={channelId} />
         <Composer

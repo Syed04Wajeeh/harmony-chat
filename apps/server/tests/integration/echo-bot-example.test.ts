@@ -74,7 +74,8 @@ describe('examples/echo-bot', () => {
     const deadline = Date.now() + 10_000;
     for (;;) {
       const listed = await asUser(`/api/guilds/${guildId}/commands`);
-      if ((listed.body as { commands: unknown[] }).commands.length === 2) break;
+      const commands = (listed.body as { commands: { botId: string | null }[] }).commands;
+      if (commands.filter((command) => command.botId !== null).length === 2) break;
       if (Date.now() > deadline) throw new Error('bot never registered its commands');
       await new Promise((resolve) => setTimeout(resolve, 100));
     }

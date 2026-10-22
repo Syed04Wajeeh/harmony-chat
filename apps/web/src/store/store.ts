@@ -5,6 +5,7 @@ import {
   type ChannelSummary,
   type DirectoryUser,
   type Guild,
+  type GuildModule,
   type GuildSummary,
   type Me,
   type Message,
@@ -66,6 +67,8 @@ export interface AppState {
   guilds: Record<string, GuildSummary>;
   channels: Record<string, ChannelSummary>;
   guildMembers: Record<string, readonly string[]>;
+  /** Each guild's modules and their state; absent until the guild has been opened. */
+  guildModules: Record<string, readonly GuildModule[]>;
   channelMembers: Record<string, readonly string[]>;
   /** Absent means offline. */
   presence: Record<string, PresenceStatus>;
@@ -95,6 +98,9 @@ export interface AppState {
   upsertGuild(guild: GuildSummary | Guild): void;
   upsertChannel(channel: ChannelSummary): void;
   setGuildMembers(guildId: string, members: readonly DirectoryUser[]): void;
+  setGuildModules(guildId: string, modules: readonly GuildModule[]): void;
+  /** Changes one cached message; modules use it to apply their own frames. */
+  patchMessage(channelId: string, messageId: string, update: (message: Message) => Message): void;
   setChannelMembers(channelId: string, members: readonly DirectoryUser[]): void;
   applyReadState(state: ReadState): void;
   queueOutbox(item: OutboxItem): void;
@@ -207,6 +213,7 @@ export function createAppStore(): StoreApi<AppState> {
       guilds: {},
       channels: {},
       guildMembers: {},
+      guildModules: {},
       channelMembers: {},
       presence: {},
       history: {},
@@ -342,6 +349,18 @@ export function createAppStore(): StoreApi<AppState> {
           guildMembers: { ...state.guildMembers, [guildId]: members.map((member) => member.id) },
           users: mergeUsers(state.users, members),
         })),
+
+      setGuildModules: (guildId, modules) =>
+        set((state) => ({ guildModules: { ...state.guildModules, [guildId]: modules } })),
+
+      patchMessage: (channelId, messageId, update) =>
+        set((state) => {
+          const history = state.history[channelId];
+          if (!history) return state;
+          const messages = updateMessage(history.messages, messageId, update);
+          if (messages === history.messages) return state;
+          return { history: { ...state.history, [channelId]: { ...history, messages } } };
+        }),
 
       setChannelMembers: (channelId, members) =>
         set((state) => ({
@@ -567,6 +586,22 @@ export function createAppStore(): StoreApi<AppState> {
                 : state;
             });
             break;
+          case 'guild.modules_updated':
+            set((state) => {
+              const list = state.guildModules[frame.guildId];
+              if (!list) return state;
+              return {
+                guildModules: {
+                  ...state.guildModules,
+                  [frame.guildId]: list.map((module) =>
+                    module.id === frame.moduleId
+                      ? { ...module, enabled: frame.enabled, settings: frame.settings }
+                      : module,
+                  ),
+                },
+              };
+            });
+            break;
           case 'guild.removed':
             set((state) => {
               const gone = Object.values(state.channels)
@@ -577,6 +612,7 @@ export function createAppStore(): StoreApi<AppState> {
               return {
                 guilds: omit(state.guilds, frame.guildId),
                 guildMembers: omit(state.guildMembers, frame.guildId),
+                guildModules: omit(state.guildModules, frame.guildId),
                 channels: drop(state.channels),
                 history: drop(state.history),
                 outbox: drop(state.outbox),
@@ -638,6 +674,7 @@ export function createAppStore(): StoreApi<AppState> {
                 key,
                 interactionId: frame.interactionId,
                 botId: frame.botId,
+                ...(frame.source && { source: frame.source }),
                 command: frame.command,
               };
               const item: LocalInteraction =

@@ -5,6 +5,7 @@ x-app-env: &app-env
   LOG_LEVEL: ${LOG_LEVEL:-info}
   DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
   REDIS_URL: redis://redis:6379
+  MODULES_DISABLED: ${MODULES_DISABLED:-}
 
 # What the app instances need on top of that; the migrate job and the worker never get the proxy secret.
 x-app-instance-env: &app-instance-env

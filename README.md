@@ -96,14 +96,26 @@ Things to know:
 - **Private repository.** While this repository is private, the update check (`releases/latest/download/latest.json`) cannot be fetched without authentication, so auto-update does nothing and fails silently. It starts working once the repository is public or the release files are mirrored.
 - **Download link in the web app.** Build the server image with `VITE_RELEASES_URL` (for example `docker compose build --build-arg VITE_RELEASES_URL=https://github.com/Syed04Wajeeh/harmony-chat/releases/latest`) to show a "Desktop app" page with a download button in user settings. It is hidden when unset.
 
+## Modules
+
+Reactions, pins, search, uploads, polls and a coin flip are modules, not core code: each is a folder with one object that registers routes, WebSocket frames, slash commands, message data, migrations and per-server settings through a small typed context, and an optional matching folder in the web client for the UI slots (message accessories, composer actions, header buttons, settings pages). Server owners switch optional modules on and off in Server settings, Modules, which also builds a settings form from each module's schema; operators can turn any module off for the whole instance with `MODULES_DISABLED=polls,coinflip`. Adding a module is one import line plus a folder: the walkthrough in [docs/modules.md](docs/modules.md) builds `/coinflip` in about 30 lines, and `apps/server/src/modules/polls` (with `apps/web/src/modules/polls`) is a complete example with its own tables, live updates, a composer dialog and a `/poll` command.
+
+| Phone                                     |                                                           |                                                 |
+| ----------------------------------------- | --------------------------------------------------------- | ----------------------------------------------- |
+| ![Poll](docs/screenshots/mobile-poll.png) | ![Create a poll](docs/screenshots/mobile-poll-create.png) | ![Modules](docs/screenshots/mobile-modules.png) |
+
+![Poll on desktop](docs/screenshots/desktop-poll.png)
+![Create a poll on desktop](docs/screenshots/desktop-poll-create.png)
+![Modules settings on desktop](docs/screenshots/desktop-modules.png)
+
 ## Scaling & performance
 
 The production compose file runs two identical app instances behind nginx (`least_conn`, no sticky sessions: all fan-out goes through Redis and all state is in Postgres and Redis). `docs/performance.md` has the measured results from an isolated copy of the stack: cross-instance delivery with 0 lost and 0 duplicated messages, failover when an instance is killed or recreated, fan-out latency, connection capacity and history throughput, each with its conditions and limits, plus how to reproduce them (`pnpm load:up`, `pnpm load:test`, `pnpm load:failover`, `pnpm load:down`). See [docs/performance.md](docs/performance.md).
 
 ## Layout
 
-- `apps/server`: Fastify 5 API, Kysely migrations
-- `apps/web`: Vite + React client (React Router, zustand, plain CSS with design tokens, PWA manifest)
+- `apps/server`: Fastify 5 API, Kysely migrations, `src/modules` (the module system and the modules)
+- `apps/web`: Vite + React client (`src/modules` holds the UI side of modules) (React Router, zustand, plain CSS with design tokens, PWA manifest)
 - `apps/desktop`: Tauri v2 desktop app that opens your server in its own window
 - `packages/shared`: zod schemas and the WebSocket protocol, shared by both
 - `examples`: echo bot, Uptime Kuma recipe, webhook script

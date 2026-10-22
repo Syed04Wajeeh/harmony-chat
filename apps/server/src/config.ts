@@ -23,6 +23,8 @@ const ConfigSchema = z
       .default('info'),
     WEB_DIST_DIR: z.string().min(1).default('../web/dist'),
     INSTANCE_ID: z.string().min(1).default(hostname()),
+    /** Module ids to switch off for the whole instance (see docs/modules.md). */
+    MODULES_DISABLED: csv,
 
     PROXY_SHARED_SECRET: z.string().min(32).optional(),
     PUBLIC_ORIGIN: z
@@ -41,7 +43,6 @@ const ConfigSchema = z
     RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1).default(60_000),
     MESSAGE_RATE_MAX: z.coerce.number().int().min(1).default(20),
     MESSAGE_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(10),
-    REACTION_RATE_MAX: z.coerce.number().int().min(1).default(30),
     WS_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().min(10).default(30_000),
     WS_FRAME_BURST: z.coerce.number().int().min(1).default(30),
     WS_FRAME_REFILL_PER_SECOND: z.coerce.number().positive().default(3),
@@ -61,23 +62,6 @@ const ConfigSchema = z
     PRESENCE_SWEEP_MS: z.coerce.number().int().min(10).default(30_000),
 
     UPLOAD_DIR: z.string().min(1).default('/data/uploads'),
-    UPLOAD_MAX_BYTES: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .default(10 * 1024 * 1024),
-    UPLOAD_RATE_MAX: z.coerce.number().int().min(1).default(20),
-    UPLOAD_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(60),
-    UPLOAD_ORPHAN_TTL_MS: z.coerce
-      .number()
-      .int()
-      .min(0)
-      .default(24 * 60 * 60 * 1000),
-    UPLOAD_CLEANUP_INTERVAL_MS: z.coerce
-      .number()
-      .int()
-      .min(10)
-      .default(60 * 60 * 1000),
   })
   .transform((raw, ctx) => {
     const { NODE_ENV, DEV_AUTH_LOGIN, PROXY_SHARED_SECRET, PUBLIC_ORIGIN } = raw;
@@ -99,7 +83,7 @@ const ConfigSchema = z
 
 export type Config = z.output<typeof ConfigSchema>;
 
-function parse<T extends z.ZodType>(schema: T, env: NodeJS.ProcessEnv): z.output<T> {
+export function parseEnv<T extends z.ZodType>(schema: T, env: NodeJS.ProcessEnv): z.output<T> {
   // Compose passes unset variables through as empty strings; treat them as absent.
   const present = Object.fromEntries(Object.entries(env).filter(([, value]) => value));
   const result = schema.safeParse(present);
@@ -113,12 +97,12 @@ function parse<T extends z.ZodType>(schema: T, env: NodeJS.ProcessEnv): z.output
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  return parse(ConfigSchema, env);
+  return parseEnv(ConfigSchema, env);
 }
 
 /** The migrate job only needs the database, not the proxy secret. */
 export function loadDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
-  return parse(z.object({ DATABASE_URL: z.string().min(1) }), env).DATABASE_URL;
+  return parseEnv(z.object({ DATABASE_URL: z.string().min(1) }), env).DATABASE_URL;
 }
 
 const WorkerConfigSchema = z.object({
@@ -126,6 +110,7 @@ const WorkerConfigSchema = z.object({
   DATABASE_URL: z.string().min(1),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   INSTANCE_ID: z.string().min(1).default(hostname()),
+  MODULES_DISABLED: csv,
   OUTBOUND_PRIVATE_ALLOWLIST: csv,
   HEARTBEAT_FILE: z.string().min(1).default('/tmp/worker-heartbeat'),
   WORKER_POLL_MS: z.coerce.number().int().min(10).default(5000),
@@ -156,5 +141,5 @@ const WorkerConfigSchema = z.object({
 export type WorkerConfig = z.output<typeof WorkerConfigSchema>;
 
 export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
-  return parse(WorkerConfigSchema, env);
+  return parseEnv(WorkerConfigSchema, env);
 }

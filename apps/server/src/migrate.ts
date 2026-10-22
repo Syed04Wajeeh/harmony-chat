@@ -1,9 +1,10 @@
 import { loadDatabaseUrl } from './config.js';
 import { createDb } from './db.js';
-import { createMigrator } from './migrator.js';
+import { migrateAll } from './migrator.js';
+import { modules } from './modules/index.js';
 
 const db = createDb(loadDatabaseUrl());
-const { error, results } = await createMigrator(db).migrateToLatest();
+const { error, results } = await migrateAll(db, modules);
 
 for (const result of results ?? []) {
   console.log(`${result.status}: ${result.migrationName}`);

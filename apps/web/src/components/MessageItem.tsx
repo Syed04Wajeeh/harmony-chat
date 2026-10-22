@@ -12,12 +12,16 @@ import { Avatar } from './Avatar.js';
 import { AuthorBadge } from './AuthorBadge.js';
 import { Embeds } from './Embeds.js';
 import { useMessageHandlers } from './chat-context.js';
-import { EmojiPickerButton } from './EmojiPicker.js';
-import { CopyIcon, EditIcon, MoreIcon, PinIcon, ReplyIcon, SmileIcon, TrashIcon } from './Icons.js';
+import { CopyIcon, EditIcon, MoreIcon, PinIcon, ReplyIcon, TrashIcon } from './Icons.js';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './Menu.js';
 import { ProfilePopover } from './ProfilePopover.js';
-import { Reactions } from './Reactions.js';
 import { useApp } from '../store/store.js';
+import {
+  MessageAccessories,
+  MessageFooters,
+  MessageToolbarSlots,
+  useMessageActions,
+} from '../modules/slots.js';
 
 interface Props {
   message: Message;
@@ -117,17 +121,12 @@ function InlineEditor({ message }: { message: Message }) {
 }
 
 function HoverToolbar({ message, mine }: { message: Message; mine: boolean }) {
-  const { onReply, onStartEdit, onDelete, onTogglePin, onCopy, onReact } = useMessageHandlers();
+  const { onReply, onStartEdit, onDelete, onCopy } = useMessageHandlers();
   const isAdmin = useApp((state) => state.me?.isAdmin ?? false);
+  const actions = useMessageActions(message);
   return (
     <div className="message-toolbar" role="toolbar" aria-label="Message actions">
-      <EmojiPickerButton
-        label="Add reaction"
-        className="icon-button icon-button-small"
-        onPick={(emoji) => onReact(message, emoji)}
-      >
-        <SmileIcon width={18} height={18} />
-      </EmojiPickerButton>
+      <MessageToolbarSlots message={message} />
       <button
         className="icon-button icon-button-small"
         aria-label="Reply"
@@ -149,9 +148,11 @@ function HoverToolbar({ message, mine }: { message: Message; mine: boolean }) {
           <MoreIcon width={18} height={18} />
         </MenuTrigger>
         <MenuContent align="end">
-          <MenuItem icon={<PinIcon />} onSelect={() => onTogglePin(message)}>
-            {message.pinnedAt ? 'Unpin message' : 'Pin message'}
-          </MenuItem>
+          {actions.map((action) => (
+            <MenuItem key={action.id} icon={<action.icon />} onSelect={action.onSelect}>
+              {action.label}
+            </MenuItem>
+          ))}
           <MenuItem icon={<CopyIcon />} onSelect={() => onCopy(message)}>
             Copy text
           </MenuItem>
@@ -270,7 +271,8 @@ export const MessageItem = memo(function MessageItem({
             <Embeds embeds={message.embeds} nameOf={nameOf} meId={meId} />
           )}
           <Attachments attachments={message.attachments} />
-          {!pending && <Reactions message={message} />}
+          {!pending && <MessageAccessories message={message} />}
+          {!pending && <MessageFooters message={message} />}
           {pending?.status === 'failed' && (
             <div className="message-failed" role="alert">
               <span>{pending.error ?? 'Failed to send.'}</span>

@@ -5,11 +5,11 @@ import { fileTypeFromBuffer } from 'file-type';
 import { imageSize } from 'image-size';
 import type { Kysely } from 'kysely';
 import type { Attachment, DirectoryUser } from '@harmony/shared';
-import type { Database } from '../db/schema.js';
-import { AppError } from '../errors.js';
-import { attachmentUrl } from '../messages/reader.js';
-import { sanitizeFilename } from './filename.js';
-import type { Storage } from './storage.js';
+import type { Database } from '../../db/schema.js';
+import { AppError } from '../../errors.js';
+import { attachmentUrl } from '../../messages/reader.js';
+import { sanitizeFilename } from '../../uploads/filename.js';
+import type { Storage } from '../../uploads/storage.js';
 
 /** Enough bytes for every signature file-type checks and for raster image headers. */
 const SNIFF_BYTES = 64 * 1024;

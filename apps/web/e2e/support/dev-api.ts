@@ -44,6 +44,16 @@ export class DevApi {
   createGuild(name: string) {
     return this.call<GuildSummary>('POST', '/api/guilds', { name });
   }
+  createPoll(channelId: string, question: string, options: string[], multiple = false) {
+    return this.call<Message>('POST', `/api/channels/${channelId}/polls`, {
+      question,
+      options,
+      multiple,
+    });
+  }
+  votePoll(messageId: string, optionIds: number[]) {
+    return this.call('PUT', `/api/polls/${messageId}/votes`, { optionIds });
+  }
   channels() {
     return this.call<{ channels: ChannelSummary[] }>('GET', '/api/channels').then(
       (r) => r.channels,
