@@ -70,6 +70,16 @@ export class UploadCleaner {
                 ),
               ),
             )
+            .where((nested) =>
+              nested.not(
+                nested.exists(
+                  nested
+                    .selectFrom('webhooks')
+                    .select('webhooks.id')
+                    .whereRef('webhooks.avatar_attachment_id', '=', 'attachments.id'),
+                ),
+              ),
+            )
             .where(
               sql<boolean>`created_at < now() - ${this.options.orphanTtlMs} * interval '1 millisecond'`,
             )

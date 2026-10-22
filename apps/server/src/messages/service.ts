@@ -4,10 +4,13 @@ import {
   isValidEmoji,
   parseMentions,
   type DirectoryUser,
+  type Embed,
+  type EventType,
   type Message,
 } from '@harmony/shared';
 import type { ChannelService } from '../channels/service.js';
 import type { Database } from '../db/schema.js';
+import { enqueueEvent } from '../events/outbox.js';
 import { AppError } from '../errors.js';
 import type { RateLimiter } from '../rate-limit.js';
 import type { EventBus } from '../realtime/events.js';
@@ -22,6 +25,9 @@ export interface SendMessageInput {
   nonce?: string | undefined;
   replyToId?: string | undefined;
   attachmentIds?: readonly string[] | undefined;
+  embeds?: readonly Embed[] | undefined;
+  /** Set for incoming-webhook messages: per-message overrides, no membership or user limit. */
+  source?: { webhookId: string; displayName?: string | undefined; avatarUrl?: string | undefined };
 }
 
 type Actor = Pick<DirectoryUser, 'id' | 'isAdmin'>;
@@ -41,17 +47,31 @@ export class MessageService {
     this.reader = new MessageReader(db);
   }
 
-  /** The only write path for new messages: REST and WebSocket both land here. */
+  /**
+   * The only write path for new messages: REST, WebSocket, webhooks and bot replies all land
+   * here. A webhook message skips the membership check and the per-user limit because the caller
+   * already authenticated with the webhook's own token and limiter.
+   */
   async send(input: SendMessageInput): Promise<Message> {
-    const { author, channelId, content, nonce, replyToId } = input;
-    if (!(await this.sendLimiter.consume(author.id))) {
-      throw new AppError(429, 'rate_limited', 'You are sending messages too quickly');
+    const { author, channelId, content, nonce, replyToId, source } = input;
+    let channel;
+    if (source) {
+      channel = await this.db
+        .selectFrom('channels')
+        .selectAll()
+        .where('id', '=', channelId)
+        .executeTakeFirst();
+      if (!channel) throw new AppError(404, 'channel_not_found', 'Channel not found');
+    } else {
+      if (!(await this.sendLimiter.consume(author.id))) {
+        throw new AppError(429, 'rate_limited', 'You are sending messages too quickly');
+      }
+      channel = await this.channels.requireMember(channelId, author.id);
     }
-    const channel = await this.channels.requireMember(channelId, author.id);
     if (channel.archived_at) throw new AppError(409, 'channel_archived', 'Channel is archived');
 
     const attachmentIds = [...new Set(input.attachmentIds ?? [])];
-    const { id, notify } = await this.db.transaction().execute(async (trx) => {
+    const { message, notify } = await this.db.transaction().execute(async (trx) => {
       if (replyToId) {
         const parent = await trx
           .selectFrom('messages')
@@ -91,6 +111,12 @@ export class MessageService {
           deleted_at: null,
           pinned_at: null,
           pinned_by: null,
+          ...(input.embeds?.length && { embeds: JSON.stringify(input.embeds) }),
+          ...(source && {
+            webhook_id: source.webhookId,
+            display_name_override: source.displayName ?? null,
+            avatar_url_override: source.avatarUrl ?? null,
+          }),
         })
         .returning('id')
         .executeTakeFirstOrThrow();
@@ -102,16 +128,17 @@ export class MessageService {
           .execute();
       }
       const notify = await this.syncMentions(trx, row.id, channelId, author.id, content);
-      return { id: row.id, notify };
+      const message = await new MessageReader(trx).loadOne(row.id);
+      await this.emit(trx, channel.guild_id, channelId, 'message.created', { message });
+      return { message, notify };
     });
 
-    const message = await this.reader.loadOne(id);
     await this.events.toChannel(channelId, {
       type: 'message.created',
       message,
       ...(nonce && { nonce }),
     });
-    await this.notifyMentions(channelId, id, notify);
+    await this.notifyMentions(channelId, message.id, notify);
     return message;
   }
 
@@ -123,15 +150,17 @@ export class MessageService {
       throw new AppError(403, 'forbidden', 'Only the author can edit a message');
     }
 
-    const notify = await this.db.transaction().execute(async (trx) => {
+    const { message, notify } = await this.db.transaction().execute(async (trx) => {
       await trx
         .updateTable('messages')
         .set({ content, edited_at: new Date() })
         .where('id', '=', messageId)
         .execute();
-      return this.syncMentions(trx, messageId, target.channel_id, actor.id, content);
+      const notify = await this.syncMentions(trx, messageId, target.channel_id, actor.id, content);
+      const message = await new MessageReader(trx).loadOne(messageId);
+      await this.emit(trx, target.guild_id, target.channel_id, 'message.updated', { message });
+      return { message, notify };
     });
-    const message = await this.reader.loadOne(messageId);
     await this.events.toChannel(target.channel_id, { type: 'message.updated', message });
     await this.notifyMentions(target.channel_id, messageId, notify);
     return message;
@@ -143,13 +172,22 @@ export class MessageService {
     if (target.author_id !== actor.id && !actor.isAdmin) {
       throw new AppError(403, 'forbidden', 'Only the author or an admin can delete a message');
     }
-    const deleted = await this.db
-      .updateTable('messages')
-      .set({ deleted_at: new Date() })
-      .where('id', '=', messageId)
-      .where('deleted_at', 'is', null)
-      .returning('id')
-      .executeTakeFirst();
+    const deleted = await this.db.transaction().execute(async (trx) => {
+      const row = await trx
+        .updateTable('messages')
+        .set({ deleted_at: new Date() })
+        .where('id', '=', messageId)
+        .where('deleted_at', 'is', null)
+        .returning('id')
+        .executeTakeFirst();
+      if (row) {
+        await this.emit(trx, target.guild_id, target.channel_id, 'message.deleted', {
+          channelId: target.channel_id,
+          messageId,
+        });
+      }
+      return row !== undefined;
+    });
     if (!deleted) return;
     await this.events.toChannel(target.channel_id, {
       type: 'message.deleted',
@@ -184,6 +222,14 @@ export class MessageService {
         .onConflict((oc) => oc.doNothing())
         .returning('user_id')
         .executeTakeFirst();
+      if (row) {
+        await this.emit(trx, target.guild_id, target.channel_id, 'reaction.added', {
+          channelId: target.channel_id,
+          messageId,
+          emoji,
+          userId: actor.id,
+        });
+      }
       return row !== undefined;
     });
     if (added) {
@@ -199,13 +245,24 @@ export class MessageService {
 
   async removeReaction(actor: Actor, messageId: string, emoji: string): Promise<void> {
     const target = await this.reactable(actor, messageId, emoji);
-    const removed = await this.db
-      .deleteFrom('message_reactions')
-      .where('message_id', '=', messageId)
-      .where('user_id', '=', actor.id)
-      .where('emoji', '=', emoji)
-      .returning('user_id')
-      .executeTakeFirst();
+    const removed = await this.db.transaction().execute(async (trx) => {
+      const row = await trx
+        .deleteFrom('message_reactions')
+        .where('message_id', '=', messageId)
+        .where('user_id', '=', actor.id)
+        .where('emoji', '=', emoji)
+        .returning('user_id')
+        .executeTakeFirst();
+      if (row) {
+        await this.emit(trx, target.guild_id, target.channel_id, 'reaction.removed', {
+          channelId: target.channel_id,
+          messageId,
+          emoji,
+          userId: actor.id,
+        });
+      }
+      return row !== undefined;
+    });
     if (removed) {
       await this.events.toChannel(target.channel_id, {
         type: 'reaction.removed',
@@ -221,18 +278,24 @@ export class MessageService {
     const target = await this.find(messageId, actor.id);
     if (!target.isMember) throw forbidden();
     if (target.deleted_at) throw notFound();
-    const changed = await this.db
-      .updateTable('messages')
-      .set(
-        pinned
-          ? { pinned_at: new Date(), pinned_by: actor.id }
-          : { pinned_at: null, pinned_by: null },
-      )
-      .where('id', '=', messageId)
-      .where('pinned_at', pinned ? 'is' : 'is not', null)
-      .returning('id')
-      .executeTakeFirst();
-    const message = await this.reader.loadOne(messageId);
+    const { changed, message } = await this.db.transaction().execute(async (trx) => {
+      const changed = await trx
+        .updateTable('messages')
+        .set(
+          pinned
+            ? { pinned_at: new Date(), pinned_by: actor.id }
+            : { pinned_at: null, pinned_by: null },
+        )
+        .where('id', '=', messageId)
+        .where('pinned_at', pinned ? 'is' : 'is not', null)
+        .returning('id')
+        .executeTakeFirst();
+      const message = await new MessageReader(trx).loadOne(messageId);
+      if (changed) {
+        await this.emit(trx, target.guild_id, target.channel_id, 'message.updated', { message });
+      }
+      return { changed, message };
+    });
     if (changed)
       await this.events.toChannel(target.channel_id, { type: 'message.updated', message });
     return message;
@@ -291,6 +354,13 @@ export class MessageService {
       .select(['id', 'channel_id', 'author_id', 'deleted_at'])
       .select((eb) =>
         eb
+          .selectFrom('channels')
+          .select('channels.guild_id')
+          .whereRef('channels.id', '=', 'messages.channel_id')
+          .as('guild_id'),
+      )
+      .select((eb) =>
+        eb
           .exists(
             eb
               .selectFrom('channel_members')
@@ -343,6 +413,17 @@ export class MessageService {
       .returning('user_id')
       .execute();
     return inserted.map((row) => row.user_id);
+  }
+
+  /** Writes the event to the outbox in the caller's transaction; DMs have no guild and no events. */
+  private async emit(
+    trx: Transaction<Database>,
+    guildId: string | null,
+    channelId: string,
+    type: EventType,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    if (guildId) await enqueueEvent(trx, { guildId, channelId, type, data });
   }
 
   private async notifyMentions(channelId: string, messageId: string, userIds: string[]) {

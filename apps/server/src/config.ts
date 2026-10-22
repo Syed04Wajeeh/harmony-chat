@@ -46,6 +46,16 @@ const ConfigSchema = z
     WS_FRAME_BURST: z.coerce.number().int().min(1).default(30),
     WS_FRAME_REFILL_PER_SECOND: z.coerce.number().positive().default(3),
 
+    BOT_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(600),
+    MAX_BOTS_PER_USER: z.coerce.number().int().min(1).default(20),
+    WEBHOOK_RATE_MAX: z.coerce.number().int().min(1).default(30),
+    WEBHOOK_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(60),
+    COMMAND_RATE_MAX: z.coerce.number().int().min(1).default(10),
+    COMMAND_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(10),
+    INTERACTION_DEADLINE_MS: z.coerce.number().int().min(10).default(3000),
+    /** Hostnames, IPs or CIDRs that bots owned by an instance admin may reach on private networks. */
+    OUTBOUND_PRIVATE_ALLOWLIST: csv,
+
     PRESENCE_TTL_MS: z.coerce.number().int().min(100).default(90_000),
     PRESENCE_HEARTBEAT_MS: z.coerce.number().int().min(10).default(30_000),
     PRESENCE_SWEEP_MS: z.coerce.number().int().min(10).default(30_000),
@@ -109,4 +119,40 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 /** The migrate job only needs the database, not the proxy secret. */
 export function loadDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   return parse(z.object({ DATABASE_URL: z.string().min(1) }), env).DATABASE_URL;
+}
+
+const WorkerConfigSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  DATABASE_URL: z.string().min(1),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  INSTANCE_ID: z.string().min(1).default(hostname()),
+  OUTBOUND_PRIVATE_ALLOWLIST: csv,
+  HEARTBEAT_FILE: z.string().min(1).default('/tmp/worker-heartbeat'),
+  WORKER_POLL_MS: z.coerce.number().int().min(10).default(5000),
+  DELIVERY_TIMEOUT_MS: z.coerce.number().int().min(10).default(5000),
+  DELIVERY_BACKOFF_BASE_MS: z.coerce.number().int().min(1).default(2000),
+  DELIVERY_BACKOFF_CAP_MS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .default(60 * 60 * 1000),
+  DELIVERY_MAX_ATTEMPTS: z.coerce.number().int().min(1).default(8),
+  DELIVERY_BATCH_SIZE: z.coerce.number().int().min(1).default(20),
+  DELIVERY_LEASE_MS: z.coerce.number().int().min(100).default(30_000),
+  EVENT_RETENTION_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .default(7 * 24 * 60 * 60 * 1000),
+  RETENTION_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(100)
+    .default(60 * 60 * 1000),
+});
+
+export type WorkerConfig = z.output<typeof WorkerConfigSchema>;
+
+export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
+  return parse(WorkerConfigSchema, env);
 }

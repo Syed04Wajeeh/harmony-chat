@@ -2,6 +2,7 @@ import { sql, type Kysely } from 'kysely';
 import {
   REACTION_USER_PREVIEW,
   type Attachment,
+  type Embed,
   type Message,
   type Reaction,
 } from '@harmony/shared';
@@ -21,6 +22,11 @@ export interface MessageRow {
   author_login: string;
   author_name: string;
   author_avatar: string | null;
+  author_kind: 'human' | 'bot';
+  webhook_id: string | null;
+  display_name_override: string | null;
+  avatar_url_override: string | null;
+  embeds: unknown;
   parent_id: string | null;
   parent_author_id: string | null;
   parent_preview: string | null;
@@ -61,6 +67,11 @@ export class MessageReader {
         'users.login as author_login',
         'users.display_name as author_name',
         'users.avatar_url as author_avatar',
+        'users.kind as author_kind',
+        'messages.webhook_id',
+        'messages.display_name_override',
+        'messages.avatar_url_override',
+        'messages.embeds',
         'parent.id as parent_id',
         'parent.author_id as parent_author_id',
         'parent.deleted_at as parent_deleted_at',
@@ -111,6 +122,7 @@ export class MessageReader {
           login: row.author_login,
           displayName: row.author_name,
           avatarUrl: row.author_avatar,
+          ...(row.author_kind === 'bot' && { isBot: true }),
         },
         content: deleted ? '' : row.content,
         createdAt: row.created_at.toISOString(),
@@ -130,6 +142,13 @@ export class MessageReader {
         reactions: reactions.get(row.id) ?? [],
         attachments: attachments.get(row.id) ?? [],
         mentions: mentions.get(row.id) ?? [],
+        ...(row.webhook_id && { webhookId: row.webhook_id }),
+        ...(!deleted &&
+          row.display_name_override && { displayNameOverride: row.display_name_override }),
+        ...(!deleted && row.avatar_url_override && { avatarUrlOverride: row.avatar_url_override }),
+        ...(!deleted &&
+          Array.isArray(row.embeds) &&
+          row.embeds.length > 0 && { embeds: row.embeds as Embed[] }),
       };
     });
   }

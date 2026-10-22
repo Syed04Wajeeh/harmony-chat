@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { InteractionFailureReason, InvokeCommandBody } from './bots.js';
+import { Embeds } from './embeds.js';
 import {
   ChannelSummary,
   Channel,
@@ -30,6 +32,7 @@ export const ClientFrame = z.discriminatedUnion('type', [
   z.object({ type: z.literal('read'), channelId: Id, messageId: Id }),
   z.object({ type: z.literal('typing'), channelId: Id }),
   z.object({ type: z.literal('presence.set'), status: UserStatus }),
+  z.object({ type: z.literal('command.invoke'), channelId: Id, ...InvokeCommandBody.shape }),
 ]);
 export type ClientFrame = z.infer<typeof ClientFrame>;
 
@@ -65,6 +68,34 @@ const userEvents = [
   z.object({ type: z.literal('guild.removed'), guildId: Id }),
   z.object({ type: z.literal('guild.member_joined'), guildId: Id, user: DirectoryUser }),
   z.object({ type: z.literal('guild.member_left'), guildId: Id, userId: Id }),
+  z.object({
+    type: z.literal('interaction.ephemeral'),
+    interactionId: Id,
+    channelId: Id,
+    command: z.string(),
+    botId: Id,
+    content: z.string(),
+    embeds: Embeds.optional(),
+    nonce: Nonce.optional(),
+  }),
+  z.object({
+    type: z.literal('interaction.pending'),
+    interactionId: Id,
+    channelId: Id,
+    command: z.string(),
+    botId: Id,
+    expiresAt: z.iso.datetime(),
+    nonce: Nonce.optional(),
+  }),
+  z.object({
+    type: z.literal('interaction.failed'),
+    interactionId: Id,
+    channelId: Id,
+    command: z.string(),
+    botId: Id,
+    reason: InteractionFailureReason,
+    nonce: Nonce.optional(),
+  }),
 ] as const;
 
 const presenceEvent = z.object({

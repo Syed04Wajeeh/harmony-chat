@@ -15,6 +15,16 @@ import { sql, type Kysely } from 'kysely';
 import type { Redis } from 'ioredis';
 import { MAX_FRAME_BYTES, type HealthResponse } from '@harmony/shared';
 import { authPlugin } from './auth/plugin.js';
+import { BotAuthenticator } from './bots/auth.js';
+import { botRoutes } from './bots/routes.js';
+import { BotService } from './bots/service.js';
+import { CommandRegistry } from './commands/registry.js';
+import { InteractionService } from './commands/interactions.js';
+import { commandRoutes } from './commands/routes.js';
+import { OutboundValidator } from './outbound/validator.js';
+import { parseAllowlist } from './outbound/policy.js';
+import { WebhookService } from './webhooks/service.js';
+import { webhookRoutes } from './webhooks/routes.js';
 import type { AuthPolicy } from './auth/policy.js';
 import { UserStore } from './auth/user-store.js';
 import { channelRoutes } from './channels/routes.js';
@@ -61,6 +71,7 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
   app.setSerializerCompiler(serializerCompiler);
   app.setErrorHandler((error: Error & { statusCode?: number; code?: string }, request, reply) => {
     if (error instanceof AppError) {
+      if (error.headers) void reply.headers(error.headers);
       return reply.code(error.statusCode).send({ code: error.code, message: error.message });
     }
     if (hasZodFastifySchemaValidationErrors(error)) {
@@ -129,6 +140,31 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
   const files = storage ?? new LocalDiskStorage(config.UPLOAD_DIR);
   const guilds = new GuildService(db, events, channels, presence, files);
   const typing = new TypingService(redis, events, channels);
+  const allowlist = parseAllowlist(config.OUTBOUND_PRIVATE_ALLOWLIST);
+  const bots = new BotService(
+    db,
+    events,
+    guilds,
+    new OutboundValidator(allowlist),
+    config.MAX_BOTS_PER_USER,
+  );
+  const commandRegistry = new CommandRegistry(db);
+  const interactions = new InteractionService(
+    db,
+    events,
+    channels,
+    messages,
+    limiter('commands', config.COMMAND_RATE_MAX, config.COMMAND_RATE_WINDOW_SECONDS),
+    { deadlineMs: config.INTERACTION_DEADLINE_MS, allowlist },
+    app.log,
+  );
+  const webhooks = new WebhookService(
+    db,
+    channels,
+    guilds,
+    messages,
+    limiter('webhooks', config.WEBHOOK_RATE_MAX, config.WEBHOOK_RATE_WINDOW_SECONDS),
+  );
   const uploads = new UploadService(db, files);
   const cleaner = new UploadCleaner(
     db,
@@ -145,9 +181,10 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
     presence.start();
     cleaner.start();
   });
-  app.addHook('onClose', () => {
+  app.addHook('onClose', async () => {
     presence.stop();
     cleaner.stop();
+    await interactions.drain();
   });
 
   await app.register(
@@ -158,13 +195,18 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
         hub.closeAll(1001, 'server shutting down');
       });
       await api.register(websocket, { options: { maxPayload: MAX_FRAME_BYTES } });
-      await api.register(authPlugin, { policy: authPolicy(config), users });
+      await api.register(authPlugin, {
+        policy: authPolicy(config),
+        users,
+        bots: new BotAuthenticator(db),
+      });
       await api.register(rateLimit, {
         redis,
         nameSpace: 'harmony:ratelimit:http:',
-        max: config.RATE_LIMIT_MAX,
+        // Bots draw from their own, separately configured bucket.
+        max: (request) => (request.bot ? config.BOT_RATE_LIMIT_MAX : config.RATE_LIMIT_MAX),
         timeWindow: config.RATE_LIMIT_WINDOW_MS,
-        keyGenerator: (request) => request.user.login,
+        keyGenerator: (request) => (request.bot ? `bot:${request.bot.id}` : request.user.login),
         skipOnError: true,
         errorResponseBuilder: () => new AppError(429, 'rate_limited', 'Too many requests'),
       });
@@ -175,6 +217,9 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
       await api.register(guildRoutes, { guilds, channels });
       await api.register(channelRoutes, { channels });
       await api.register(messageRoutes, { channels, messages });
+      await api.register(botRoutes, { bots });
+      await api.register(commandRoutes, { registry: commandRegistry, interactions });
+      await api.register(webhookRoutes, { webhooks });
       await api.register(searchRoutes, { reader: messages.reader });
       await api.register(uploadRoutes, {
         uploads,
@@ -187,6 +232,7 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
         users,
         presence,
         typing,
+        interactions,
         instanceId: config.INSTANCE_ID,
         presenceHeartbeatMs: config.PRESENCE_HEARTBEAT_MS,
         frameBurst: config.WS_FRAME_BURST,

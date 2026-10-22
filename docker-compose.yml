@@ -62,6 +62,7 @@ services:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
       ALLOWED_LOGINS: ${ALLOWED_LOGINS:-}
       INSTANCE_ID: ${INSTANCE_ID:-app-1}
+      OUTBOUND_PRIVATE_ALLOWLIST: ${OUTBOUND_PRIVATE_ALLOWLIST:-}
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
     volumes:
       - harmony_uploads:/data/uploads
@@ -83,6 +84,35 @@ services:
           memory: 512M
     networks: [harmony_internal]
 
+  # Delivers outgoing bot events from the transactional outbox. Same image as the app, no ports.
+  worker:
+    image: harmony-app:local
+    labels: *no-auto-update
+    restart: unless-stopped
+    command: ['node', 'apps/server/dist/worker.js']
+    environment:
+      <<: *app-env
+      INSTANCE_ID: ${INSTANCE_ID:-worker-1}
+      OUTBOUND_PRIVATE_ALLOWLIST: ${OUTBOUND_PRIVATE_ALLOWLIST:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # The worker touches this file on every loop iteration (at least every poll interval), so a
+    # stuck loop stops refreshing it and the container turns unhealthy.
+    healthcheck:
+      test: ['CMD-SHELL', 'test $$(( $$(date +%s) - $$(stat -c %Y /tmp/worker-heartbeat) )) -lt 60']
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+    networks: [harmony_internal]
+
   nginx:
     image: nginx:1.27-alpine
     labels: *no-auto-update
@@ -94,6 +124,8 @@ services:
       - ./deploy/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
     ports:
       - '127.0.0.1:8470:8080'
+      # Integration ingress for host-local scripts: webhooks, interactions and bot tokens only.
+      - '127.0.0.1:8471:8081'
     depends_on:
       app:
         condition: service_healthy

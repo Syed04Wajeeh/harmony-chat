@@ -9,6 +9,8 @@ export interface UsersTable {
   avatar_url: string | null;
   is_admin: Generated<boolean>;
   status: Generated<string>;
+  kind: Generated<'human' | 'bot'>;
+  bot_owner_id: Generated<string | null>;
   created_at: Timestamp;
 }
 
@@ -68,6 +70,10 @@ export interface MessagesTable {
   reply_to_id: string | null;
   pinned_at: Date | null;
   pinned_by: string | null;
+  webhook_id: Generated<string | null>;
+  display_name_override: Generated<string | null>;
+  avatar_url_override: Generated<string | null>;
+  embeds: Generated<unknown>;
   search: ColumnType<string, never, never>;
 }
 
@@ -97,6 +103,76 @@ export interface AttachmentsTable {
   created_at: Timestamp;
 }
 
+export interface BotsTable {
+  user_id: string;
+  token_hash: Buffer;
+  signing_secret: string;
+  scopes: string[];
+  interactions_url: string | null;
+  events_url: string | null;
+  event_types: string[];
+  created_at: Timestamp;
+  token_rotated_at: Generated<Date>;
+  last_used_at: Date | null;
+}
+
+export interface WebhooksTable {
+  id: Generated<string>;
+  channel_id: string;
+  name: string;
+  avatar_attachment_id: string | null;
+  token_hash: Buffer;
+  user_id: string;
+  created_by: string;
+  created_at: Timestamp;
+}
+
+export interface BotCommandsTable {
+  id: Generated<string>;
+  bot_id: string;
+  guild_id: string;
+  name: string;
+  description: string;
+  options: ColumnType<unknown, string, string>;
+  created_at: Timestamp;
+}
+
+export interface InteractionsTable {
+  id: Generated<string>;
+  token_hash: Buffer;
+  bot_id: string;
+  user_id: string;
+  channel_id: string;
+  command_name: string;
+  options: ColumnType<unknown, string, string>;
+  nonce: string | null;
+  created_at: Timestamp;
+  expires_at: Date;
+}
+
+export interface EventOutboxTable {
+  id: Generated<string>;
+  guild_id: string;
+  channel_id: string | null;
+  type: string;
+  payload: unknown;
+  created_at: Timestamp;
+  fanned_out_at: Date | null;
+}
+
+export interface EventDeliveriesTable {
+  id: Generated<string>;
+  event_id: string;
+  bot_id: string;
+  status: Generated<string>;
+  attempts: Generated<number>;
+  next_attempt_at: Generated<Date>;
+  last_status_code: number | null;
+  last_error: string | null;
+  created_at: Timestamp;
+  delivered_at: Date | null;
+}
+
 export interface Database {
   users: UsersTable;
   guilds: GuildsTable;
@@ -108,4 +184,10 @@ export interface Database {
   message_reactions: MessageReactionsTable;
   message_mentions: MessageMentionsTable;
   attachments: AttachmentsTable;
+  bots: BotsTable;
+  webhooks: WebhooksTable;
+  bot_commands: BotCommandsTable;
+  interactions: InteractionsTable;
+  event_outbox: EventOutboxTable;
+  event_deliveries: EventDeliveriesTable;
 }

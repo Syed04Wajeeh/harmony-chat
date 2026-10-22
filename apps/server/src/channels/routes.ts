@@ -22,34 +22,48 @@ export const channelRoutes: FastifyPluginCallbackZod<{ channels: ChannelService 
 ) => {
   app.get(
     '/channels',
-    { schema: { response: { 200: ListChannelsResponse } } },
+    { config: { scope: 'channels.read' }, schema: { response: { 200: ListChannelsResponse } } },
     async (request) => ({ channels: await channels.listForUser(request.user.id) }),
   );
 
-  app.get('/dms', { schema: { response: { 200: ListDmsResponse } } }, async (request) => ({
-    channels: await channels.listForUser(request.user.id, { dmsOnly: true }),
-  }));
+  app.get(
+    '/dms',
+    { config: { humanOnly: true }, schema: { response: { 200: ListDmsResponse } } },
+    async (request) => ({
+      channels: await channels.listForUser(request.user.id, { dmsOnly: true }),
+    }),
+  );
 
   app.patch(
     '/channels/:id',
-    { schema: { params: ChannelParams, body: UpdateChannelBody, response: { 200: Channel } } },
+    {
+      config: { humanOnly: true },
+      schema: { params: ChannelParams, body: UpdateChannelBody, response: { 200: Channel } },
+    },
     (request) => channels.update(request.user, request.params.id, request.body),
   );
 
-  app.post('/channels/:id/leave', { schema: { params: ChannelParams } }, async (request, reply) => {
-    await channels.leave(request.user, request.params.id);
-    return reply.code(204).send();
-  });
+  app.post(
+    '/channels/:id/leave',
+    { config: { humanOnly: true }, schema: { params: ChannelParams } },
+    async (request, reply) => {
+      await channels.leave(request.user, request.params.id);
+      return reply.code(204).send();
+    },
+  );
 
   app.get(
     '/channels/:id/members',
-    { schema: { params: ChannelParams, response: { 200: MembersResponse } } },
+    {
+      config: { scope: 'channels.read' },
+      schema: { params: ChannelParams, response: { 200: MembersResponse } },
+    },
     async (request) => ({ members: await channels.members(request.user, request.params.id) }),
   );
 
   app.post(
     '/channels/:id/members',
-    { schema: { params: ChannelParams, body: AddMemberBody } },
+    { config: { humanOnly: true }, schema: { params: ChannelParams, body: AddMemberBody } },
     async (request, reply) => {
       await channels.addMember(request.user, request.params.id, request.body.userId);
       return reply.code(204).send();
@@ -58,7 +72,7 @@ export const channelRoutes: FastifyPluginCallbackZod<{ channels: ChannelService 
 
   app.delete(
     '/channels/:id/members/:userId',
-    { schema: { params: ChannelMemberParams } },
+    { config: { humanOnly: true }, schema: { params: ChannelMemberParams } },
     async (request, reply) => {
       await channels.removeMember(request.user, request.params.id, request.params.userId);
       return reply.code(204).send();
@@ -67,13 +81,19 @@ export const channelRoutes: FastifyPluginCallbackZod<{ channels: ChannelService 
 
   app.post(
     '/channels/:id/read',
-    { schema: { params: ChannelParams, body: MarkReadBody, response: { 200: ReadState } } },
+    {
+      config: { humanOnly: true },
+      schema: { params: ChannelParams, body: MarkReadBody, response: { 200: ReadState } },
+    },
     (request) => channels.markRead(request.user, request.params.id, request.body.messageId),
   );
 
   app.post(
     '/dms',
-    { schema: { body: CreateDmBody, response: { 200: ChannelSummary } } },
+    {
+      config: { humanOnly: true },
+      schema: { body: CreateDmBody, response: { 200: ChannelSummary } },
+    },
     (request) => channels.openDm(request.user, request.body.userId),
   );
   done();

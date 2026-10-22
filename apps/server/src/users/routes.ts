@@ -13,21 +13,35 @@ export const userRoutes: FastifyPluginCallbackZod<UserRoutesOptions> = (
   { users, presence },
   done,
 ) => {
-  app.get('/me', { schema: { response: { 200: Me } } }, (request) => users.getMe(request.user));
+  app.get('/me', { config: { scope: 'any' }, schema: { response: { 200: Me } } }, (request) =>
+    users.getMe(request.user),
+  );
 
-  app.patch('/me', { schema: { body: UpdateMeBody, response: { 200: Me } } }, async (request) => {
-    const { status } = request.body;
-    await users.setStatus(request.user.id, status);
-    await presence.statusChanged(request.user.id, status);
-    return users.getMe(request.user);
-  });
+  app.patch(
+    '/me',
+    { config: { humanOnly: true }, schema: { body: UpdateMeBody, response: { 200: Me } } },
+    async (request) => {
+      const { status } = request.body;
+      await users.setStatus(request.user.id, status);
+      await presence.statusChanged(request.user.id, status);
+      return users.getMe(request.user);
+    },
+  );
 
-  app.get('/users', { schema: { response: { 200: ListUsersResponse } } }, async (request) => ({
-    users: await users.listVisibleTo(request.user.id),
-  }));
+  app.get(
+    '/users',
+    { config: { scope: 'channels.read' }, schema: { response: { 200: ListUsersResponse } } },
+    async (request) => ({
+      users: await users.listVisibleTo(request.user.id),
+    }),
+  );
 
-  app.get('/presence', { schema: { response: { 200: PresenceResponse } } }, async () => ({
-    presence: await presence.snapshot(),
-  }));
+  app.get(
+    '/presence',
+    { config: { scope: 'channels.read' }, schema: { response: { 200: PresenceResponse } } },
+    async () => ({
+      presence: await presence.snapshot(),
+    }),
+  );
   done();
 };

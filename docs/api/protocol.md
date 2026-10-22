@@ -1,7 +1,7 @@
 # Harmony API and WebSocket protocol
 
 This is the contract between the server and the web client. The authoritative schemas are the
-zod definitions in `packages/shared/src` (`chat.ts`, `protocol.ts`); this document explains
+zod definitions in `packages/shared/src` (`chat.ts`, `bots.ts`, `protocol.ts`); this document explains
 behavior and gives examples.
 
 ## Conventions
@@ -12,14 +12,15 @@ behavior and gives examples.
 - Timestamps are ISO 8601 UTC strings (`"2026-10-22T09:15:00.000Z"`).
 - Identity comes from the Tailscale headers added by the proxy; there is no login. Every
   non-GET request and the WebSocket upgrade must carry an `Origin` equal to the public origin
-  (browsers do this automatically), otherwise `403 bad_origin`.
+  (browsers do this automatically), otherwise `403 bad_origin`. Bots and integrations use
+  `Authorization: Bot <token>` instead; see [Bots and integrations](#bots-and-integrations).
 - Errors are `{ "code": "...", "message": "..." }` with the HTTP status shown below. Common to
   all endpoints:
 
 | Status  | code              | Meaning                                                                                                                                             |
 | ------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 400     | `invalid_request` | Body, query or params failed validation                                                                                                             |
-| 401/403 | auth codes        | `no_identity`, `proxy_required`, `not_allowed`, `bad_origin`                                                                                        |
+| 401/403 | auth codes        | `no_identity`, `proxy_required`, `not_allowed`, `bad_origin`; bots: `invalid_token`, `missing_scope`, `human_only`, `bot_not_allowed`               |
 | 403     | `forbidden`       | Authenticated but not allowed (usually: not a member)                                                                                               |
 | 404     | `*_not_found`     | Resource does not exist (`channel_not_found`, `message_not_found`, `guild_not_found`, `user_not_found`, `attachment_not_found`, `invite_not_found`) |
 | 429     | `rate_limited`    | Too many requests, sends, reactions or uploads                                                                                                      |
@@ -389,14 +390,15 @@ frames the server closes the socket with code 1008. Typing pings are further thr
 
 ### Client to server
 
-| `type`         | Fields                                                          | Effect                                                                                                                         |
-| -------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `subscribe`    | `channelId`, `lastSeenId?`                                      | Start receiving the channel's events. Members only. Answered with `backfill`.                                                  |
-| `unsubscribe`  | `channelId`                                                     | Stop receiving. No reply.                                                                                                      |
-| `message.send` | `channelId`, `content`, `nonce`, `replyToId?`, `attachmentIds?` | Same rules as `POST /messages`. Answered with `ack` (to you) and `message.created` (to subscribers). `nonce` is required here. |
-| `read`         | `channelId`, `messageId`                                        | Same as `POST /channels/:id/read`. Answered with `read.updated` to all your sessions.                                          |
-| `typing`       | `channelId`                                                     | Relays `typing` to subscribers. Members only; ignored if you sent one for this channel in the last 2 seconds.                  |
-| `presence.set` | `status` (`online`, `idle`, `dnd`, `invisible`)                 | Same as `PATCH /api/me`. No reply.                                                                                             |
+| `type`           | Fields                                                          | Effect                                                                                                                         |
+| ---------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `subscribe`      | `channelId`, `lastSeenId?`                                      | Start receiving the channel's events. Members only. Answered with `backfill`.                                                  |
+| `unsubscribe`    | `channelId`                                                     | Stop receiving. No reply.                                                                                                      |
+| `message.send`   | `channelId`, `content`, `nonce`, `replyToId?`, `attachmentIds?` | Same rules as `POST /messages`. Answered with `ack` (to you) and `message.created` (to subscribers). `nonce` is required here. |
+| `read`           | `channelId`, `messageId`                                        | Same as `POST /channels/:id/read`. Answered with `read.updated` to all your sessions.                                          |
+| `typing`         | `channelId`                                                     | Relays `typing` to subscribers. Members only; ignored if you sent one for this channel in the last 2 seconds.                  |
+| `presence.set`   | `status` (`online`, `idle`, `dnd`, `invisible`)                 | Same as `PATCH /api/me`. No reply.                                                                                             |
+| `command.invoke` | `channelId`, `name`, `options?`, `nonce?`                       | Run a slash command (humans only); the outcome arrives as a message or an `interaction.*` frame. See Slash commands.           |
 
 ```json
 { "type": "subscribe", "channelId": "11", "lastSeenId": "980" }
@@ -463,6 +465,9 @@ long disconnect if that matters.
 { "type": "guild.removed", "guildId": "3" }
 { "type": "guild.member_joined", "guildId": "3", "user": { "...DirectoryUser": "..." } }
 { "type": "guild.member_left", "guildId": "3", "userId": "8" }
+{ "type": "interaction.ephemeral", "interactionId": "5", "channelId": "11", "command": "echo", "botId": "9", "content": "only you", "nonce": "abc" }
+{ "type": "interaction.pending", "interactionId": "5", "channelId": "11", "command": "roll", "botId": "9", "expiresAt": "2026-10-22T09:30:00.000Z", "nonce": "abc" }
+{ "type": "interaction.failed", "interactionId": "5", "channelId": "11", "command": "roll", "botId": "9", "reason": "timeout", "nonce": "abc" }
 ```
 
 - `channel.joined` is sent when a channel appears for you: you were added to a private channel,
@@ -483,3 +488,252 @@ long disconnect if that matters.
 It is sent when a user's first connection opens, their last one closes or times out (up to
 about 2 minutes after a crash), or they change their status. Presence is not scoped per guild
 at this size; filter by the users you display.
+
+## Bots and integrations
+
+Bots are users (`kind: "bot"`, `isBot: true` on `User`), so every membership and permission
+rule above applies to them unchanged. They use this same REST API and the `/api/ws` gateway.
+Design rationale and the threat model are in `docs/security/trust-model.md`.
+
+### Authentication
+
+```
+Authorization: Bot hb_<botId>_<43 base64url characters>
+```
+
+- A request with an `Authorization: Bot` header is authenticated by the token alone. Every
+  `Tailscale-*` header, the proxy secret and the `Origin` check are ignored for it, so a bot can
+  call the app from any process that can reach it (for example through the host-local ingress on
+  `127.0.0.1:8471`). A wrong token is `401 invalid_token`; the request never falls back to a
+  human identity.
+- The token is shown once, when the bot is created or the token is rotated, and only a SHA-256
+  hash is stored. Rotating (`POST /api/bots/:id/token`) revokes the previous token immediately.
+- **Scopes** are chosen per bot: `messages.read`, `messages.write`, `reactions.write`,
+  `channels.read`, `commands`, `events`. A route needs one scope; without it the answer is
+  `403 missing_scope`. Humans are never subject to scopes.
+
+| Scope             | Allows                                                                                                         |
+| ----------------- | -------------------------------------------------------------------------------------------------------------- |
+| `messages.read`   | `GET` messages, pins, search, attachments; `subscribe` on the gateway                                          |
+| `messages.write`  | send, edit, delete, pin messages (REST and `message.send`); `typing`                                           |
+| `reactions.write` | add and remove reactions                                                                                       |
+| `channels.read`   | `GET /api/guilds`, guild channels and members, `/api/channels`, channel members, `/api/users`, `/api/presence` |
+| `commands`        | register slash commands (`PUT .../commands`); list a guild's commands; required to set `interactionsUrl`       |
+| `events`          | required to set `eventsUrl` / `eventTypes`; message and reaction events additionally require `messages.read`   |
+
+- Human-only endpoints answer bots with `403 human_only`: bot management, creating, changing
+  and deleting guilds, channel management, invites, uploads, DMs, read markers, `PATCH /api/me`,
+  webhook management and command invocation. Any route without a declared bot scope is closed
+  to bots by default (`403 bot_not_allowed`).
+- Bots only see what a member sees: a bot that is not in a guild gets `403 forbidden` for it.
+- Each bot has its own HTTP rate-limit bucket (`BOT_RATE_LIMIT_MAX` per minute, default 600),
+  separate from human users. Message and reaction limits apply as for users.
+- On the gateway, send the header on the upgrade request. Frames are checked against scopes:
+  `subscribe` needs `messages.read`, `message.send` and `typing` need `messages.write`;
+  `read`, `presence.set` and `command.invoke` are human-only (`error` frame, `human_only`).
+
+### Bot management (humans only)
+
+| Endpoint                                              | Notes                                                                                                                                                           |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/bots`                                      | `{name, scopes?, interactionsUrl?, eventsUrl?, eventTypes?}` returns `201 {bot, token, signingSecret}`. Both secrets are shown only here. At most 20 bots each. |
+| `GET /api/bots`                                       | Your bots: `{bots: Bot[]}`.                                                                                                                                     |
+| `GET /api/bots/:id`, `PATCH /api/bots/:id`            | Update `name`, `scopes`, `interactionsUrl` (nullable), `eventsUrl` (nullable), `eventTypes`.                                                                    |
+| `DELETE /api/bots/:id`                                | `204`. Revokes the token, removes the bot from every guild; its past messages stay.                                                                             |
+| `POST /api/bots/:id/token`                            | `{token}`; the old token stops working immediately.                                                                                                             |
+| `POST /api/bots/:id/signing-secret`                   | `{signingSecret}`; takes effect immediately for new requests.                                                                                                   |
+| `POST /api/guilds/:id/bots` `{botId}`                 | `204`. You must own both the bot and the guild (instance admins count as guild owners). Creates a normal guild membership.                                      |
+| `DELETE /api/guilds/:id/bots/:botId`                  | `204`. The guild's manager or the bot's owner.                                                                                                                  |
+| `GET /api/bots/:id/deliveries?status=&before=&limit=` | Event delivery log, newest first: `{deliveries: Delivery[]}`.                                                                                                   |
+| `POST /api/bots/:id/deliveries/:deliveryId/redeliver` | `202`. Resets attempts and queues the delivery again.                                                                                                           |
+
+`Bot` = `{id, name, avatarUrl, ownerId, scopes, interactionsUrl, eventsUrl, eventTypes, createdAt, lastUsedAt}`.
+`interactionsUrl` requires the `commands` scope; `eventsUrl` and `eventTypes` require `events`.
+If `eventsUrl` is set without `eventTypes`, all event types are subscribed.
+
+URLs must be `http` or `https` and are checked when saved and again on every request: addresses
+in private, loopback, link-local, CGNAT (100.64.0.0/10, which covers tailnet addresses),
+multicast and reserved ranges are refused with `400 url_not_allowed`. Bots owned by an instance
+admin may reach hosts listed in `OUTBOUND_PRIVATE_ALLOWLIST`. Redirects are never followed.
+
+### Incoming webhooks
+
+| Endpoint                          | Notes                                                                                                                                                                                                                              |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/channels/:id/webhooks` | Human, guild owner or instance admin who can see the channel. `{name, avatarAttachmentId?}` returns `201 {id, channelId, name, avatarUrl, createdBy, createdAt, url}`; `url` is `/api/webhooks/:id/:token` and is shown only once. |
+| `GET /api/channels/:id/webhooks`  | `{webhooks: Webhook[]}` (no tokens).                                                                                                                                                                                               |
+| `DELETE /api/webhooks/:id`        | `204`. Existing messages stay.                                                                                                                                                                                                     |
+| `POST /api/webhooks/:id/:token`   | Posts a message. No other authentication; the path token is the credential. `204`, or `200` with the `Message` when `?wait=true`.                                                                                                  |
+
+The execute endpoint accepts a Discord-compatible payload, plus Slack's `text`:
+
+```json
+{
+  "content": "Deploy finished <@12>",
+  "username": "Deployer",
+  "avatar_url": "https://example.com/deploy.png",
+  "embeds": [
+    {
+      "title": "Build 42",
+      "description": "All green",
+      "url": "https://ci.example.com/42",
+      "color": 65280,
+      "timestamp": "2026-10-22T08:00:00.000Z",
+      "fields": [{ "name": "Branch", "value": "main", "inline": true }],
+      "footer": { "text": "ci" },
+      "author": { "name": "CI" },
+      "thumbnail": { "url": "https://example.com/t.png" }
+    }
+  ]
+}
+```
+
+- Limits follow Discord: `content`/`text` up to 2000 characters, `username` up to 80, up to 10
+  embeds, `title` 256, `description` 4096, 25 fields (`name` 256, `value` 1024), footer text
+  2048, author name 256, 6000 characters across all embeds. `url`, `avatar_url` and image URLs
+  must be `http(s)`. `embeds[].timestamp` is ISO 8601; Uptime Kuma's `YYYY-MM-DD HH:mm:ss.SSS`
+  (UTC) is also accepted. Unknown keys (`tts`, `flags`, `thread_name`, ...) are ignored.
+- `content` may be empty when there are embeds. `<@id>` mentions work as in normal messages;
+  `@everyone` and `@here` are defused.
+- The message is authored by a per-webhook bot user; `username` and `avatar_url` apply to that
+  one message as `displayNameOverride` / `avatarUrlOverride`, and `webhookId` is set. Clients
+  should show the override in place of the author's name and avatar.
+- Limited to 30 requests per minute per webhook: `429 rate_limited` with a `Retry-After`
+  header (seconds). A wrong or unknown token is `401 invalid_token`.
+
+`Message` gained four optional fields: `embeds`, `webhookId`, `displayNameOverride`,
+`avatarUrlOverride`. `User` gained optional `isBot`. Older clients can ignore all of them.
+
+### Slash commands
+
+**Register** (the bot itself with scope `commands`, or its owner): bulk overwrite of the bot's
+commands in one guild. The bot must already be in the guild.
+
+```
+PUT /api/bots/:id/guilds/:guildId/commands
+[ { "name": "roll", "description": "Roll a die",
+    "options": [ { "name": "sides", "description": "Sides", "type": "integer", "required": false } ] } ]
+```
+
+`name` matches `^[a-z0-9-]{1,32}$`, `description` is up to 100 characters, up to 10 options per
+command, option `type` is `string`, `integer`, `boolean`, `user` or `channel`. A command name is
+unique per guild: `409 command_conflict` if another bot owns it. Removing a bot from a guild
+removes its commands there.
+
+**List** (for autocomplete): `GET /api/guilds/:id/commands` returns
+`{commands: [{botId, botName, name, description, options}]}`.
+
+**Invoke** (humans only), in a guild text channel you belong to. Either a WebSocket frame
+
+```json
+{
+  "type": "command.invoke",
+  "channelId": "11",
+  "name": "roll",
+  "options": { "sides": 20 },
+  "nonce": "abc"
+}
+```
+
+or `POST /api/channels/:id/commands` with `{name, options, nonce?}`, answered `202 {interactionId}`.
+Options are validated against the definition before the bot is contacted (`400 invalid_options`,
+`404 unknown_command`); `user` options must be guild members and `channel` options channels you
+can see in the guild. Invocations are limited per user (`429 rate_limited`). The outcome
+arrives asynchronously:
+
+- The bot answered with a message: it is posted as the bot and arrives as a normal
+  `message.created` to everyone subscribed.
+- Ephemeral answer, `{type:"message", ephemeral:true}`: **not stored**, delivered only to you as
+  `interaction.ephemeral`.
+- Deferred, `{type:"deferred"}`: you get `interaction.pending` (show "Bot is thinking...") and the
+  bot's follow-up arrives later as a message or an ephemeral frame. Clear the indicator when a
+  message from that bot appears in the channel, when an `interaction.ephemeral` or
+  `interaction.failed` with the same `interactionId` arrives, or at `expiresAt`.
+- No answer within 3 seconds, an error, or an invalid response: `interaction.failed` with a
+  `reason`: `timeout`, `unreachable`, `bad_status`, `invalid_response`, `blocked_url` or
+  `post_failed` (the bot could not post, for example it is not in that channel).
+
+All three frames go to your user topic (every session of yours), carry `interactionId`,
+`channelId`, `command`, `botId` and the `nonce` you sent:
+
+```json
+{ "type": "interaction.ephemeral", "interactionId": "5", "channelId": "11", "command": "echo", "botId": "9", "content": "only you", "embeds": [], "nonce": "abc" }
+{ "type": "interaction.pending", "interactionId": "5", "channelId": "11", "command": "roll", "botId": "9", "expiresAt": "2026-10-22T09:30:00.000Z", "nonce": "abc" }
+{ "type": "interaction.failed", "interactionId": "5", "channelId": "11", "command": "roll", "botId": "9", "reason": "timeout", "nonce": "abc" }
+```
+
+**What the bot receives**: `POST <interactionsUrl>` with the signed headers below and body
+
+```json
+{
+  "id": "5",
+  "token": "<43 chars>",
+  "type": "command",
+  "command": { "name": "roll", "options": { "sides": 20 } },
+  "guildId": "3",
+  "channelId": "11",
+  "user": { "id": "8", "login": "alice@example.com", "displayName": "alice" },
+  "createdAt": "2026-10-22T09:15:00.000Z",
+  "expiresAt": "2026-10-22T09:30:00.000Z"
+}
+```
+
+The bot answers `2xx` within 3 seconds with one of
+
+```json
+{ "type": "message", "content": "text", "embeds": [], "ephemeral": false }
+{ "type": "deferred" }
+```
+
+and, after a deferred answer, calls (within 15 minutes, any number of times)
+
+```
+POST /api/interactions/:id/:token/followup      {content, embeds?, ephemeral?}   ->  201 {messageId|null}
+```
+
+The interaction token in the path is the credential (no other auth; `401 invalid_token`,
+`410 interaction_expired`). `messageId` is `null` for ephemeral follow-ups.
+
+### Signed requests
+
+Every request the server makes to a bot carries
+
+| Header                  | Value                                                                |
+| ----------------------- | -------------------------------------------------------------------- |
+| `X-Harmony-Timestamp`   | Unix seconds when it was sent.                                       |
+| `X-Harmony-Signature`   | `v1=` + hex `HMAC-SHA256(signingSecret, "<timestamp>.<raw body>")`.  |
+| `X-Harmony-Delivery-Id` | Event deliveries only: stable across retries; use it to deduplicate. |
+
+Verify over the **raw** body bytes, compare in constant time and reject timestamps more than 5
+minutes from now. `@harmony/shared/signature` exports `sign()` and `verifySignature()` that do
+exactly this (see `examples/echo-bot`).
+
+### Outgoing events
+
+Bots with `eventsUrl`, scope `events` and `eventTypes` receive events for guilds they are in:
+`message.created`, `message.updated`, `message.deleted`, `reaction.added`, `reaction.removed`,
+`guild.member_joined`, `guild.member_left`. Message and reaction events are only sent for
+channels the bot is a member of and need `messages.read`. Each is a signed `POST` with body
+
+```json
+{
+  "id": "1042",
+  "type": "message.created",
+  "guildId": "3",
+  "createdAt": "2026-10-22T09:15:00.000Z",
+  "data": { "message": { "...Message": "..." } }
+}
+```
+
+`data` by type: `message.created` / `message.updated` `{message}` (pins also send
+`message.updated`); `message.deleted` `{channelId, messageId}`; `reaction.added` / `.removed`
+`{channelId, messageId, emoji, userId}`; `guild.member_joined` `{user}`; `guild.member_left`
+`{userId}`. A bot also receives events about its own actions.
+
+Answer with any `2xx` within 5 seconds. Anything else (including redirects, which are not
+followed) is retried with exponential backoff and full jitter (base 2 s, cap 1 hour, 8 attempts
+in total), after which the delivery is `dead` and can be retried with
+`POST /api/bots/:id/deliveries/:deliveryId/redeliver`. Delivery is **at-least-once**: a receiver
+can see the same event twice (for example when its response is lost), so deduplicate on
+`X-Harmony-Delivery-Id`. Events of one guild are not guaranteed to arrive in order across
+retries. Events and delivery records are kept for 7 days.
