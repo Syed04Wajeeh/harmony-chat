@@ -60,6 +60,7 @@ export class PollService {
     const { question, options, multiple } = parsed.data;
     const channel = await this.ctx.channels.requireMember(channelId, user.id);
     await this.ctx.requireEnabled(channel.guild_id);
+    await this.ctx.permissions.require(user, channel.guild_id, 'create', channelId);
     const settings = await this.ctx.settings.get(channel.guild_id);
     if (multiple && !settings.allowMultipleChoice) {
       throw new AppError(
@@ -93,6 +94,7 @@ export class PollService {
   /** Replaces the caller's votes with `optionIds`; an empty list retracts them. */
   async vote(user: DirectoryUser, messageId: string, optionIds: readonly number[]): Promise<Poll> {
     const target = await this.readable(user.id, messageId);
+    await this.ctx.permissions.require(user, target.guild_id, 'vote', target.channel_id);
     const wanted = [...new Set(optionIds)];
     if (!(await this.voteLimiter.consume(user.id))) {
       throw new AppError(429, 'rate_limited', 'You are voting too quickly');

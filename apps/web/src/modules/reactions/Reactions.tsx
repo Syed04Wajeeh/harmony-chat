@@ -4,7 +4,16 @@ import { EmojiGrid, EmojiPickerButton } from '../../components/EmojiPicker.js';
 import { SmileIcon } from '../../components/Icons.js';
 import { useMessageHandlers } from '../../components/chat-context.js';
 import { QUICK_REACTIONS } from '../../lib/emoji.js';
+import { useGuildAccess } from '../../hooks/usePermission.js';
 import { toggleReaction } from '../../store/actions.js';
+import { useApp } from '../../store/store.js';
+
+/** Whether the signed-in user may add reactions in the message's channel. */
+function useCanReact(message: Message): boolean {
+  const guildId = useApp((state) => state.channels[message.channelId]?.guildId ?? null);
+  const access = useGuildAccess(guildId ?? '', guildId ? message.channelId : undefined);
+  return guildId === null || !access.loaded || access.has('add_reactions');
+}
 
 /** The reaction chips under a message, with a button to add another. */
 export function Reactions({ message }: { message: Message }) {
@@ -45,6 +54,8 @@ export function Reactions({ message }: { message: Message }) {
 
 /** The hover toolbar's "add reaction" button. */
 export function ReactionToolbarButton({ message }: { message: Message }) {
+  const canReact = useCanReact(message);
+  if (!canReact) return null;
   return (
     <EmojiPickerButton
       label="Add reaction"
@@ -59,10 +70,12 @@ export function ReactionToolbarButton({ message }: { message: Message }) {
 /** Quick reactions and the full picker for the phone action sheet. */
 export function ReactionSheetSection({ message, close }: { message: Message; close: () => void }) {
   const [picking, setPicking] = useState(false);
+  const canReact = useCanReact(message);
   const react = (emoji: string) => {
     close();
     void toggleReaction(message, emoji);
   };
+  if (!canReact) return null;
   if (picking) return <EmojiGrid onPick={react} />;
   return (
     <>

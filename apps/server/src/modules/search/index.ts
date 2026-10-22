@@ -34,7 +34,6 @@ export const search = defineModule({
                 .onRef('channel_members.channel_id', '=', 'messages.channel_id')
                 .on('channel_members.user_id', '=', request.user.id),
             )
-            .innerJoin('channels', 'channels.id', 'messages.channel_id')
             .where((eb) =>
               eb.not(
                 eb.exists(

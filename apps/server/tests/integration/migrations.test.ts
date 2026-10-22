@@ -123,6 +123,9 @@ describe('migrations', () => {
   it('can be undone: down() removes what up() added', async () => {
     const db = await freshDb();
     await migrateAll(db, modules);
+    const roles = await createMigrator(db).migrateDown();
+    expect(roles.error).toBeUndefined();
+    expect(await tables(db)).not.toEqual(expect.arrayContaining(['roles', 'channel_overwrites']));
     const down = await createMigrator(db).migrateDown();
     expect(down.error).toBeUndefined();
     expect(await tables(db)).not.toContain('guild_modules');

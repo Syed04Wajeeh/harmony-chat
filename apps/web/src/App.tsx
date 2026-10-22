@@ -11,7 +11,9 @@ import { DesktopPage } from './components/settings/DesktopPage.js';
 import { GuildBotsPage } from './components/settings/GuildBotsPage.js';
 import { IntegrationsPage } from './components/settings/IntegrationsPage.js';
 import { ModulesPage } from './components/settings/ModulesPage.js';
+import { MembersPage } from './components/settings/MembersPage.js';
 import { OverviewPage } from './components/settings/OverviewPage.js';
+import { RolesPage } from './components/settings/RolesPage.js';
 import { ServerSettingsLayout } from './components/settings/ServerSettings.js';
 import { UserModulePage } from './components/settings/UserModulePage.js';
 import { UserSettingsLayout } from './components/settings/UserSettings.js';
@@ -83,6 +85,8 @@ export function App() {
           </Route>
           <Route path="/settings/server/:guildId" element={<ServerSettingsLayout />}>
             <Route path="overview" element={<OverviewPage />} />
+            <Route path="roles" element={<RolesPage />} />
+            <Route path="members" element={<MembersPage />} />
             <Route path="modules" element={<ModulesPage />} />
             <Route path="integrations" element={<IntegrationsPage />} />
             <Route path="bots" element={<GuildBotsPage />} />

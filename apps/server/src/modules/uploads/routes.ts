@@ -1,12 +1,16 @@
 import multipart from '@fastify/multipart';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { AttachmentParams, UploadResponse } from '@harmony/shared';
+import { z } from 'zod';
+import { AttachmentParams, Id, UploadResponse } from '@harmony/shared';
+import type { DirectoryUser } from '@harmony/shared';
 import { AppError } from '../../errors.js';
 import type { RateLimiter } from '../../rate-limit.js';
 import type { UploadService } from './service.js';
 
 export interface UploadRoutesOptions {
   uploads: UploadService;
+  /** Checks `attach_files` in the channel an upload is meant for. */
+  canAttach: (user: DirectoryUser, channelId: string) => Promise<void>;
   limiter: RateLimiter;
   maxBytes: number;
 }
@@ -16,13 +20,20 @@ const INLINE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/web
 
 export const uploadRoutes: FastifyPluginAsyncZod<UploadRoutesOptions> = async (
   app,
-  { uploads, limiter, maxBytes },
+  { uploads, canAttach, limiter, maxBytes },
 ) => {
   await app.register(multipart, { limits: { fileSize: maxBytes, files: 1, fields: 5 } });
   app.post(
     '/uploads',
-    { config: { humanOnly: true }, schema: { response: { 201: UploadResponse } } },
+    {
+      config: { humanOnly: true },
+      schema: {
+        querystring: z.object({ channelId: Id.optional() }),
+        response: { 201: UploadResponse },
+      },
+    },
     async (request, reply) => {
+      if (request.query.channelId) await canAttach(request.user, request.query.channelId);
       if (!(await limiter.consume(request.user.id))) {
         throw new AppError(429, 'rate_limited', 'You are uploading too quickly');
       }

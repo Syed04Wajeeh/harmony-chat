@@ -1,6 +1,8 @@
 import { MAX_MESSAGE_LENGTH, type Message } from '@harmony/shared';
 import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useCoarsePointer } from '../hooks/useMediaQuery.js';
+import { memberColor, useCanDelete } from '../hooks/usePermission.js';
+import { roleColorStyle } from '../lib/roleColor.js';
 import { useLongPress } from '../hooks/useLongPress.js';
 import { decodeMentions, encodeMentions } from '../lib/mentions.js';
 import { messageIdentity } from '../lib/identity.js';
@@ -122,7 +124,7 @@ function InlineEditor({ message }: { message: Message }) {
 
 function HoverToolbar({ message, mine }: { message: Message; mine: boolean }) {
   const { onReply, onStartEdit, onDelete, onCopy } = useMessageHandlers();
-  const isAdmin = useApp((state) => state.me?.isAdmin ?? false);
+  const canDelete = useCanDelete(message);
   const actions = useMessageActions(message);
   return (
     <div className="message-toolbar" role="toolbar" aria-label="Message actions">
@@ -156,7 +158,7 @@ function HoverToolbar({ message, mine }: { message: Message; mine: boolean }) {
           <MenuItem icon={<CopyIcon />} onSelect={() => onCopy(message)}>
             Copy text
           </MenuItem>
-          {(mine || isAdmin) && (
+          {canDelete && (
             <MenuItem danger icon={<TrashIcon />} onSelect={() => onDelete(message)}>
               Delete message
             </MenuItem>
@@ -179,6 +181,14 @@ export const MessageItem = memo(function MessageItem({
   const coarse = useCoarsePointer();
   const longPress = useLongPress(() => onOpenSheet(message), coarse && !pending);
 
+  const guildId = useApp((state) => state.channels[message.channelId]?.guildId ?? null);
+  const nickname = useApp((state) =>
+    guildId ? state.memberInfo[guildId]?.[message.author.id]?.nickname : undefined,
+  );
+  const color = useApp((state) =>
+    message.webhookId ? null : memberColor(state, guildId, message.author.id),
+  );
+
   if (message.deleted) {
     return (
       <li id={`m-${message.id}`} className="message message-tombstone">
@@ -188,7 +198,7 @@ export const MessageItem = memo(function MessageItem({
     );
   }
 
-  const identity = messageIdentity(message);
+  const identity = messageIdentity(message, nickname);
   const mine = message.author.id === meId;
   const mentioned = message.mentions.includes(meId);
   const editing = editingId === message.id;
@@ -231,7 +241,12 @@ export const MessageItem = memo(function MessageItem({
           {!grouped && (
             <div className="message-header">
               <ProfilePopover userId={message.author.id}>
-                <button type="button" className="message-author">
+                <button
+                  type="button"
+                  className="message-author"
+                  data-role={color !== null || undefined}
+                  style={roleColorStyle(color)}
+                >
                   {identity.name}
                 </button>
               </ProfilePopover>

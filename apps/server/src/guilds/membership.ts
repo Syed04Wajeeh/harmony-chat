@@ -1,13 +1,14 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
 import type { Database } from '../db/schema.js';
 import { enqueueEvent } from '../events/outbox.js';
+import { reconcileAccess } from '../permissions/reconcile.js';
 
 type Executor = Kysely<Database> | Transaction<Database>;
 
 /**
- * Adds a user to a guild and to every non-private channel in it. channel_members is the access
- * and read-state table, so joining a guild fans out one row per channel; the user starts caught
- * up on existing history. Also queues a `guild.member_joined` outbox event, so call it inside the
+ * Adds a user to a guild and to every channel they may view. channel_members is the access and
+ * read-state table, so joining a guild fans out one row per visible channel; the user starts
+ * caught up on existing history. Also queues a `guild.member_joined` outbox event, so call it inside the
  * caller's transaction. Returns false when they were already a member.
  */
 export async function addGuildMember(
@@ -20,13 +21,7 @@ export async function addGuildMember(
     on conflict do nothing returning user_id
   `.execute(db);
   if (rows.length === 0) return false;
-  await sql`
-    insert into channel_members (channel_id, user_id, last_read_message_id)
-    select c.id, ${userId}, (select max(m.id) from messages m where m.channel_id = c.id)
-    from channels c
-    where c.guild_id = ${guildId} and c.kind = 'text' and not c.is_private
-    on conflict do nothing
-  `.execute(db);
+  await reconcileAccess(db, guildId, { userIds: [userId] });
   const user = await db
     .selectFrom('users')
     .select(['id', 'login', 'display_name', 'avatar_url', 'kind'])

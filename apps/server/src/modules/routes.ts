@@ -7,6 +7,7 @@ import {
   UpdateGuildModuleBody,
 } from '@harmony/shared';
 import type { GuildService } from '../guilds/service.js';
+import type { PermissionService } from '../permissions/service.js';
 import type { EventBus } from '../realtime/events.js';
 import type { GuildModuleState } from './guild-state.js';
 
@@ -14,11 +15,12 @@ export interface ModuleRoutesOptions {
   state: GuildModuleState;
   guilds: GuildService;
   events: EventBus;
+  perms: PermissionService;
 }
 
 export const moduleRoutes: FastifyPluginCallbackZod<ModuleRoutesOptions> = (
   app,
-  { state, guilds, events },
+  { state, guilds, events, perms },
   done,
 ) => {
   app.get(
@@ -45,7 +47,7 @@ export const moduleRoutes: FastifyPluginCallbackZod<ModuleRoutesOptions> = (
     },
     async (request) => {
       const { id: guildId, moduleId } = request.params;
-      await guilds.requireManager(request.user, guildId);
+      await perms.require(request.user, guildId, 'manage_guild');
       const updated = await state.update(guildId, moduleId, request.body);
       await guilds.toMembers(guildId, (userId) =>
         events.toUser(userId, {

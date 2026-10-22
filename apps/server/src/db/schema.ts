@@ -27,6 +27,34 @@ export interface GuildMembersTable {
   guild_id: string;
   user_id: string;
   joined_at: Timestamp;
+  nickname: Generated<string | null>;
+}
+
+export interface RolesTable {
+  id: Generated<string>;
+  guild_id: string;
+  name: string;
+  color: number | null;
+  position: number;
+  hoist: Generated<boolean>;
+  mentionable: Generated<boolean>;
+  permissions: Generated<string[]>;
+  is_default: Generated<boolean>;
+  created_at: Timestamp;
+}
+
+export interface MemberRolesTable {
+  guild_id: string;
+  user_id: string;
+  role_id: string;
+}
+
+export interface ChannelOverwritesTable {
+  channel_id: string;
+  target_type: 'role' | 'member';
+  target_id: string;
+  allow: Generated<string[]>;
+  deny: Generated<string[]>;
 }
 
 export interface GuildInvitesTable {
@@ -186,6 +214,9 @@ export interface Database {
   users: UsersTable;
   guilds: GuildsTable;
   guild_members: GuildMembersTable;
+  roles: RolesTable;
+  member_roles: MemberRolesTable;
+  channel_overwrites: ChannelOverwritesTable;
   guild_invites: GuildInvitesTable;
   channels: ChannelsTable;
   channel_members: ChannelMembersTable;

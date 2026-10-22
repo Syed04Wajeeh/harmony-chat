@@ -24,6 +24,7 @@ export interface MessageRow {
   author_name: string;
   author_avatar: string | null;
   author_kind: 'human' | 'bot';
+  author_nickname: string | null;
   webhook_id: string | null;
   display_name_override: string | null;
   avatar_url_override: string | null;
@@ -57,6 +58,12 @@ export class MessageReader {
     return this.db
       .selectFrom('messages')
       .innerJoin('users', 'users.id', 'messages.author_id')
+      .innerJoin('channels', 'channels.id', 'messages.channel_id')
+      .leftJoin('guild_members as gm', (join) =>
+        join
+          .onRef('gm.guild_id', '=', 'channels.guild_id')
+          .onRef('gm.user_id', '=', 'messages.author_id'),
+      )
       .leftJoin('messages as parent', 'parent.id', 'messages.reply_to_id')
       .select([
         'messages.id',
@@ -73,6 +80,7 @@ export class MessageReader {
         'users.display_name as author_name',
         'users.avatar_url as author_avatar',
         'users.kind as author_kind',
+        'gm.nickname as author_nickname',
         'messages.webhook_id',
         'messages.display_name_override',
         'messages.avatar_url_override',
@@ -159,6 +167,7 @@ export class MessageReader {
           avatarUrl: row.author_avatar,
           ...(row.author_kind === 'bot' && { isBot: true }),
         },
+        ...(row.author_nickname && { authorNickname: row.author_nickname }),
         content: deleted ? '' : row.content,
         createdAt: row.created_at.toISOString(),
         editedAt: row.edited_at?.toISOString() ?? null,

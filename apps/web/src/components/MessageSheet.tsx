@@ -1,7 +1,7 @@
 import type { Message } from '@harmony/shared';
 import type { ReactNode } from 'react';
 import { MessageSheetSlots, useMessageActions } from '../modules/slots.js';
-import { useApp } from '../store/store.js';
+import { useCanDelete } from '../hooks/usePermission.js';
 import { useMessageHandlers } from './chat-context.js';
 import { CopyIcon, EditIcon, ReplyIcon, TrashIcon } from './Icons.js';
 import { Modal } from './Overlay.js';
@@ -36,7 +36,7 @@ function Action({
 
 function SheetBody({ message, close }: { message: Message; close: () => void }) {
   const { meId, nameOf, onReply, onStartEdit, onDelete, onCopy } = useMessageHandlers();
-  const isAdmin = useApp((state) => state.me?.isAdmin ?? false);
+  const canDelete = useCanDelete(message);
   const actions = useMessageActions(message);
   const run = (action: (message: Message) => void) => () => {
     close();
@@ -72,7 +72,7 @@ function SheetBody({ message, close }: { message: Message; close: () => void }) 
         <Action icon={<CopyIcon />} onClick={run(onCopy)}>
           Copy text
         </Action>
-        {(mine || isAdmin) && (
+        {canDelete && (
           <Action danger icon={<TrashIcon />} onClick={run(onDelete)}>
             Delete message
           </Action>

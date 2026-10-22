@@ -21,6 +21,7 @@ import { AppError } from '../errors.js';
 import type { MessageService } from '../messages/service.js';
 import type { BuiltinCommands, RegisteredCommand } from '../modules/builtin-commands.js';
 import type { GuildModuleState } from '../modules/guild-state.js';
+import type { PermissionService } from '../permissions/service.js';
 import { OutboundError, type PrivateAllowlist } from '../outbound/policy.js';
 import { safeFetch } from '../outbound/safe-fetch.js';
 import type { RateLimiter } from '../rate-limit.js';
@@ -56,6 +57,7 @@ export class InteractionService {
     private readonly log: InteractionLogger,
     private readonly builtins: BuiltinCommands,
     private readonly moduleState: GuildModuleState,
+    private readonly perms: PermissionService,
   ) {}
 
   /** Waits for in-flight bot calls; used on shutdown and by tests. */
@@ -77,6 +79,7 @@ export class InteractionService {
     }
     if (channel.archived_at) throw new AppError(409, 'channel_archived', 'Channel is archived');
     const guildId = channel.guild_id;
+    await this.perms.require(user, guildId, 'use_commands', channelId);
 
     // A built-in wins over a bot's command of the same name, but only where its module is on.
     const builtin = this.builtins.get(body.name);

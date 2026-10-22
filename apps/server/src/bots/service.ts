@@ -11,8 +11,8 @@ import {
 } from '@harmony/shared';
 import type { Database } from '../db/schema.js';
 import { AppError } from '../errors.js';
+import type { PermissionService } from '../permissions/service.js';
 import { enqueueEvent, OUTBOX_CHANNEL } from '../events/outbox.js';
-import type { GuildService } from '../guilds/service.js';
 import { addGuildMember } from '../guilds/membership.js';
 import type { DomainEvents } from '../modules/domain-events.js';
 import type { EventBus } from '../realtime/events.js';
@@ -34,10 +34,10 @@ export class BotService {
   constructor(
     private readonly db: Kysely<Database>,
     private readonly events: EventBus,
-    private readonly guilds: GuildService,
     private readonly validator: OutboundValidator,
     private readonly maxBotsPerUser: number,
     private readonly domain: DomainEvents,
+    private readonly perms: PermissionService,
   ) {}
 
   async create(owner: DirectoryUser, body: CreateBotBody): Promise<CreatedBot> {
@@ -179,9 +179,9 @@ export class BotService {
     return signingSecret;
   }
 
-  /** The caller must own the bot and manage the guild. */
+  /** The caller must own the bot and have manage_guild. */
   async addToGuild(actor: DirectoryUser, guildId: string, botId: string): Promise<void> {
-    await this.guilds.requireManager(actor, guildId);
+    await this.perms.require(actor, guildId, 'manage_guild');
     await this.requireOwned(actor, botId);
     const joined = await this.db
       .transaction()
@@ -214,7 +214,7 @@ export class BotService {
     });
   }
 
-  /** The guild's manager or the bot's owner may remove a bot from a guild. */
+  /** Someone with manage_guild or the bot's owner may remove a bot from a guild. */
   async removeFromGuild(actor: DirectoryUser, guildId: string, botId: string): Promise<void> {
     const bot = await this.db
       .selectFrom('users')
@@ -223,7 +223,7 @@ export class BotService {
       .where('kind', '=', 'bot')
       .executeTakeFirst();
     if (!bot) throw notFound();
-    if (bot.bot_owner_id !== actor.id) await this.guilds.requireManager(actor, guildId);
+    if (bot.bot_owner_id !== actor.id) await this.perms.require(actor, guildId, 'manage_guild');
     const removed = await this.db
       .transaction()
       .execute((trx) => this.removeMemberships(trx, botId, guildId));
@@ -367,6 +367,11 @@ export class BotService {
     await sql`
       delete from channel_members cm using channels c
       where cm.channel_id = c.id and cm.user_id = ${botId} and c.guild_id = any(${guildIds}::bigint[])
+    `.execute(trx);
+    await sql`
+      delete from channel_overwrites o using channels c
+      where o.channel_id = c.id and o.target_type = 'member' and o.target_id = ${botId}
+        and c.guild_id = any(${guildIds}::bigint[])
     `.execute(trx);
     await trx
       .deleteFrom('bot_commands')

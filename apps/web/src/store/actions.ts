@@ -225,3 +225,46 @@ export async function loadChannelMembers(channelId: string): Promise<void> {
     reportError(error, 'Could not load members');
   }
 }
+
+export async function loadRoles(guildId: string): Promise<void> {
+  try {
+    appStore.getState().setRoles(guildId, await api.roles(guildId));
+  } catch (error) {
+    reportError(error, 'Could not load roles');
+  }
+}
+
+const permissionLoads = new Set<string>();
+
+/** What the signed-in user may do in the guild, or in one of its channels. */
+export async function loadPermissions(guildId: string, channelId?: string): Promise<void> {
+  const key = `${guildId}:${channelId ?? ''}`;
+  if (permissionLoads.has(key)) return;
+  permissionLoads.add(key);
+  try {
+    const permissions = await api.permissions(guildId, channelId);
+    appStore.getState().setPermissions(guildId, permissions, channelId);
+  } catch {
+    // Not fatal: controls stay hidden and the server still enforces everything.
+  } finally {
+    permissionLoads.delete(key);
+  }
+}
+
+/** Re-reads every permission set in view, after a role, nickname or overwrite change. */
+export function refreshPermissions(): void {
+  const { guildPermissions, channelPermissions, channels } = appStore.getState();
+  for (const guildId of Object.keys(guildPermissions)) void loadPermissions(guildId);
+  for (const channelId of Object.keys(channelPermissions)) {
+    const guildId = channels[channelId]?.guildId;
+    if (guildId) void loadPermissions(guildId, channelId);
+  }
+}
+
+export async function loadOverwrites(channelId: string): Promise<void> {
+  try {
+    appStore.getState().setOverwrites(channelId, await api.overwrites(channelId));
+  } catch (error) {
+    reportError(error, 'Could not load channel permissions');
+  }
+}

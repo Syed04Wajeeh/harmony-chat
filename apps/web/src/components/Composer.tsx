@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { useGuildCommands } from '../hooks/useGuildCommands.js';
+import { useGuildAccess } from '../hooks/usePermission.js';
 import { useCoarsePointer } from '../hooks/useMediaQuery.js';
 import type { Uploads } from '../hooks/useUploads.js';
 import {
@@ -66,6 +67,8 @@ export function Composer({
   me,
 }: Props) {
   const coarse = useCoarsePointer();
+  const access = useGuildAccess(guildId ?? '', guildId ? channelId : undefined);
+  const canAttach = guildId === null || !access.loaded || access.has('attach_files');
   const field = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const lastTyping = useRef(0);
@@ -86,7 +89,9 @@ export function Composer({
     [channelMap, guildId],
   );
   const members = useMemo(() => [me, ...candidates], [me, candidates]);
-  const composerActions = useComposerActions(guildId);
+  const composerActions = useComposerActions(guildId).filter(
+    (action) => !action.permission || !access.loaded || access.has(action.permission),
+  );
   const composerDialog = useComposerDialog();
 
   const textRef = useRef(text);
@@ -414,14 +419,16 @@ export function Composer({
             </MenuContent>
           </Menu>
         )}
-        <button
-          type="button"
-          className="icon-button composer-button"
-          aria-label="Attach files"
-          onClick={() => fileInput.current?.click()}
-        >
-          <PaperclipIcon />
-        </button>
+        {canAttach && (
+          <button
+            type="button"
+            className="icon-button composer-button"
+            aria-label="Attach files"
+            onClick={() => fileInput.current?.click()}
+          >
+            <PaperclipIcon />
+          </button>
+        )}
         {active ? (
           <CommandFields
             active={active}

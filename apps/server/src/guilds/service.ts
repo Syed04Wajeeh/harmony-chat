@@ -5,6 +5,7 @@ import {
   type DirectoryUser,
   type Guild,
   type GuildMember,
+  type NicknameBody,
   type GuildSummary,
   type Invite,
   type InvitePreview,
@@ -22,6 +23,9 @@ import type { DomainEvents } from '../modules/domain-events.js';
 import type { PresenceService } from '../presence/service.js';
 import type { EventBus } from '../realtime/events.js';
 import type { Storage } from '../uploads/storage.js';
+import { canModerate, memberRank, rankOf, rolesOf } from '../permissions/access.js';
+import { reconcileAccess } from '../permissions/reconcile.js';
+import type { PermissionService } from '../permissions/service.js';
 import { addGuildMember, createGuildWithGeneral } from './membership.js';
 
 type Actor = Pick<DirectoryUser, 'id' | 'isAdmin'>;
@@ -66,6 +70,7 @@ export class GuildService {
     private readonly presence: PresenceService,
     private readonly storage: Storage,
     private readonly domain: DomainEvents,
+    private readonly perms: PermissionService,
   ) {}
 
   /** The user's guilds, each with their unread and mention counts summed over its channels. */
@@ -108,7 +113,7 @@ export class GuildService {
   }
 
   async update(actor: Actor, guildId: string, body: UpdateGuildBody): Promise<Guild> {
-    await this.requireManager(actor, guildId);
+    await this.perms.require(actor, guildId, 'manage_guild');
     if (body.iconAttachmentId) {
       const icon = await this.db
         .selectFrom('attachments')
@@ -138,8 +143,9 @@ export class GuildService {
     return guild;
   }
 
+  /** Only the owner (or an instance admin, as moderation) deletes a guild. */
   async delete(actor: Actor, guildId: string): Promise<void> {
-    await this.requireManager(actor, guildId);
+    await this.requireOwner(actor, guildId);
     const memberIds = await this.memberIds(guildId);
     const channelRows = await this.db
       .selectFrom('channels')
@@ -167,63 +173,181 @@ export class GuildService {
     await Promise.allSettled(files.map((file) => this.storage.delete(file.storage_key)));
   }
 
-  /** The owner cannot leave: they must delete the guild (ownership transfer comes later). */
+  /** The owner cannot leave: they transfer the guild or delete it. */
   async leave(actor: Actor, guildId: string): Promise<void> {
     const guild = await this.requireMember(guildId, actor.id);
     if (guild.owner_id === actor.id) {
-      throw new AppError(400, 'owner_cannot_leave', 'Delete the guild instead of leaving it');
+      throw new AppError(400, 'owner_cannot_leave', 'Transfer the guild or delete it instead');
     }
+    await this.detach(guildId, actor.id);
+  }
+
+  /** Removes a member: needs `kick_members`, and the target must rank below the actor. */
+  async kick(actor: Actor, guildId: string, userId: string): Promise<void> {
+    await this.perms.require(actor, guildId, 'kick_members');
+    if (userId === actor.id) {
+      throw new AppError(400, 'invalid_request', 'Leave the guild instead of kicking yourself');
+    }
+    const access = await this.perms.requireAccess(guildId);
+    if (!access.members.has(userId)) throw new AppError(404, 'user_not_found', 'Not a member');
+    if (!canModerate(rankOf(access, actor), memberRank(access, userId))) {
+      throw new AppError(403, 'role_hierarchy', 'That member ranks at or above you');
+    }
+    await this.detach(guildId, userId);
+  }
+
+  private async detach(guildId: string, userId: string): Promise<void> {
     const removedChannels = await this.db.transaction().execute(async (trx) => {
       const { rows } = await sql<{ channel_id: string }>`
         delete from channel_members cm
         using channels c
-        where cm.channel_id = c.id and c.guild_id = ${guildId} and cm.user_id = ${actor.id}
+        where cm.channel_id = c.id and c.guild_id = ${guildId} and cm.user_id = ${userId}
         returning cm.channel_id
+      `.execute(trx);
+      await sql`
+        delete from channel_overwrites o using channels c
+        where o.channel_id = c.id and c.guild_id = ${guildId}
+          and o.target_type = 'member' and o.target_id = ${userId}
       `.execute(trx);
       await trx
         .deleteFrom('guild_members')
         .where('guild_id', '=', guildId)
-        .where('user_id', '=', actor.id)
+        .where('user_id', '=', userId)
         .execute();
-      await enqueueEvent(trx, {
-        guildId,
-        type: 'guild.member_left',
-        data: { userId: actor.id },
-      });
+      await enqueueEvent(trx, { guildId, type: 'guild.member_left', data: { userId } });
       return rows.map((row) => row.channel_id);
     });
+    await this.perms.changed(guildId);
 
     await Promise.all(
       removedChannels.map((channelId) =>
-        this.events.toUser(actor.id, { type: 'channel.removed', channelId }),
+        this.events.toUser(userId, { type: 'channel.removed', channelId }),
       ),
     );
-    await this.events.toUser(actor.id, { type: 'guild.removed', guildId });
-    await this.toMembers(guildId, (userId) =>
-      this.events.toUser(userId, { type: 'guild.member_left', guildId, userId: actor.id }),
+    await this.events.toUser(userId, { type: 'guild.removed', guildId });
+    await this.toMembers(guildId, (memberId) =>
+      this.events.toUser(memberId, { type: 'guild.member_left', guildId, userId }),
     );
-    this.domain.emit('member.left', { guildId, userId: actor.id });
+    this.domain.emit('member.left', { guildId, userId });
+  }
+
+  /** Hands the guild to another human member. Only the owner can. */
+  async transfer(actor: Actor, guildId: string, userId: string): Promise<Guild> {
+    const guild = await this.requireMember(guildId, actor.id);
+    if (guild.owner_id !== actor.id) {
+      throw new AppError(403, 'forbidden', 'Only the guild owner can do that');
+    }
+    if (userId === actor.id) {
+      throw new AppError(400, 'invalid_request', 'You already own this guild');
+    }
+    const target = await this.db
+      .selectFrom('guild_members')
+      .innerJoin('users', 'users.id', 'guild_members.user_id')
+      .select('users.kind')
+      .where('guild_members.guild_id', '=', guildId)
+      .where('guild_members.user_id', '=', userId)
+      .executeTakeFirst();
+    if (!target) throw new AppError(404, 'user_not_found', 'That user is not in this guild');
+    if (target.kind === 'bot') {
+      throw new AppError(400, 'invalid_request', 'A bot cannot own a guild');
+    }
+
+    const diff = await this.db.transaction().execute(async (trx) => {
+      await trx.updateTable('guilds').set({ owner_id: userId }).where('id', '=', guildId).execute();
+      // The new owner sees everything and the old one is an ordinary member now.
+      return reconcileAccess(trx, guildId);
+    });
+    await this.perms.changed(guildId);
+    const updated = await this.load(guildId);
+    await this.toMembers(guildId, (memberId) =>
+      this.events.toUser(memberId, { type: 'guild.updated', guild: updated }),
+    );
+    await this.channels.applyAccess(diff);
+    return updated;
+  }
+
+  /** Your own nickname needs change_nickname; someone else's needs manage_nicknames and rank. */
+  async setNickname(
+    actor: Actor,
+    guildId: string,
+    userId: string,
+    body: NicknameBody,
+  ): Promise<void> {
+    if (userId === actor.id) {
+      await this.perms.require(actor, guildId, 'change_nickname');
+    } else {
+      await this.perms.require(actor, guildId, 'manage_nicknames');
+      const access = await this.perms.requireAccess(guildId);
+      if (!access.members.has(userId)) throw new AppError(404, 'user_not_found', 'Not a member');
+      if (!canModerate(rankOf(access, actor), memberRank(access, userId))) {
+        throw new AppError(403, 'role_hierarchy', 'That member ranks at or above you');
+      }
+    }
+    const updated = await this.db
+      .updateTable('guild_members')
+      .set({ nickname: body.nickname })
+      .where('guild_id', '=', guildId)
+      .where('user_id', '=', userId)
+      .returning('user_id')
+      .executeTakeFirst();
+    if (!updated) throw new AppError(404, 'user_not_found', 'Not a member');
+    await this.announceMember(guildId, userId);
+  }
+
+  /** Tells every member about a changed nickname or role set. */
+  async announceMember(guildId: string, userId: string): Promise<void> {
+    const [member, access] = await Promise.all([
+      this.db
+        .selectFrom('guild_members')
+        .select('nickname')
+        .where('guild_id', '=', guildId)
+        .where('user_id', '=', userId)
+        .executeTakeFirst(),
+      this.perms.requireAccess(guildId),
+    ]);
+    if (!member) return;
+    await this.toMembers(guildId, (memberId) =>
+      this.events.toUser(memberId, {
+        type: 'guild.member_updated',
+        guildId,
+        userId,
+        roleIds: access.members.get(userId)?.roleIds ?? [],
+        nickname: member.nickname,
+      }),
+    );
   }
 
   async members(actor: Actor, guildId: string): Promise<GuildMember[]> {
     await this.requireMember(guildId, actor.id);
-    const [rows, online] = await Promise.all([
+    const [rows, online, access] = await Promise.all([
       this.db
         .selectFrom('guild_members')
         .innerJoin('users', 'users.id', 'guild_members.user_id')
         .selectAll('users')
-        .select('guild_members.joined_at')
+        .select(['guild_members.joined_at', 'guild_members.nickname'])
         .where('guild_members.guild_id', '=', guildId)
         .orderBy('users.display_name')
         .execute(),
       this.presence.snapshot(),
+      this.perms.requireAccess(guildId),
     ]);
     const status = new Map(online.map((entry) => [entry.userId, entry.status]));
-    return rows.map((row) => ({
-      ...toDirectoryUser(row),
-      status: status.get(row.id) ?? ('offline' satisfies PresenceStatus),
-      joinedAt: row.joined_at.toISOString(),
-    }));
+    return rows.map((row) => {
+      const roles = rolesOf(access, row.id);
+      const colored = roles.filter((role) => role.color !== null);
+      const top = colored.reduce<(typeof colored)[number] | undefined>(
+        (best, role) => (!best || role.position > best.position ? role : best),
+        undefined,
+      );
+      return {
+        ...toDirectoryUser(row),
+        status: status.get(row.id) ?? ('offline' satisfies PresenceStatus),
+        joinedAt: row.joined_at.toISOString(),
+        roleIds: roles.map((role) => role.id),
+        nickname: row.nickname,
+        topRoleColor: top?.color ?? null,
+      };
+    });
   }
 
   async channelsOf(actor: Actor, guildId: string) {
@@ -236,7 +360,7 @@ export class GuildService {
     guildId: string,
     options: { maxUses?: number | undefined; expiresInSeconds?: number | undefined },
   ): Promise<Invite> {
-    await this.requireMember(guildId, actor.id);
+    await this.perms.require(actor, guildId, 'create_invites');
     const expiresAt = options.expiresInSeconds
       ? new Date(Date.now() + options.expiresInSeconds * 1000)
       : null;
@@ -384,8 +508,8 @@ export class GuildService {
     return guild;
   }
 
-  /** The owner manages a guild; instance admins can too, as a moderation override. */
-  async requireManager(actor: Actor, guildId: string) {
+  /** The owner, or an instance admin as a moderation override. */
+  async requireOwner(actor: Actor, guildId: string) {
     const guild = await this.db
       .selectFrom('guilds')
       .select(['id', 'owner_id'])

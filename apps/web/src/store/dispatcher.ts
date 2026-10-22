@@ -1,10 +1,26 @@
 import type { RealtimeClient } from '../api/realtime.js';
 import { describeError } from '../lib/errors.js';
-import { fetchSnapshot, loadGuildModules, loadLatest, reportError } from './actions.js';
+import {
+  fetchSnapshot,
+  loadGuildModules,
+  loadLatest,
+  refreshPermissions,
+  reportError,
+} from './actions.js';
 import { routeModuleFrame } from '../modules/registry.js';
 import { getRealtime } from './connection.js';
 import { appStore } from './store.js';
 import { useUi } from './ui.js';
+
+/** Frames after which what the user may do could have changed. */
+const PERMISSION_FRAMES = new Set<string>([
+  'guild.role_created',
+  'guild.role_updated',
+  'guild.role_deleted',
+  'guild.member_updated',
+  'channel.overwrites_updated',
+  'guild.updated',
+]);
 
 /** Subscribing to every channel is a burst of frames; stay under the socket's token bucket. */
 const SUBSCRIBE_BURST = 15;
@@ -103,6 +119,7 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
       }
     }
     if (frame.type === 'channel.joined' || frame.type === 'guild.removed') syncSubscriptions();
+    if (PERMISSION_FRAMES.has(frame.type)) refreshPermissions();
   });
   const offModuleFrame = realtime.onModuleFrame((frame) => {
     routeModuleFrame(frame);

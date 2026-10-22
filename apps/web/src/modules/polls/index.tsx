@@ -13,6 +13,7 @@ export const polls = defineWebModule<Poll>({
       id: 'create',
       icon: PollIcon,
       label: 'Create poll',
+      permission: 'polls.create',
       onSelect: ({ openDialog }) => openDialog(CreatePollDialog),
     },
   ],

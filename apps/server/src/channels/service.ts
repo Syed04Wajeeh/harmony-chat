@@ -13,6 +13,9 @@ import { toDirectoryUser } from '../auth/user-store.js';
 import type { Database } from '../db/schema.js';
 import { AppError } from '../errors.js';
 import type { DomainEvents } from '../modules/domain-events.js';
+import { putOverwrite } from '../permissions/overwrites.js';
+import { reconcileAccess, type AccessDiff } from '../permissions/reconcile.js';
+import type { PermissionService } from '../permissions/service.js';
 import type { EventBus } from '../realtime/events.js';
 
 type ChannelRow = Selectable<Database['channels']>;
@@ -68,6 +71,7 @@ export class ChannelService {
     private readonly db: Kysely<Database>,
     private readonly events: EventBus,
     private readonly domain: DomainEvents,
+    private readonly perms: PermissionService,
   ) {}
 
   /** Loads a channel the actor belongs to: 404 if it does not exist, 403 if they are not a member. */
@@ -177,14 +181,18 @@ export class ChannelService {
     }));
   }
 
-  /** Any guild member can create channels. Public ones appear for every member of the guild. */
+  /**
+   * Needs `create_channels`. A private channel is a channel @everyone may not view, with the
+   * creator allowed in; who ends up in `channel_members` is decided by the permission rules.
+   */
   async create(actor: Actor, guildId: string, body: CreateChannelBody): Promise<ChannelSummary> {
-    await this.requireGuildMember(guildId, actor.id);
+    await this.perms.require(actor, guildId, 'create_channels');
     const isPrivate = body.isPrivate ?? false;
+    const { everyone } = await this.perms.requireAccess(guildId);
     let row: ChannelRow;
-    let memberIds: string[];
+    let diff: AccessDiff;
     try {
-      ({ row, memberIds } = await this.db.transaction().execute(async (trx) => {
+      ({ row, diff } = await this.db.transaction().execute(async (trx) => {
         const channel = await trx
           .insertInto('channels')
           .values({
@@ -198,13 +206,14 @@ export class ChannelService {
           })
           .returningAll()
           .executeTakeFirstOrThrow();
-        const { rows } = await sql<{ user_id: string }>`
-          insert into channel_members (channel_id, user_id, last_read_message_id)
-          select ${channel.id}, gm.user_id, null from guild_members gm
-          where gm.guild_id = ${guildId} and (not ${isPrivate} or gm.user_id = ${actor.id})
-          returning user_id
-        `.execute(trx);
-        return { row: channel, memberIds: rows.map((r) => r.user_id) };
+        if (isPrivate) {
+          await putOverwrite(trx, channel.id, 'role', everyone.id, [], ['view_channel']);
+          await putOverwrite(trx, channel.id, 'member', actor.id, ['view_channel'], []);
+        }
+        return {
+          row: channel,
+          diff: await reconcileAccess(trx, guildId, { channelIds: [channel.id] }),
+        };
       }));
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -212,14 +221,25 @@ export class ChannelService {
       }
       throw error;
     }
+    await this.perms.changed(guildId);
     const summary = freshSummary(row);
     await Promise.all(
-      memberIds.map((userId) =>
+      diff.added.map(({ userId }) =>
         this.events.toUser(userId, { type: 'channel.joined', channel: summary }),
       ),
     );
     this.domain.emit('channel.created', { guildId, channel: toChannel(row) });
     return summary;
+  }
+
+  /** Tells the users whose access changed; call once the change is committed. */
+  async applyAccess(diff: AccessDiff): Promise<void> {
+    await Promise.all([
+      ...diff.added.map(({ userId, channelId }) => this.announceJoin(userId, channelId)),
+      ...diff.removed.map(({ userId, channelId }) =>
+        this.events.toUser(userId, { type: 'channel.removed', channelId }),
+      ),
+    ]);
   }
 
   async update(actor: Actor, channelId: string, body: UpdateChannelBody): Promise<Channel> {
@@ -230,8 +250,8 @@ export class ChannelService {
     if (!(await this.canManage(actor, channel))) {
       throw new AppError(
         403,
-        'forbidden',
-        'Only the channel creator, the guild owner or an admin can change this channel',
+        'missing_permission',
+        'Only the channel creator or someone with manage_channels can change this channel',
       );
     }
 
@@ -275,7 +295,7 @@ export class ChannelService {
     return toChannel(updated);
   }
 
-  /** Adds a guild member to a private channel; public channels already include everyone. */
+  /** Adds a guild member to a private channel by allowing them to view it. */
   async addMember(actor: Actor, channelId: string, userId: string): Promise<void> {
     const channel = await this.requireMember(channelId, actor.id);
     if (channel.kind === 'dm') {
@@ -292,10 +312,10 @@ export class ChannelService {
       .where('user_id', '=', userId)
       .executeTakeFirst();
     if (!target) throw new AppError(404, 'user_not_found', 'That user is not in this guild');
-    if (await this.insertMember(channelId, userId)) await this.announceJoin(userId, channelId);
+    await this.setViewAccess(channel, userId, true);
   }
 
-  /** Members can leave themselves; removing someone else needs creator, guild owner or admin. */
+  /** Members can leave themselves; removing someone else needs the creator or manage_channels. */
   async removeMember(actor: Actor, channelId: string, userId: string): Promise<void> {
     const channel = await this.requireMember(channelId, actor.id);
     if (channel.kind === 'dm') {
@@ -307,17 +327,38 @@ export class ChannelService {
     if (userId !== actor.id && !(await this.canManage(actor, channel))) {
       throw new AppError(
         403,
-        'forbidden',
-        'Only the creator, guild owner or an admin can remove members',
+        'missing_permission',
+        'Only the creator or someone with manage_channels can remove members',
       );
     }
-    const removed = await this.db
-      .deleteFrom('channel_members')
-      .where('channel_id', '=', channelId)
-      .where('user_id', '=', userId)
-      .returning('user_id')
-      .executeTakeFirst();
-    if (removed) await this.events.toUser(userId, { type: 'channel.removed', channelId });
+    await this.setViewAccess(channel, userId, false);
+  }
+
+  /** A member overwrite that allows (or denies) viewing, keeping whatever else it holds. */
+  private async setViewAccess(channel: ChannelRow, userId: string, allowed: boolean) {
+    const guildId = channel.guild_id ?? '0';
+    const diff = await this.db.transaction().execute(async (trx) => {
+      const current = await trx
+        .selectFrom('channel_overwrites')
+        .select(['allow', 'deny'])
+        .where('channel_id', '=', channel.id)
+        .where('target_type', '=', 'member')
+        .where('target_id', '=', userId)
+        .executeTakeFirst();
+      const others = (keys: readonly string[] | undefined) =>
+        (keys ?? []).filter((key) => key !== 'view_channel');
+      await putOverwrite(
+        trx,
+        channel.id,
+        'member',
+        userId,
+        allowed ? ['view_channel', ...others(current?.allow)] : others(current?.allow),
+        allowed ? others(current?.deny) : ['view_channel', ...others(current?.deny)],
+      );
+      return reconcileAccess(trx, guildId, { channelIds: [channel.id], userIds: [userId] });
+    });
+    await this.perms.changed(guildId);
+    await this.applyAccess(diff);
   }
 
   /** Leaves a private channel; the caller is by definition removing themselves. */
@@ -421,40 +462,10 @@ export class ChannelService {
   }
 
   private async canManage(actor: Actor, channel: ChannelRow): Promise<boolean> {
-    if (actor.isAdmin || channel.created_by === actor.id) return true;
-    const guild = await this.db
-      .selectFrom('guilds')
-      .select('owner_id')
-      .where('id', '=', channel.guild_id ?? '0')
-      .executeTakeFirst();
-    return guild?.owner_id === actor.id;
-  }
-
-  private async requireGuildMember(guildId: string, userId: string): Promise<void> {
-    const guild = await this.db
-      .selectFrom('guilds')
-      .select('id')
-      .where('id', '=', guildId)
-      .executeTakeFirst();
-    if (!guild) throw new AppError(404, 'guild_not_found', 'Guild not found');
-    const member = await this.db
-      .selectFrom('guild_members')
-      .select('user_id')
-      .where('guild_id', '=', guildId)
-      .where('user_id', '=', userId)
-      .executeTakeFirst();
-    if (!member) throw new AppError(403, 'forbidden', 'You are not a member of this guild');
-  }
-
-  private async insertMember(channelId: string, userId: string): Promise<boolean> {
-    const { rows } = await sql<{ user_id: string }>`
-      insert into channel_members (channel_id, user_id, last_read_message_id)
-      values (${channelId}, ${userId},
-              (select max(m.id) from messages m where m.channel_id = ${channelId}))
-      on conflict do nothing
-      returning user_id
-    `.execute(this.db);
-    return rows.length > 0;
+    if (channel.created_by === actor.id) return true;
+    return channel.guild_id
+      ? this.perms.has(actor, channel.guild_id, 'manage_channels', channel.id)
+      : false;
   }
 
   async announceJoin(userId: string, channelId: string): Promise<ChannelSummary> {

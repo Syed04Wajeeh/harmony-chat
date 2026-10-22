@@ -47,6 +47,8 @@ export const uploads = defineModule({
     ctx.routes(async (app) => {
       await app.register(uploadRoutes, {
         uploads: service,
+        canAttach: (user, channelId) =>
+          ctx.permissions.requireInChannel(user, channelId, 'attach_files'),
         limiter,
         maxBytes: config.UPLOAD_MAX_BYTES,
       });

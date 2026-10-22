@@ -5,6 +5,7 @@ import { channelPath, HOME } from '../lib/paths.js';
 import { attempt } from '../store/actions.js';
 import { guildChannels, sortDms } from '../store/selectors.js';
 import { appStore, useApp } from '../store/store.js';
+import { useGuildAccess } from '../hooks/usePermission.js';
 import { useCanManage } from './settings/ServerSettings.js';
 import { Avatar } from './Avatar.js';
 import { CreateChannelDialog } from './dialogs/CreateChannelDialog.js';
@@ -111,6 +112,7 @@ function GuildChannels({
   const navigate = useNavigate();
   const [dialog, setDialog] = useState<'invite' | 'create' | 'leave' | null>(null);
   const canManage = useCanManage(guildId);
+  const access = useGuildAccess(guildId);
   if (!guild) return null;
   const isOwner = guild.ownerId === meId;
   const list = guildChannels(Object.values(channels), guildId);
@@ -137,12 +139,16 @@ function GuildChannels({
           <ChevronDownIcon width={18} height={18} />
         </MenuTrigger>
         <MenuContent align="start">
-          <MenuItem icon={<LinkIcon />} onSelect={() => setDialog('invite')}>
-            Invite people
-          </MenuItem>
-          <MenuItem icon={<PlusIcon />} onSelect={() => setDialog('create')}>
-            Create channel
-          </MenuItem>
+          {access.has('create_invites') && (
+            <MenuItem icon={<LinkIcon />} onSelect={() => setDialog('invite')}>
+              Invite people
+            </MenuItem>
+          )}
+          {access.has('create_channels') && (
+            <MenuItem icon={<PlusIcon />} onSelect={() => setDialog('create')}>
+              Create channel
+            </MenuItem>
+          )}
           {canManage && (
             <MenuItem
               icon={<SettingsIcon />}
@@ -165,13 +171,15 @@ function GuildChannels({
       <nav className="channel-scroll" aria-label="Text channels">
         <div className="channel-group-header">
           <span>Text channels</span>
-          <button
-            className="icon-button icon-button-small"
-            aria-label="Create channel"
-            onClick={() => setDialog('create')}
-          >
-            <PlusIcon width={16} height={16} />
-          </button>
+          {access.has('create_channels') && (
+            <button
+              className="icon-button icon-button-small"
+              aria-label="Create channel"
+              onClick={() => setDialog('create')}
+            >
+              <PlusIcon width={16} height={16} />
+            </button>
+          )}
         </div>
         <ul>
           {list.map((channel) => (

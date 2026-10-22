@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { MAX_REACTIONS_PER_MESSAGE, ReactionParams, isValidEmoji } from '@harmony/shared';
+import {
+  MAX_REACTIONS_PER_MESSAGE,
+  ReactionParams,
+  isValidEmoji,
+  type DirectoryUser,
+} from '@harmony/shared';
 import { AppError } from '../../errors.js';
 import { forbidden, notFound } from '../../messages/service.js';
 import { defineModule } from '../types.js';
@@ -27,14 +32,16 @@ export const reactions = defineModule({
       ctx.config.REACTION_RATE_MAX,
       ctx.config.REACTION_RATE_WINDOW_SECONDS,
     );
-    ctx.permissions.define('react', 'Add and remove reactions');
-
-    async function target(userId: string, messageId: string, emoji: string) {
+    async function target(user: DirectoryUser, messageId: string, emoji: string, adding: boolean) {
+      const userId = user.id;
       if (!isValidEmoji(emoji)) throw new AppError(400, 'invalid_emoji', 'Not a valid emoji');
       const found = await ctx.messages.find(messageId, userId);
       if (!found.isMember) throw forbidden();
       if (found.deleted_at) throw notFound();
       await ctx.requireEnabled(found.guild_id);
+      if (adding) {
+        await ctx.permissions.require(user, found.guild_id, 'add_reactions', found.channel_id);
+      }
       if (!(await limiter.consume(userId))) {
         throw new AppError(429, 'rate_limited', 'You are reacting too quickly');
       }
@@ -47,7 +54,7 @@ export const reactions = defineModule({
         { config: { scope: 'reactions.write' }, schema: { params: ReactionParams } },
         async (request, reply) => {
           const { id, emoji } = request.params;
-          const found = await target(request.user.id, id, emoji);
+          const found = await target(request.user, id, emoji, true);
           const event = {
             guildId: found.guild_id,
             channelId: found.channel_id,
@@ -117,7 +124,7 @@ export const reactions = defineModule({
         { config: { scope: 'reactions.write' }, schema: { params: ReactionParams } },
         async (request, reply) => {
           const { id, emoji } = request.params;
-          const found = await target(request.user.id, id, emoji);
+          const found = await target(request.user, id, emoji, false);
           const removed = await ctx.db.transaction().execute(async (trx) => {
             const row = await trx
               .deleteFrom('message_reactions')

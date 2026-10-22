@@ -12,6 +12,7 @@ import { enqueueEvent } from '../events/outbox.js';
 import { AppError } from '../errors.js';
 import type { DomainEvents } from '../modules/domain-events.js';
 import type { MessageTarget } from '../modules/types.js';
+import type { PermissionService } from '../permissions/service.js';
 import type { RateLimiter } from '../rate-limit.js';
 import type { EventBus } from '../realtime/events.js';
 import type { MessageDecorators } from './decorators.js';
@@ -51,6 +52,7 @@ export class MessageService {
     private readonly sendLimiter: RateLimiter,
     private readonly domain: DomainEvents,
     private readonly decorators: MessageDecorators,
+    private readonly perms: PermissionService,
   ) {
     this.reader = new MessageReader(db, decorators);
   }
@@ -75,6 +77,12 @@ export class MessageService {
         throw new AppError(429, 'rate_limited', 'You are sending messages too quickly');
       }
       channel = await this.channels.requireMember(channelId, author.id);
+      if (channel.guild_id) {
+        await this.perms.require(author, channel.guild_id, 'send_messages', channelId);
+        if (input.attachmentIds?.length) {
+          await this.perms.require(author, channel.guild_id, 'attach_files', channelId);
+        }
+      }
     }
     if (channel.archived_at) throw new AppError(409, 'channel_archived', 'Channel is archived');
 
@@ -190,8 +198,13 @@ export class MessageService {
   /** Soft delete: the row stays (replies, audit) but is served as an empty tombstone. */
   async delete(actor: Actor, messageId: string): Promise<void> {
     const target = await this.find(messageId, actor.id);
-    if (target.author_id !== actor.id && !actor.isAdmin) {
-      throw new AppError(403, 'forbidden', 'Only the author or an admin can delete a message');
+    if (target.author_id !== actor.id) {
+      // A DM has no guild and so no roles; there only the instance admin override applies.
+      if (target.guild_id) {
+        await this.perms.require(actor, target.guild_id, 'manage_messages', target.channel_id);
+      } else if (!actor.isAdmin) {
+        throw new AppError(403, 'forbidden', 'Only the author can delete a message');
+      }
     }
     const deleted = await this.db.transaction().execute(async (trx) => {
       const row = await trx

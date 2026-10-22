@@ -11,10 +11,17 @@ export interface MessageIdentity {
 
 /** Webhook callers may name and dress each message; everything else shows the author as is. */
 export function messageIdentity(
-  message: Pick<Message, 'author' | 'webhookId' | 'displayNameOverride' | 'avatarUrlOverride'>,
+  message: Pick<
+    Message,
+    'author' | 'authorNickname' | 'webhookId' | 'displayNameOverride' | 'avatarUrlOverride'
+  >,
+  /** The author's current nickname in the guild; falls back to the one the message carried. */
+  nickname?: string | null,
 ): MessageIdentity {
   const { author } = message;
-  const name = message.displayNameOverride || author.displayName;
+  const nick = nickname !== undefined ? nickname : message.authorNickname;
+  const name =
+    message.displayNameOverride || (message.webhookId ? null : nick) || author.displayName;
   return {
     name,
     avatarUser: {

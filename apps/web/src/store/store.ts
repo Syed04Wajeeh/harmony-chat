@@ -2,8 +2,10 @@ import {
   TYPING_EXPIRY_MS,
   UNREAD_COUNT_CAP,
   type Attachment,
+  type ChannelOverwrite,
   type ChannelSummary,
   type DirectoryUser,
+  type EffectivePermissions,
   type Guild,
   type GuildModule,
   type GuildSummary,
@@ -12,6 +14,7 @@ import {
   type PresenceEntry,
   type PresenceStatus,
   type ReadState,
+  type Role,
   type ServerFrame,
   type User,
 } from '@harmony/shared';
@@ -37,6 +40,12 @@ export interface ChannelHistory {
   messages: readonly Message[];
   hasMore: boolean;
   loaded: boolean;
+}
+
+/** What a guild knows about one of its members besides who they are. */
+export interface MemberInfo {
+  roleIds: readonly string[];
+  nickname: string | null;
 }
 
 export interface OutboxItem {
@@ -70,6 +79,13 @@ export interface AppState {
   /** Each guild's modules and their state; absent until the guild has been opened. */
   guildModules: Record<string, readonly GuildModule[]>;
   channelMembers: Record<string, readonly string[]>;
+  /** Roles of each guild, highest first; absent until a guild's roles were needed. */
+  roles: Record<string, readonly Role[]>;
+  memberInfo: Record<string, Record<string, MemberInfo>>;
+  /** What the signed-in user may do in a guild, and in the channels asked about. */
+  guildPermissions: Record<string, EffectivePermissions>;
+  channelPermissions: Record<string, EffectivePermissions>;
+  overwrites: Record<string, readonly ChannelOverwrite[]>;
   /** Absent means offline. */
   presence: Record<string, PresenceStatus>;
   history: Record<string, ChannelHistory>;
@@ -97,7 +113,10 @@ export interface AppState {
   historyOlder(channelId: string, messages: readonly Message[], hasMore: boolean): void;
   upsertGuild(guild: GuildSummary | Guild): void;
   upsertChannel(channel: ChannelSummary): void;
-  setGuildMembers(guildId: string, members: readonly DirectoryUser[]): void;
+  setGuildMembers(guildId: string, members: readonly (DirectoryUser & Partial<MemberInfo>)[]): void;
+  setRoles(guildId: string, roles: readonly Role[]): void;
+  setPermissions(guildId: string, permissions: EffectivePermissions, channelId?: string): void;
+  setOverwrites(channelId: string, overwrites: readonly ChannelOverwrite[]): void;
   setGuildModules(guildId: string, modules: readonly GuildModule[]): void;
   /** Changes one cached message; modules use it to apply their own frames. */
   patchMessage(channelId: string, messageId: string, update: (message: Message) => Message): void;
@@ -213,6 +232,11 @@ export function createAppStore(): StoreApi<AppState> {
       guilds: {},
       channels: {},
       guildMembers: {},
+      roles: {},
+      memberInfo: {},
+      guildPermissions: {},
+      channelPermissions: {},
+      overwrites: {},
       guildModules: {},
       channelMembers: {},
       presence: {},
@@ -347,8 +371,32 @@ export function createAppStore(): StoreApi<AppState> {
       setGuildMembers: (guildId, members) =>
         set((state) => ({
           guildMembers: { ...state.guildMembers, [guildId]: members.map((member) => member.id) },
+          memberInfo: {
+            ...state.memberInfo,
+            [guildId]: Object.fromEntries(
+              members.map((member) => [
+                member.id,
+                { roleIds: member.roleIds ?? [], nickname: member.nickname ?? null },
+              ]),
+            ),
+          },
           users: mergeUsers(state.users, members),
         })),
+
+      setRoles: (guildId, roles) =>
+        set((state) => ({
+          roles: { ...state.roles, [guildId]: [...roles].sort((a, b) => b.position - a.position) },
+        })),
+
+      setPermissions: (guildId, permissions, channelId) =>
+        set((state) =>
+          channelId
+            ? { channelPermissions: { ...state.channelPermissions, [channelId]: permissions } }
+            : { guildPermissions: { ...state.guildPermissions, [guildId]: permissions } },
+        ),
+
+      setOverwrites: (channelId, overwrites) =>
+        set((state) => ({ overwrites: { ...state.overwrites, [channelId]: overwrites } })),
 
       setGuildModules: (guildId, modules) =>
         set((state) => ({ guildModules: { ...state.guildModules, [guildId]: modules } })),
@@ -586,6 +634,60 @@ export function createAppStore(): StoreApi<AppState> {
                 : state;
             });
             break;
+          case 'guild.role_created':
+          case 'guild.role_updated':
+            set((state) => {
+              const known = state.roles[frame.guildId];
+              if (!known) return state;
+              const others = known.filter((role) => role.id !== frame.role.id);
+              return {
+                roles: {
+                  ...state.roles,
+                  [frame.guildId]: [...others, frame.role].sort((a, b) => b.position - a.position),
+                },
+              };
+            });
+            break;
+          case 'guild.role_deleted':
+            set((state) => {
+              const info = state.memberInfo[frame.guildId];
+              return {
+                roles: {
+                  ...state.roles,
+                  [frame.guildId]: (state.roles[frame.guildId] ?? []).filter(
+                    (role) => role.id !== frame.roleId,
+                  ),
+                },
+                ...(info && {
+                  memberInfo: {
+                    ...state.memberInfo,
+                    [frame.guildId]: Object.fromEntries(
+                      Object.entries(info).map(([id, entry]) => [
+                        id,
+                        { ...entry, roleIds: entry.roleIds.filter((r) => r !== frame.roleId) },
+                      ]),
+                    ),
+                  },
+                }),
+              };
+            });
+            break;
+          case 'guild.member_updated':
+            set((state) => ({
+              memberInfo: {
+                ...state.memberInfo,
+                [frame.guildId]: {
+                  ...state.memberInfo[frame.guildId],
+                  [frame.userId]: { roleIds: frame.roleIds, nickname: frame.nickname },
+                },
+              },
+            }));
+            break;
+          case 'channel.overwrites_updated':
+            set((state) => ({
+              overwrites: { ...state.overwrites, [frame.channelId]: frame.overwrites },
+            }));
+            break;
           case 'guild.modules_updated':
             set((state) => {
               const list = state.guildModules[frame.guildId];
@@ -612,6 +714,9 @@ export function createAppStore(): StoreApi<AppState> {
               return {
                 guilds: omit(state.guilds, frame.guildId),
                 guildMembers: omit(state.guildMembers, frame.guildId),
+                roles: omit(state.roles, frame.guildId),
+                memberInfo: omit(state.memberInfo, frame.guildId),
+                guildPermissions: omit(state.guildPermissions, frame.guildId),
                 guildModules: omit(state.guildModules, frame.guildId),
                 channels: drop(state.channels),
                 history: drop(state.history),

@@ -34,6 +34,8 @@ describe('component stylesheets', () => {
   it('only uses custom properties that something defines', () => {
     // Set from TSX with inline styles (drawer position, embed color, sheet grace period, image size, visual viewport).
     const inline = new Set([
+      '--role-light',
+      '--role-dark',
       '--pl',
       '--pr',
       '--embed-color',
