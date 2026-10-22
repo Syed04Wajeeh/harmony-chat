@@ -14,3 +14,5 @@ docker-compose.override.yml
 # load tests
 deploy/load/.env
 loadtest/results/*.cpuprofile
+target/
+apps/desktop/src-tauri/gen/

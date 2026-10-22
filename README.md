@@ -1,6 +1,6 @@
 # Harmony
 
-A self-hosted, Discord-style team chat app: servers (guilds) with public and private channels, DMs, message history with keyset pagination, replies, reactions, mentions, pins, search, file uploads, unread counts and presence, delivered live over WebSockets and Redis pub/sub. Identity comes from Tailscale Serve, so there are no passwords or sign-up. The REST and WebSocket contract is in [docs/api/protocol.md](docs/api/protocol.md).
+A self-hosted, Discord-style team chat app: servers (guilds) with public and private channels, DMs, message history with keyset pagination, replies, reactions, mentions, pins, search, file uploads, unread counts and presence, delivered live over WebSockets and Redis pub/sub. Bots and integrations have a UI too: BOT/WEBHOOK badges, embed cards, slash commands with autocomplete and typed options, ephemeral replies, and settings screens for webhooks, bots (scopes, URLs, one-time secrets) and the event delivery log. Identity comes from Tailscale Serve, so there are no passwords or sign-up. The REST and WebSocket contract is in [docs/api/protocol.md](docs/api/protocol.md).
 
 ## Quickstart (Docker)
 
@@ -56,10 +56,10 @@ To try it on a phone, run Vite with `--host` and open the machine's LAN address;
 ```sh
 pnpm test:unit          # server + web (Vitest, Testing Library)
 pnpm test:integration   # Testcontainers, needs Docker
-pnpm test:e2e           # Playwright: two users, mobile drawer, long-press sheet, uploads
+pnpm test:e2e           # Playwright: two users, mobile drawer, long-press sheet, uploads, webhooks, bots
 ```
 
-`pnpm test:e2e` needs the dev Postgres/Redis above and a Chromium (`pnpm --filter @harmony/web exec playwright install chromium`). Playwright starts the API in development mode and Vite on 127.0.0.1:18080 / :15173 itself, or reuses them if they are running. CI runs the same suite in its `e2e` job against Postgres and Redis service containers.
+`pnpm test:e2e` needs the dev Postgres/Redis above and a Chromium (`pnpm --filter @harmony/web exec playwright install chromium`). Playwright starts the API in development mode (with `OUTBOUND_PRIVATE_ALLOWLIST=localhost,127.0.0.1`) and Vite on 127.0.0.1:18080 / :15173 itself, or reuses them if they are running. The bot test runs `examples/echo-bot` against that API; it needs the instance admin, which is the first user in an empty database, and skips itself otherwise. CI runs the same suite in its `e2e` job against Postgres and Redis service containers.
 
 To run the browser inside Docker instead (useful on a headless server), start the API and Vite yourself, then:
 
@@ -71,21 +71,34 @@ docker run --rm --network host -e E2E_NO_WEBSERVER=1 -e E2E_BASE_URL=http://loca
 
 ### Screenshots
 
-`E2E_SCREENSHOTS=1 pnpm --filter @harmony/web test:e2e` seeds a fictional book club (Ada, Linus, Grace, Margaret, Alan, all `@example.com`) into an empty dev database and rewrites `docs/screenshots/`. Start from a fresh database, since the first user created is the instance admin. Icons in `apps/web/public` are rasterized from `icon.svg` with `apps/web/scripts/make-icons.mjs`.
+`E2E_SCREENSHOTS=1 pnpm --filter @harmony/web test:e2e` seeds a fictional book club (Ada, Linus, Grace, Margaret, Alan, all `@example.com`) into an empty dev database and rewrites `docs/screenshots/`. Start from a fresh database, since the first user created is the instance admin. The integrations shots (a "Home Lab" server with Uptime Kuma and job-scan webhooks, an echo bot and its delivery log) also need the event worker running (`pnpm --filter @harmony/server exec tsx src/worker.ts` with the same `DATABASE_URL`, `OUTBOUND_PRIVATE_ALLOWLIST=localhost,127.0.0.1`) so the log has deliveries. The web client reads an optional `VITE_DOCS_BASE_URL` at build time to link the integration guides. Icons in `apps/web/public` are rasterized from `icon.svg` with `apps/web/scripts/make-icons.mjs`.
 
 | Command                 | What it does                                   |
 | ----------------------- | ---------------------------------------------- |
 | `pnpm lint`             | ESLint (typescript-eslint, type-checked rules) |
 | `pnpm typecheck`        | `tsc` across all workspaces                    |
-| `pnpm test:unit`        | Vitest unit tests (server and web)             |
+| `pnpm test:unit`        | Vitest unit tests (server, web, desktop)       |
 | `pnpm test:integration` | Vitest + Testcontainers (needs Docker)         |
-| `pnpm build`            | Build shared, server and web                   |
+| `pnpm build`            | Build shared, server, web and desktop page     |
 | `pnpm format`           | Prettier                                       |
+
+## Desktop app
+
+Installers for Windows (`.exe` and `.msi`), macOS (Apple silicon `.dmg`) and Linux (`.AppImage` and `.deb`) are attached to the [GitHub releases](https://github.com/Syed04Wajeeh/harmony-chat/releases). The app is a small [Tauri](https://tauri.app) shell (about 10 MB, it uses the system webview): on first start it asks for your Harmony server URL, checks that it answers like Harmony, and then shows the server in its own window with a tray icon, launch at login, native notifications for mentions and DMs, an unread badge and auto-update.
+
+It loads the server itself instead of bundling the web client, so sign-in is still your Tailscale identity (the PC has to be connected to Tailscale), the server's origin checks pass unchanged, and the UI always matches the server version. The cost is that it does not work offline. Details, build and release steps: [apps/desktop/README.md](apps/desktop/README.md); the bridge's security model: [docs/security/trust-model.md](docs/security/trust-model.md#desktop-app).
+
+Things to know:
+
+- **Unsigned installers.** There are no code-signing certificates yet. Windows SmartScreen shows "Unknown publisher" (More info, then Run anyway) and macOS Gatekeeper blocks the first launch (right-click the app, choose Open). How to add signing later is in the desktop README.
+- **Private repository.** While this repository is private, the update check (`releases/latest/download/latest.json`) cannot be fetched without authentication, so auto-update does nothing and fails silently. It starts working once the repository is public or the release files are mirrored.
+- **Download link in the web app.** Build the server image with `VITE_RELEASES_URL` (for example `docker compose build --build-arg VITE_RELEASES_URL=https://github.com/Syed04Wajeeh/harmony-chat/releases/latest`) to show a "Desktop app" page with a download button in user settings. It is hidden when unset.
 
 ## Layout
 
 - `apps/server`: Fastify 5 API, Kysely migrations
 - `apps/web`: Vite + React client (React Router, zustand, plain CSS with design tokens, PWA manifest)
+- `apps/desktop`: Tauri v2 desktop app that opens your server in its own window
 - `packages/shared`: zod schemas and the WebSocket protocol, shared by both
 - `examples`: echo bot, Uptime Kuma recipe, webhook script
 - `deploy/nginx`: reverse-proxy config template
@@ -99,6 +112,19 @@ docker run --rm --network host -e E2E_NO_WEBSERVER=1 -e E2E_BASE_URL=http://loca
 
 ![Desktop](docs/screenshots/desktop-channel.png)
 
-Light theme, member list, search and the invite page are in [docs/screenshots](docs/screenshots).
+### Bots and integrations
+
+| Phone                                                                  |                                                            |                                                                       |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------- |
+| ![Uptime Kuma alerts](docs/screenshots/mobile-embeds-alerts.png)       | ![Job scan embed](docs/screenshots/mobile-embeds-jobs.png) | ![Slash autocomplete](docs/screenshots/mobile-slash-autocomplete.png) |
+| ![Ephemeral reply](docs/screenshots/mobile-ephemeral-reply.png)        | ![Bot settings](docs/screenshots/mobile-bot-settings.png)  | ![Delivery log](docs/screenshots/mobile-delivery-log.png)             |
+| ![New webhook, shown once](docs/screenshots/mobile-webhook-create.png) |                                                            |                                                                       |
+
+![Alerts on desktop](docs/screenshots/desktop-embeds-alerts.png)
+![Webhook URL, shown once](docs/screenshots/desktop-webhook-create.png)
+![Bot settings on desktop](docs/screenshots/desktop-bot-settings.png)
+![Delivery log on desktop](docs/screenshots/desktop-delivery-log.png)
+
+Appearance (theme, density, flat or floating panels) is a user setting; the design tokens behind it are documented in [docs/theming.md](docs/theming.md). Light theme, compact and flat variants, member list, search and the invite page are in [docs/screenshots](docs/screenshots) (`desktop-light-*`, `mobile-light-*`, `desktop-compact.png`, `desktop-flat.png`, `desktop-appearance.png`).
 
 Design decisions are tracked in [NOTES.md](NOTES.md).

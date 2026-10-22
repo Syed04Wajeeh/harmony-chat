@@ -50,7 +50,7 @@ interface GuildIconProps {
   size?: number;
 }
 
-export function GuildIcon({ guild, size = 48 }: GuildIconProps) {
+export function GuildIcon({ guild, size = 44 }: GuildIconProps) {
   return (
     <span className="guild-icon" style={{ width: size, height: size, fontSize: size * 0.34 }}>
       {guild.iconUrl ? (

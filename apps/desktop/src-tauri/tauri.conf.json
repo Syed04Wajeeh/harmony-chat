@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Harmony",
+  "version": "../package.json",
+  "identifier": "chat.harmony.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "category": "SocialNetworking",
+    "shortDescription": "Desktop app for the Harmony team chat",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "targets": ["nsis", "msi", "app", "dmg", "appimage", "deb"],
+    "windows": {
+      "nsis": { "installMode": "currentUser" }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFBMTRFQjA2OEUyOTE2OEYKUldTUEZpbU9CdXNVR2wzMWhDTHJNUU5kMEpHMVVLQVpZc2loMU92eFl5UEtOUzVFaTUxMkNHM0kK",
+      "endpoints": [
+        "https://github.com/Syed04Wajeeh/harmony-chat/releases/latest/download/latest.json"
+      ],
+      "windows": { "installMode": "passive" }
+    }
+  }
+}

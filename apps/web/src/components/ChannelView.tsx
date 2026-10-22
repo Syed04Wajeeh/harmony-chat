@@ -21,6 +21,7 @@ import {
   retryOutbox,
   toggleReaction,
 } from '../store/actions.js';
+import type { LocalInteraction } from '../store/interactions.js';
 import { appStore, useApp } from '../store/store.js';
 import { useUi } from '../store/ui.js';
 import { Lightbox } from './Attachments.js';
@@ -34,10 +35,13 @@ import { SearchPanel } from './SearchPanel.js';
 import { TypingIndicator } from './TypingIndicator.js';
 import type { Attachment } from '@harmony/shared';
 
+const NO_INTERACTIONS: readonly LocalInteraction[] = [];
+
 export function ChannelView({ channelId }: { channelId: string }) {
   const channel = useApp((state) => state.channels[channelId]);
   const history = useApp((state) => state.history[channelId]);
   const outbox = useApp((state) => state.outbox[channelId]);
+  const interactions = useApp((state) => state.interactions[channelId]) ?? NO_INTERACTIONS;
   const me = useApp((state) => state.me);
   const users = useApp((state) => state.users);
   const guildMembers = useApp((state) =>
@@ -78,6 +82,11 @@ export function ChannelView({ channelId }: { channelId: string }) {
     store.openHistory(channelId);
     return () => appStore.getState().setActiveChannel(null);
   }, [channelId]);
+
+  useEffect(() => {
+    const timer = setInterval(() => appStore.getState().pruneInteractions(), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (channel) rememberChannel(channel.guildId ?? HOME, channelId);
@@ -244,6 +253,8 @@ export function ChannelView({ channelId }: { channelId: string }) {
           <MessageList
             items={items}
             pending={pending}
+            interactions={interactions}
+            channelId={channelId}
             loaded={loaded}
             hasMore={hasMore}
             loadingOlder={loadingOlder}
@@ -283,6 +294,7 @@ export function ChannelView({ channelId }: { channelId: string }) {
         <Composer
           key={channelId}
           channelId={channelId}
+          guildId={channel.guildId}
           placeholder={isDm ? `Message ${label}` : `Message ${label}`}
           replyTo={replyTo}
           replyToName={replyTo ? (nameOf(replyTo.author.id) ?? replyTo.author.displayName) : null}
@@ -290,6 +302,7 @@ export function ChannelView({ channelId }: { channelId: string }) {
           onEditLast={editLast}
           uploads={uploads}
           candidates={candidates}
+          me={me}
         />
         {dragging && <div className="drop-overlay">Drop files to upload</div>}
       </section>

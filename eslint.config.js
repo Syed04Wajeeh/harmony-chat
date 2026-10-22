@@ -4,7 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/coverage/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', '**/coverage/**', '.claude/**'] },
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
   {
@@ -22,6 +22,10 @@ export default tseslint.config(
   {
     files: ['loadtest/k6/**/*.js'],
     languageOptions: { globals: { __ENV: 'readonly', open: 'readonly' } },
+  },
+  {
+    files: ['apps/desktop/**/*.ts'],
+    languageOptions: { globals: globals.browser },
   },
   {
     files: ['**/*.js', '**/*.mjs'],

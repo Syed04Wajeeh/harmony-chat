@@ -49,7 +49,7 @@ export function ProfilePopover({ userId, children }: { userId: string; children:
           <Avatar user={user} size={64} status={status} />
           <div className="profile-name">{user.displayName}</div>
           <div className="profile-status">{LABELS[status]}</div>
-          {userId !== meId && (
+          {userId !== meId && !user.isBot && (
             <button className="button button-primary" onClick={() => void message()}>
               <ChatIcon width={18} height={18} /> Message
             </button>

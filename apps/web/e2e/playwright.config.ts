@@ -20,12 +20,17 @@ export default defineConfig({
     : [
         {
           name: 'desktop',
-          testMatch: ['messaging.spec.ts', 'uploads.spec.ts', 'servers.spec.ts'],
+          testMatch: [
+            'integrations.spec.ts',
+            'messaging.spec.ts',
+            'uploads.spec.ts',
+            'servers.spec.ts',
+          ],
           use: { viewport: { width: 1280, height: 800 } },
         },
         {
           name: 'mobile',
-          testMatch: 'mobile.spec.ts',
+          testMatch: ['mobile.spec.ts', 'integrations.mobile.spec.ts'],
           use: {
             viewport: { width: 390, height: 844 },
             deviceScaleFactor: 3,
@@ -56,6 +61,8 @@ export default defineConfig({
             LOG_LEVEL: 'warn',
             MESSAGE_RATE_MAX: '500',
             RATE_LIMIT_MAX: '5000',
+            // The bot e2e points an admin-owned bot at a stub on localhost.
+            OUTBOUND_PRIVATE_ALLOWLIST: 'localhost,127.0.0.1',
           },
         },
         {

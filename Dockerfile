@@ -9,7 +9,9 @@ RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm fetch
 COPY . .
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile --offline
-RUN pnpm build
+# The desktop shell is built by its own release workflow.
+ARG VITE_RELEASES_URL
+RUN pnpm -r --filter '!@harmony/desktop' build
 RUN pnpm deploy --prod --filter @harmony/server /deploy
 
 FROM node:24-alpine

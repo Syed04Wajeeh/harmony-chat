@@ -2,8 +2,10 @@ import type { Message } from '@harmony/shared';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { prefersReducedMotion } from '../hooks/useMediaQuery.js';
 import type { TimelineItem } from '../lib/timeline.js';
+import type { LocalInteraction } from '../store/interactions.js';
 import type { OutboxItem } from '../store/store.js';
 import { ArrowDownIcon } from './Icons.js';
+import { InteractionItem } from './InteractionItem.js';
 import { MessageItem } from './MessageItem.js';
 
 const BOTTOM_THRESHOLD_PX = 64;
@@ -17,6 +19,8 @@ export interface PendingMessage {
 interface Props {
   items: readonly TimelineItem[];
   pending: readonly PendingMessage[];
+  interactions: readonly LocalInteraction[];
+  channelId: string;
   loaded: boolean;
   hasMore: boolean;
   loadingOlder: boolean;
@@ -36,6 +40,8 @@ interface Snapshot {
 export function MessageList({
   items,
   pending,
+  interactions,
+  channelId,
   loaded,
   hasMore,
   loadingOlder,
@@ -54,7 +60,10 @@ export function MessageList({
 
   const messageItems = items.filter((item) => item.kind === 'message');
   const firstId = messageItems[0]?.key ?? null;
-  const lastId = pending.at(-1)?.item.nonce ?? messageItems.at(-1)?.key ?? null;
+  // Things only this user sees (unsent messages, command replies) sit below the history.
+  const localKey =
+    [pending.at(-1)?.item.nonce, interactions.at(-1)?.key].filter(Boolean).join('|') || null;
+  const lastId = localKey ?? messageItems.at(-1)?.key ?? null;
 
   const scrollToBottom = useCallback((smooth = false) => {
     const el = scroller.current;
@@ -84,7 +93,7 @@ export function MessageList({
     const el = scroller.current;
     if (!el || (firstId === null && lastId === null)) return;
     const previous = snapshot.current;
-    const ownPending = pending.at(-1)?.item.nonce === lastId && lastId !== previous?.lastId;
+    const ownPending = localKey !== null && localKey === lastId && lastId !== previous?.lastId;
 
     if (!previous || (firstId !== previous.firstId && lastId !== previous.lastId)) {
       el.scrollTop = el.scrollHeight;
@@ -96,7 +105,7 @@ export function MessageList({
       else setMissed((count) => count + 1);
     }
     snapshot.current = { firstId, lastId, height: el.scrollHeight };
-  }, [firstId, lastId, pending]);
+  }, [firstId, lastId, localKey]);
 
   // Late layout changes (fonts, the keyboard resizing the viewport) keep a stuck list at the bottom.
   useEffect(() => {
@@ -112,7 +121,7 @@ export function MessageList({
     return () => observer.disconnect();
   }, [loaded]);
 
-  const hasContent = items.length > 0 || pending.length > 0;
+  const hasContent = items.length > 0 || pending.length > 0 || interactions.length > 0;
 
   return (
     <div className="message-area">
@@ -169,6 +178,9 @@ export function MessageList({
               onRetry={() => onRetry(item)}
               onDiscard={() => onDiscard(item)}
             />
+          ))}
+          {interactions.map((item) => (
+            <InteractionItem key={item.key} item={item} channelId={channelId} />
           ))}
         </ol>
       </div>
