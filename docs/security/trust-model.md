@@ -255,3 +255,68 @@ minute, `429` with `Retry-After`), the message size limits, and `@everyone`/`@he
 Treat a webhook URL like a password: anyone holding it can post to that channel until the
 webhook is deleted. Failed guesses are not rate limited per source; at 256 bits that is not a
 practical attack, but it is the thing to add first if the surface ever becomes public.
+
+## Desktop app
+
+The desktop app (`apps/desktop`, Tauri v2) is a window around the user's own Harmony server. It does
+not bundle the web client and has no credentials of its own.
+
+### Identity and the server's checks are unchanged
+
+Requests leave the PC through Tailscale and reach Serve like a browser's, so Serve attaches the
+identity headers as usual. The page is loaded from the server's origin, so the `Origin` check in
+[Why the Origin check matters most](#why-the-origin-check-matters-most) passes without any CORS
+change, and no new server endpoint or header is trusted. The one server change is a
+`service: "harmony"` field in the `/healthz` body (unauthenticated, no secrets) that lets the setup
+page tell Harmony from any other web server.
+
+### The IPC bridge
+
+A webview that loads a remote page can let that page call native commands. That is the sensitive
+part of the app: the page is whatever the configured server serves, and a compromised or
+malicious server would otherwise gain code on the user's PC. The rules:
+
+1. **Exactly one origin.** Access comes from a capability with `remote.urls` set to
+   `<scheme>://<host>[:port]/*` for the configured server and nothing else, and `local: false`.
+   It is built from the stored URL at startup and again when the setup page connects. The URL
+   is first reduced to its origin (https, or http for `localhost` / `127.0.0.1` only), and the
+   host is checked against `[A-Za-z0-9._-]` before it is put into the pattern.
+2. **Two commands.** The capability lists `allow-notify` and `allow-set-badge`. There are no
+   shell, filesystem, http, opener, updater or core-plugin permissions for the remote page.
+   `build.rs` declares every app command, so Tauri denies any command that no capability grants.
+3. **Setup commands are local only.** `connect_server` and `get_server_url` sit in a separate
+   capability with no remote URL, so only the bundled setup page can call them.
+4. **Validated arguments.** `notify(title, body, route)` accepts a title of 1 to 100 characters
+   and a body of up to 300, neither with control characters (a body may contain newlines), and
+   a `route` that is an absolute in-app path (`/...`, not `//...`) of at most 256 characters
+   from a restricted alphabet. `set_badge(count)` takes an unsigned integer and clamps it to 999.
+   Clicking a notification passes the route back through the same check before the page is told
+   to navigate, and the route reaches the page as a JSON-encoded string.
+5. **The old origin loses access.** Tauri 2.12 can add capabilities while running but cannot
+   remove them, so each command also compares the calling webview's current URL with the
+   session's origin and returns `forbidden` when they differ. "Change server…" clears the
+   session before showing the setup page; connecting sets it to the new origin. After a restart
+   only the stored origin has a capability at all.
+6. **Navigation is confined.** The webview may show the bundled setup page and the configured
+   origin. Any other navigation is cancelled and, for http, https and mailto, opened in the
+   system browser; `target=_blank` and `window.open` are denied and opened there too. Redirects
+   are not followed when the setup page probes the server.
+
+Verified by a Rust test that sends real IPC requests through Tauri's access control with the
+shipped capabilities: the configured origin can call `notify`, a different port, scheme, host or
+look-alike suffix cannot, no remote page can call the setup commands, and the bundled page cannot
+call `notify`.
+
+### Residual risk
+
+- The configured server is trusted with `notify` and `set_badge`. A compromised server can show
+  notifications with text of its choosing and set the badge. It cannot run code, read files or
+  navigate the app to another site.
+- WebView2, WebKit and WebKitGTK are updated by the operating system. The app inherits their
+  vulnerabilities and their sandbox.
+- Installers are not code-signed yet (no Authenticode or Apple certificate), so a user cannot
+  verify the publisher from the OS prompt. Updates are verified against the minisign public key
+  in the app, which protects the update channel but not the first download, so download installers only from the
+  project's releases page.
+- The updater private key lives in GitHub Actions secrets and on the maintainer's machine; whoever
+  holds it can ship an update to every installed app.

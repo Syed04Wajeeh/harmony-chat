@@ -77,15 +77,28 @@ docker run --rm --network host -e E2E_NO_WEBSERVER=1 -e E2E_BASE_URL=http://loca
 | ----------------------- | ---------------------------------------------- |
 | `pnpm lint`             | ESLint (typescript-eslint, type-checked rules) |
 | `pnpm typecheck`        | `tsc` across all workspaces                    |
-| `pnpm test:unit`        | Vitest unit tests (server and web)             |
+| `pnpm test:unit`        | Vitest unit tests (server, web, desktop)       |
 | `pnpm test:integration` | Vitest + Testcontainers (needs Docker)         |
-| `pnpm build`            | Build shared, server and web                   |
+| `pnpm build`            | Build shared, server, web and desktop page     |
 | `pnpm format`           | Prettier                                       |
+
+## Desktop app
+
+Installers for Windows (`.exe` and `.msi`), macOS (Apple silicon `.dmg`) and Linux (`.AppImage` and `.deb`) are attached to the [GitHub releases](https://github.com/Syed04Wajeeh/harmony-chat/releases). The app is a small [Tauri](https://tauri.app) shell (about 10 MB, it uses the system webview): on first start it asks for your Harmony server URL, checks that it answers like Harmony, and then shows the server in its own window with a tray icon, launch at login, native notifications for mentions and DMs, an unread badge and auto-update.
+
+It loads the server itself instead of bundling the web client, so sign-in is still your Tailscale identity (the PC has to be connected to Tailscale), the server's origin checks pass unchanged, and the UI always matches the server version. The cost is that it does not work offline. Details, build and release steps: [apps/desktop/README.md](apps/desktop/README.md); the bridge's security model: [docs/security/trust-model.md](docs/security/trust-model.md#desktop-app).
+
+Things to know:
+
+- **Unsigned installers.** There are no code-signing certificates yet. Windows SmartScreen shows "Unknown publisher" (More info, then Run anyway) and macOS Gatekeeper blocks the first launch (right-click the app, choose Open). How to add signing later is in the desktop README.
+- **Private repository.** While this repository is private, the update check (`releases/latest/download/latest.json`) cannot be fetched without authentication, so auto-update does nothing and fails silently. It starts working once the repository is public or the release files are mirrored.
+- **Download link in the web app.** Build the server image with `VITE_RELEASES_URL` (for example `docker compose build --build-arg VITE_RELEASES_URL=https://github.com/Syed04Wajeeh/harmony-chat/releases/latest`) to show a "Desktop app" page with a download button in user settings. It is hidden when unset.
 
 ## Layout
 
 - `apps/server`: Fastify 5 API, Kysely migrations
 - `apps/web`: Vite + React client (React Router, zustand, plain CSS with design tokens, PWA manifest)
+- `apps/desktop`: Tauri v2 desktop app that opens your server in its own window
 - `packages/shared`: zod schemas and the WebSocket protocol, shared by both
 - `examples`: echo bot, Uptime Kuma recipe, webhook script
 - `deploy/nginx`: reverse-proxy config template
