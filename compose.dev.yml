@@ -1,0 +1,32 @@
+# Throwaway Postgres + Redis for local development and e2e runs; never used by the production stack.
+#   docker compose -f compose.dev.yml up -d
+#   docker compose -f compose.dev.yml down -v
+name: harmony-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: harmony
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: harmony
+    ports:
+      - '127.0.0.1:15432:5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U harmony -d harmony']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '127.0.0.1:16379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 20

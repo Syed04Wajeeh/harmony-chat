@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { authPolicy } from '../../src/app.js';
+import { loadConfig } from '../../src/config.js';
 import {
   authenticate,
   hasValidProxySecret,
@@ -162,5 +164,68 @@ describe('authenticate', () => {
       devIdentity: { login: 'dev@example.com', displayName: 'Dev', avatarUrl: null },
     };
     expect(authenticate(get({}), dev)).toMatchObject({ login: 'dev@example.com' });
+  });
+
+  describe('dev_login cookie', () => {
+    const dev: AuthPolicy = {
+      publicOrigin: ORIGIN,
+      allowedLogins: [],
+      devIdentity: { login: 'dev@example.com', displayName: 'Dev', avatarUrl: null },
+    };
+    const withCookie = (cookie: string) => get({ cookie });
+
+    it('picks the identity in development', () => {
+      expect(authenticate(withCookie('a=1; dev_login=Grace@Example.com'), dev)).toMatchObject({
+        login: 'grace@example.com',
+        displayName: 'Grace',
+      });
+    });
+
+    it.each([
+      'dev_login=',
+      'dev_login=someone@evil.test',
+      'dev_login=%E0%A4%A',
+      'dev_login=a@example.com.evil.test',
+      'other=ada@example.com',
+    ])('falls back to the configured identity for %s', (cookie) => {
+      expect(authenticate(withCookie(cookie), dev)).toMatchObject({ login: 'dev@example.com' });
+    });
+
+    it('is ignored when the policy has no dev identity', () => {
+      expect(authenticate(withCookie('dev_login=ada@example.com'), policy)).toMatchObject({
+        code: 'proxy_required',
+      });
+      expect(
+        authenticate(get({ ...good, cookie: 'dev_login=ada@example.com' }), policy),
+      ).toMatchObject({ login: 'ada@example.com', displayName: 'Ada Lövelace' });
+      expect(
+        authenticate(
+          get({
+            ...good,
+            'tailscale-user-login': 'eve@example.com',
+            cookie: 'dev_login=ada@example.com',
+          }),
+          policy,
+        ),
+      ).toMatchObject({ login: 'eve@example.com' });
+    });
+
+    it('never reaches a production policy', () => {
+      const base = {
+        DATABASE_URL: 'postgres://u:p@localhost/db',
+        REDIS_URL: 'redis://localhost',
+        PROXY_SHARED_SECRET: SECRET,
+        PUBLIC_ORIGIN: ORIGIN,
+        DEV_AUTH_LOGIN: 'dev@example.com',
+      };
+      expect(() => loadConfig({ ...base, NODE_ENV: 'production' })).toThrow(/DEV_AUTH_LOGIN/);
+      const production = authPolicy(
+        loadConfig({ ...base, DEV_AUTH_LOGIN: '', NODE_ENV: 'production' }),
+      );
+      expect(production.devIdentity).toBeUndefined();
+      expect(authenticate(withCookie('dev_login=ada@example.com'), production)).toMatchObject({
+        code: 'proxy_required',
+      });
+    });
   });
 });

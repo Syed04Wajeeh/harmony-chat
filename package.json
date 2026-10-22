@@ -14,9 +14,11 @@
     "lint": "pnpm build:shared && eslint .",
     "typecheck": "pnpm build:shared && pnpm -r --parallel typecheck",
     "test": "pnpm test:unit && pnpm test:integration",
-    "test:unit": "pnpm build:shared && pnpm --filter @harmony/server test:unit",
+    "test:unit": "pnpm build:shared && pnpm --filter @harmony/server --filter @harmony/web test:unit",
     "test:integration": "pnpm build:shared && pnpm --filter @harmony/server test:integration",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test:e2e": "pnpm --filter @harmony/web test:e2e",
+    "screenshots": "E2E_SCREENSHOTS=1 pnpm --filter @harmony/web test:e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

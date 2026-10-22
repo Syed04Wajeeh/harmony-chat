@@ -1,127 +1,191 @@
-import { useLayoutEffect, useMemo, useRef } from 'react';
-import type { Message, User } from '@harmony/shared';
-import type { OutboxItem } from '../hooks/messageState.js';
-import { Avatar } from './Avatar.js';
+import type { Message } from '@harmony/shared';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { prefersReducedMotion } from '../hooks/useMediaQuery.js';
+import type { TimelineItem } from '../lib/timeline.js';
+import type { OutboxItem } from '../store/store.js';
+import { ArrowDownIcon } from './Icons.js';
+import { MessageItem } from './MessageItem.js';
 
-const GROUP_WINDOW_MS = 5 * 60 * 1000;
-const LOAD_OLDER_THRESHOLD_PX = 120;
-const STICK_THRESHOLD_PX = 80;
+const BOTTOM_THRESHOLD_PX = 64;
+const LOAD_OLDER_THRESHOLD_PX = 400;
 
-export interface ViewItem {
-  key: string;
-  author: User;
-  content: string;
-  createdAt: string;
-  status: 'sent' | 'pending' | 'failed';
+export interface PendingMessage {
+  item: OutboxItem;
+  message: Message;
 }
 
-/** Merges stored and outgoing messages into one display list. */
-export function toViewItems(messages: Message[], outbox: OutboxItem[], me: User): ViewItem[] {
-  return [
-    ...messages.map((m): ViewItem => ({
-      key: m.id,
-      author: m.author,
-      content: m.content,
-      createdAt: m.createdAt,
-      status: 'sent',
-    })),
-    ...outbox.map((o): ViewItem => ({
-      key: `pending-${o.nonce}`,
-      author: me,
-      content: o.content,
-      createdAt: o.createdAt,
-      status: o.status,
-    })),
-  ];
-}
-
-/** A message continues the previous group if the same author wrote it within five minutes. */
-export function startsGroup(item: ViewItem, previous: ViewItem | undefined): boolean {
-  return (
-    !previous ||
-    previous.author.id !== item.author.id ||
-    Date.parse(item.createdAt) - Date.parse(previous.createdAt) > GROUP_WINDOW_MS
-  );
-}
-
-const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' });
-const clockFormat = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
-
-interface MessageListProps {
-  items: ViewItem[];
-  hasMore: boolean;
+interface Props {
+  items: readonly TimelineItem[];
+  pending: readonly PendingMessage[];
   loaded: boolean;
+  hasMore: boolean;
   loadingOlder: boolean;
   onLoadOlder: () => void;
+  onBottomChange: (atBottom: boolean) => void;
+  onRetry: (item: OutboxItem) => void;
+  onDiscard: (item: OutboxItem) => void;
+  empty: ReactNode;
+}
+
+interface Snapshot {
+  firstId: string | null;
+  lastId: string | null;
+  height: number;
 }
 
 export function MessageList({
   items,
-  hasMore,
+  pending,
   loaded,
+  hasMore,
   loadingOlder,
   onLoadOlder,
-}: MessageListProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const stickToBottom = useRef(true);
-  const previous = useRef({ firstKey: '', lastKey: '', scrollHeight: 0 });
+  onBottomChange,
+  onRetry,
+  onDiscard,
+  empty,
+}: Props) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLOListElement>(null);
+  const stuck = useRef(true);
+  const snapshot = useRef<Snapshot | null>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const [missed, setMissed] = useState(0);
 
-  const rows = useMemo(
-    () => items.map((item, index) => ({ item, grouped: !startsGroup(item, items[index - 1]) })),
-    [items],
-  );
+  const messageItems = items.filter((item) => item.kind === 'message');
+  const firstId = messageItems[0]?.key ?? null;
+  const lastId = pending.at(-1)?.item.nonce ?? messageItems.at(-1)?.key ?? null;
 
-  useLayoutEffect(() => {
-    const el = containerRef.current;
+  const scrollToBottom = useCallback((smooth = false) => {
+    const el = scroller.current;
     if (!el) return;
-    const firstKey = items[0]?.key ?? '';
-    const lastKey = items.at(-1)?.key ?? '';
-    const prev = previous.current;
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: smooth && !prefersReducedMotion() ? 'smooth' : 'auto',
+    });
+  }, []);
 
-    if (prev.firstKey && firstKey !== prev.firstKey && lastKey === prev.lastKey) {
-      // Older messages were prepended: keep the viewport anchored on what was visible.
-      el.scrollTop += el.scrollHeight - prev.scrollHeight;
-    } else if (stickToBottom.current) {
-      el.scrollTop = el.scrollHeight;
-    }
-    previous.current = { firstKey, lastKey, scrollHeight: el.scrollHeight };
-
-    // A short first page may not scroll at all, so the scroll handler would never fire.
-    if (hasMore && !loadingOlder && el.scrollHeight <= el.clientHeight) onLoadOlder();
-  }, [items, hasMore, loadingOlder, onLoadOlder]);
-
-  function handleScroll() {
-    const el = containerRef.current;
+  const handleScroll = useCallback(() => {
+    const el = scroller.current;
     if (!el) return;
-    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const bottom = distance < BOTTOM_THRESHOLD_PX;
+    stuck.current = bottom;
+    setAtBottom(bottom);
+    if (bottom) setMissed(0);
+    if (snapshot.current) snapshot.current.height = el.scrollHeight;
     if (el.scrollTop < LOAD_OLDER_THRESHOLD_PX && hasMore && !loadingOlder) onLoadOlder();
-  }
+  }, [hasMore, loadingOlder, onLoadOlder]);
+
+  useEffect(() => onBottomChange(atBottom), [atBottom, onBottomChange]);
+
+  // Keep the viewport steady as the list changes under it.
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el || (firstId === null && lastId === null)) return;
+    const previous = snapshot.current;
+    const ownPending = pending.at(-1)?.item.nonce === lastId && lastId !== previous?.lastId;
+
+    if (!previous || (firstId !== previous.firstId && lastId !== previous.lastId)) {
+      el.scrollTop = el.scrollHeight;
+    } else if (firstId !== previous.firstId) {
+      // Older messages were added above: shift by the height they added.
+      el.scrollTop += el.scrollHeight - previous.height;
+    } else if (lastId !== previous.lastId) {
+      if (stuck.current || ownPending) el.scrollTop = el.scrollHeight;
+      else setMissed((count) => count + 1);
+    }
+    snapshot.current = { firstId, lastId, height: el.scrollHeight };
+  }, [firstId, lastId, pending]);
+
+  // Late layout changes (fonts, the keyboard resizing the viewport) keep a stuck list at the bottom.
+  useEffect(() => {
+    const el = scroller.current;
+    const list = content.current;
+    if (!el || !list) return;
+    const observer = new ResizeObserver(() => {
+      if (stuck.current) el.scrollTop = el.scrollHeight;
+      if (snapshot.current) snapshot.current.height = el.scrollHeight;
+    });
+    observer.observe(el);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [loaded]);
+
+  const hasContent = items.length > 0 || pending.length > 0;
 
   return (
-    <div className="messages" ref={containerRef} onScroll={handleScroll}>
-      {loadingOlder && <p className="notice">Loading older messages...</p>}
-      {!hasMore && loaded && <p className="notice">This is the beginning of the channel.</p>}
-      {rows.map(({ item, grouped }) => (
-        <article key={item.key} className={`message ${grouped ? 'grouped' : ''} ${item.status}`}>
-          {grouped ? (
-            <time className="gutter-time" dateTime={item.createdAt}>
-              {clockFormat.format(new Date(item.createdAt))}
-            </time>
-          ) : (
-            <Avatar user={item.author} />
-          )}
-          <div className="body">
-            {!grouped && (
-              <header>
-                <span className="author">{item.author.displayName}</span>
-                <time dateTime={item.createdAt}>{timeFormat.format(new Date(item.createdAt))}</time>
-              </header>
-            )}
-            <p className="content">{item.content}</p>
-            {item.status === 'failed' && <span className="failed-note">Failed to send</span>}
+    <div className="message-area">
+      <div ref={scroller} className="message-scroller" onScroll={handleScroll}>
+        {loaded && !hasMore && hasContent && (
+          <div className="list-start">This is the start of the conversation.</div>
+        )}
+        {loadingOlder && (
+          <div className="list-loading" role="status">
+            <span className="spinner" aria-hidden="true" /> Loading earlier messages…
           </div>
-        </article>
-      ))}
+        )}
+        {!loaded && (
+          <div className="list-loading">
+            <span className="spinner" aria-hidden="true" /> Loading…
+          </div>
+        )}
+        {loaded && !hasContent && empty}
+        <ol ref={content} className="messages" aria-label="Messages">
+          {items.map((item) => {
+            switch (item.kind) {
+              case 'day':
+                return (
+                  <li
+                    key={item.key}
+                    className="day-separator"
+                    role="separator"
+                    aria-label={item.label}
+                  >
+                    <span>{item.label}</span>
+                  </li>
+                );
+              case 'unread':
+                return (
+                  <li
+                    key={item.key}
+                    className="unread-divider"
+                    role="separator"
+                    aria-label="New messages"
+                  >
+                    <span>New</span>
+                  </li>
+                );
+              case 'message':
+                return <MessageItem key={item.key} message={item.message} grouped={item.grouped} />;
+            }
+          })}
+          {pending.map(({ item, message }) => (
+            <MessageItem
+              key={item.nonce}
+              message={message}
+              grouped={false}
+              pending={item}
+              onRetry={() => onRetry(item)}
+              onDiscard={() => onDiscard(item)}
+            />
+          ))}
+        </ol>
+      </div>
+      {!atBottom && (
+        <button
+          type="button"
+          className="jump-present"
+          onClick={() => {
+            scrollToBottom(true);
+          }}
+        >
+          <ArrowDownIcon width={16} height={16} />
+          {missed > 0
+            ? `${String(missed)} new ${missed === 1 ? 'message' : 'messages'}`
+            : 'Jump to present'}
+        </button>
+      )}
     </div>
   );
 }

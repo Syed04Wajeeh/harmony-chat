@@ -32,6 +32,49 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:integration
 
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: harmony
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: harmony
+        ports: ['15432:5432']
+        options: >-
+          --health-cmd "pg_isready -U harmony -d harmony" --health-interval 2s
+          --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['16379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://harmony:dev@127.0.0.1:15432/harmony
+      REDIS_URL: redis://127.0.0.1:16379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:shared
+      - run: pnpm --filter @harmony/server migrate
+      - run: pnpm --filter @harmony/web exec playwright install --with-deps chromium
+      # Playwright starts the API (NODE_ENV=development with the dev_login cookie) and Vite itself.
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+
   docker:
     runs-on: ubuntu-latest
     steps:

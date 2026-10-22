@@ -1,29 +1,65 @@
-import type { User } from '@harmony/shared';
+import type { PresenceStatus, User } from '@harmony/shared';
 
-const PALETTE = ['#5865f2', '#3ba55d', '#faa61a', '#eb459e', '#ed4245', '#1abc9c', '#9b59b6'];
+const TONES = 7;
 
-function colorFor(seed: string): string {
+function toneFor(seed: string): number {
   let hash = 0;
-  for (const char of seed) hash = (hash * 31 + char.codePointAt(0)!) | 0;
-  return PALETTE[Math.abs(hash) % PALETTE.length] ?? PALETTE[0]!;
+  for (const char of seed) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return hash % TONES;
 }
 
-export function Avatar({ user, size = 40 }: { user: User; size?: number }) {
-  const style = { width: size, height: size, fontSize: size * 0.45 };
-  if (user.avatarUrl) {
-    return (
-      <img
-        className="avatar"
-        style={style}
-        src={user.avatarUrl}
-        alt=""
-        referrerPolicy="no-referrer"
-      />
-    );
-  }
+const initialsOf = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => [...part][0] ?? '')
+    .join('')
+    .toUpperCase() || '?';
+
+export type DotStatus = PresenceStatus | 'invisible';
+
+export function StatusDot({ status, className = '' }: { status: DotStatus; className?: string }) {
+  const shown = status === 'invisible' ? 'offline' : status;
+  return <span className={`status-dot status-${shown} ${className}`} aria-hidden="true" />;
+}
+
+interface AvatarProps {
+  user: Pick<User, 'id' | 'displayName' | 'avatarUrl'>;
+  size?: number;
+  status?: DotStatus;
+}
+
+export function Avatar({ user, size = 40, status }: AvatarProps) {
   return (
-    <span className="avatar" style={{ ...style, background: colorFor(user.login) }} aria-hidden>
-      {Array.from(user.displayName)[0]?.toUpperCase() ?? '?'}
+    <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.4 }}>
+      {user.avatarUrl ? (
+        <img src={user.avatarUrl} alt="" width={size} height={size} referrerPolicy="no-referrer" />
+      ) : (
+        <span className={`avatar-fallback tone-${String(toneFor(user.id))}`}>
+          {initialsOf(user.displayName)}
+        </span>
+      )}
+      {status && <StatusDot status={status} className="avatar-status" />}
+    </span>
+  );
+}
+
+interface GuildIconProps {
+  guild: { id: string; name: string; iconUrl: string | null };
+  size?: number;
+}
+
+export function GuildIcon({ guild, size = 48 }: GuildIconProps) {
+  return (
+    <span className="guild-icon" style={{ width: size, height: size, fontSize: size * 0.34 }}>
+      {guild.iconUrl ? (
+        <img src={guild.iconUrl} alt="" width={size} height={size} />
+      ) : (
+        <span className={`avatar-fallback tone-${String(toneFor(guild.id))}`}>
+          {initialsOf(guild.name)}
+        </span>
+      )}
     </span>
   );
 }

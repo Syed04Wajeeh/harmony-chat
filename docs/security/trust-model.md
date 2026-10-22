@@ -90,6 +90,34 @@ their responses.
 - **The proxy secret** stays secret: it lives in `.env`, which is never
   committed.
 
+## Development mode
+
+`NODE_ENV=development` with `DEV_AUTH_LOGIN` set replaces the Tailscale identity
+and the proxy secret with a fixed fake identity, so the app can run without
+Serve or nginx. Two rules keep this from reaching a real deployment:
+
+- `loadConfig` refuses to start when `DEV_AUTH_LOGIN` is set under any other
+  `NODE_ENV`, and the auth policy only receives a dev identity when
+  `NODE_ENV=development`.
+- The `Origin` check still applies to every state-changing request and the
+  WebSocket upgrade.
+
+To let tests act as several people at once (two browser contexts, one per user),
+a dev-mode server also honors a **`dev_login` cookie**, for example
+`dev_login=ada@example.com`. It overrides the fixed identity for that request
+only, and only when all of these hold:
+
+- the policy is a development policy (`NODE_ENV=development` and `DEV_AUTH_LOGIN`
+  set), so a production policy never reads the cookie;
+- the value matches `^[a-z0-9._+-]{1,64}@example.com$` (a reserved domain, so it
+  cannot impersonate a real tailnet login); anything else, including malformed
+  encodings, falls back to the configured identity;
+- the `ALLOWED_LOGINS` allowlist, if set, still applies to the resulting login.
+
+Unit tests (`apps/server/tests/unit/policy.test.ts`) cover the cookie being
+ignored by a proxy-secret policy, by a production config, and when malformed
+or off-domain.
+
 ## Considered and rejected
 
 - **Calling `tailscale whois` from the app** to re-verify the `X-Forwarded-For`

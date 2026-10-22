@@ -1,47 +1,70 @@
-import { useState } from 'react';
-import { fetchChannels, fetchMe } from './api/client.js';
-import { ChannelView } from './components/ChannelView.js';
-import { Sidebar } from './components/Sidebar.js';
-import { useAsync } from './hooks/useAsync.js';
-import { useRealtime } from './hooks/useRealtime.js';
+import { useEffect, useState, type ReactNode } from 'react';
+import { BrowserRouter, Route, Routes } from 'react-router';
+import { bootstrap } from './store/actions.js';
+import { startDispatcher } from './store/dispatcher.js';
+import { InvitePage } from './routes/InvitePage.js';
+import { Shell } from './routes/Shell.js';
 
-async function loadBootstrap(signal: AbortSignal) {
-  const [me, channels] = await Promise.all([fetchMe(signal), fetchChannels(signal)]);
-  return { me, channels };
-}
+type Boot = { status: 'loading' } | { status: 'ready' } | { status: 'error'; message: string };
 
-export function App() {
-  const boot = useAsync(loadBootstrap);
-  const { client, status } = useRealtime();
-  const [selected, setSelected] = useState<string | null>(null);
+function Bootstrap({ children }: { children: ReactNode }) {
+  const [boot, setBoot] = useState<Boot>({ status: 'loading' });
+  const [attempt, setAttempt] = useState(0);
 
-  if (boot.status === 'loading') return <div className="splash">Loading...</div>;
-  if (boot.status === 'error') {
+  useEffect(() => {
+    const controller = new AbortController();
+    bootstrap(controller.signal)
+      .then(() => setBoot({ status: 'ready' }))
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setBoot({
+          status: 'error',
+          message: error instanceof Error ? error.message : 'Unknown error',
+        });
+      });
+    return () => controller.abort();
+  }, [attempt]);
+
+  const ready = boot.status === 'ready';
+  useEffect(() => (ready ? startDispatcher() : undefined), [ready]);
+
+  if (boot.status === 'loading') {
     return (
-      <div className="splash error">
-        <h1>Cannot reach Harmony</h1>
-        <p>{boot.error.message}</p>
+      <div className="splash" role="status">
+        <span className="spinner" aria-hidden="true" /> Loading Harmony…
       </div>
     );
   }
+  if (boot.status === 'error') {
+    return (
+      <div className="splash">
+        <h1>Cannot reach Harmony</h1>
+        <p>{boot.message}</p>
+        <button
+          className="button button-primary"
+          onClick={() => {
+            setBoot({ status: 'loading' });
+            setAttempt((n) => n + 1);
+          }}
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
 
-  const { me, channels } = boot.value;
-  const channel = channels.find((c) => c.id === selected) ?? channels[0];
-
+export function App() {
   return (
-    <div className="app">
-      <Sidebar
-        channels={channels}
-        activeId={channel?.id ?? ''}
-        onSelect={setSelected}
-        user={me}
-        status={status}
-      />
-      {channel ? (
-        <ChannelView key={channel.id} channel={channel} me={me} client={client} status={status} />
-      ) : (
-        <main className="channel-view splash">No channels yet.</main>
-      )}
-    </div>
+    <BrowserRouter>
+      <Bootstrap>
+        <Routes>
+          <Route path="/invite/:code" element={<InvitePage />} />
+          <Route path="/channels/:guildId?/:channelId?" element={<Shell />} />
+          <Route path="*" element={<Shell />} />
+        </Routes>
+      </Bootstrap>
+    </BrowserRouter>
   );
 }

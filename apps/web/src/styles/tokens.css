@@ -1,0 +1,152 @@
+/* Every color, radius, space and font used by the UI comes from here. Themes override these. */
+:root {
+  color-scheme: dark light;
+
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji';
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --leading-tight: 1.25;
+  --leading-body: 1.5;
+  --weight-medium: 500;
+  --weight-bold: 650;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+
+  --tap-min: 36px;
+  --rail-width: 72px;
+  --sidebar-width: 248px;
+  --member-width: 244px;
+  --header-height: 52px;
+  --drawer-width: min(332px, 88vw);
+  --drawer-right-width: min(300px, 84vw);
+
+  --duration-fast: 120ms;
+  --duration: 240ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --z-drawer: 20;
+  --z-banner: 30;
+  --z-overlay: 50;
+  --z-toast: 70;
+
+  /* Dark is the default theme. */
+  --bg-rail: #0d0f14;
+  --bg-sidebar: #161920;
+  --bg-main: #1b1e26;
+  --bg-raised: #232733;
+  --bg-input: #242836;
+  --bg-hover: rgb(255 255 255 / 5.5%);
+  --bg-active: rgb(255 255 255 / 10%);
+  --bg-code: #12141a;
+  --border: #2c3140;
+  --border-strong: #3a4054;
+  --scrim: rgb(5 6 10 / 62%);
+
+  --text: #e9ebf2;
+  --text-muted: #a2a9bc;
+  --text-faint: #7a8197;
+  --text-on-accent: #ffffff;
+  --text-link: #94a2ff;
+
+  --accent: #5b6cf2;
+  --accent-hover: #6f7ef5;
+  --accent-soft: rgb(91 108 242 / 18%);
+  --danger: #f06a67;
+  --danger-soft: rgb(240 106 103 / 16%);
+  --on-danger: #1b0b0b;
+
+  --mention-bg: rgb(245 185 74 / 11%);
+  --mention-bar: #f5b94a;
+  --mention-text: #ffd58a;
+  --mention-chip: rgb(91 108 242 / 24%);
+  --badge-bg: #e8504e;
+  --badge-text: #ffffff;
+  --unread-divider: #f06a67;
+
+  --status-online: #3dd68c;
+  --status-idle: #f5b94a;
+  --status-dnd: #f06a67;
+  --status-offline: #7a8197;
+
+  --tone-0: #5b6cf2;
+  --tone-1: #2f9e6e;
+  --tone-2: #b8731a;
+  --tone-3: #c2457f;
+  --tone-4: #c4524f;
+  --tone-5: #1f8fa3;
+  --tone-6: #8a58c9;
+  --tone-text: #ffffff;
+
+  --shadow-popover: 0 8px 28px rgb(0 0 0 / 45%), 0 0 0 1px var(--border);
+  --shadow-drawer: 8px 0 32px rgb(0 0 0 / 45%);
+  --focus-ring: 0 0 0 2px var(--bg-main), 0 0 0 4px var(--accent-hover);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-rail: #dfe2ec;
+    --bg-sidebar: #eef0f6;
+    --bg-main: #ffffff;
+    --bg-raised: #ffffff;
+    --bg-input: #eceef5;
+    --bg-hover: rgb(20 26 50 / 5%);
+    --bg-active: rgb(20 26 50 / 9%);
+    --bg-code: #f1f3f9;
+    --border: #dadde8;
+    --border-strong: #c3c8d8;
+    --scrim: rgb(20 24 40 / 45%);
+
+    --text: #1a1d28;
+    --text-muted: #525b72;
+    --text-faint: #7a8298;
+    --text-link: #3a4bd6;
+
+    --accent: #4757e0;
+    --accent-hover: #3a4acb;
+    --accent-soft: rgb(71 87 224 / 12%);
+    --danger: #c9302d;
+    --danger-soft: rgb(201 48 45 / 10%);
+    --on-danger: #ffffff;
+
+    --mention-bg: rgb(240 170 40 / 16%);
+    --mention-bar: #d98a0b;
+    --mention-text: #8a5200;
+    --mention-chip: rgb(71 87 224 / 14%);
+    --badge-bg: #d93c3a;
+
+    --status-online: #1f9d63;
+    --status-idle: #d68a00;
+    --status-dnd: #d6403d;
+    --status-offline: #8a92a8;
+
+    --shadow-popover: 0 8px 28px rgb(30 40 80 / 18%), 0 0 0 1px var(--border);
+    --shadow-drawer: 8px 0 32px rgb(30 40 80 / 22%);
+    --focus-ring: 0 0 0 2px var(--bg-main), 0 0 0 4px var(--accent);
+  }
+}
+
+@media (pointer: coarse) {
+  :root {
+    --tap-min: 44px;
+  }
+}

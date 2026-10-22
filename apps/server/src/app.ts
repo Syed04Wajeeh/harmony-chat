@@ -199,7 +199,7 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
   return app;
 }
 
-function authPolicy(config: Config): AuthPolicy {
+export function authPolicy(config: Config): AuthPolicy {
   const devLogin = config.NODE_ENV === 'development' ? config.DEV_AUTH_LOGIN : undefined;
   return {
     proxySecret: config.PROXY_SHARED_SECRET,

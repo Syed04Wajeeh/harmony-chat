@@ -3,11 +3,13 @@ import type { IncomingHttpHeaders } from 'node:http';
 import { decodeMimeWords } from './rfc2047.js';
 
 export const PROXY_SECRET_HEADER = 'x-harmony-proxy-secret';
+export const DEV_LOGIN_COOKIE = 'dev_login';
 
 export interface AuthPolicy {
   proxySecret?: string | undefined;
   publicOrigin: string;
   allowedLogins: readonly string[];
+  /** Fixed identity for local development. Only ever set when NODE_ENV=development. */
   devIdentity?: Identity | undefined;
 }
 
@@ -87,6 +89,32 @@ export function parseIdentity(headers: IncomingHttpHeaders): Identity | null {
   };
 }
 
+const DEV_LOGIN = /^[a-z0-9._+-]{1,64}@example\.com$/;
+
+function cookie(headers: IncomingHttpHeaders, name: string): string | undefined {
+  for (const part of (header(headers, 'cookie') ?? '').split(';')) {
+    const [key, ...value] = part.trim().split('=');
+    if (key === name) return decodeURIComponent(value.join('='));
+  }
+  return undefined;
+}
+
+/**
+ * Development only: the `dev_login` cookie picks which `@example.com` user a browser acts as,
+ * so two browser contexts can be two people. Callers must only use it with a dev policy.
+ */
+export function devIdentityFor(headers: IncomingHttpHeaders, fallback: Identity): Identity {
+  let login: string | undefined;
+  try {
+    login = cookie(headers, DEV_LOGIN_COOKIE)?.toLowerCase();
+  } catch {
+    return fallback;
+  }
+  if (!login || !DEV_LOGIN.test(login)) return fallback;
+  const name = login.split('@')[0] ?? login;
+  return { login, displayName: name.charAt(0).toUpperCase() + name.slice(1), avatarUrl: null };
+}
+
 export function authenticate(request: RequestInfo, policy: AuthPolicy): Identity | AuthFailure {
   const { headers } = request;
   const fail = (
@@ -97,7 +125,7 @@ export function authenticate(request: RequestInfo, policy: AuthPolicy): Identity
 
   let identity: Identity | null;
   if (policy.devIdentity) {
-    identity = policy.devIdentity;
+    identity = devIdentityFor(headers, policy.devIdentity);
   } else {
     if (!hasValidProxySecret(headers, policy.proxySecret)) {
       return fail(403, 'proxy_required', 'Requests must come through the reverse proxy');
