@@ -13,7 +13,7 @@ export type TimelineItem =
 /** Day separators, the "new messages" divider, and author grouping for a message list. */
 export function buildTimeline(
   messages: readonly Message[],
-  options: { unreadFromId: string | null; now?: Date },
+  options: { unreadFromId: string | null; now?: Date; grouping?: boolean },
 ): TimelineItem[] {
   const items: TimelineItem[] = [];
   let previous: Message | null = null;
@@ -32,6 +32,7 @@ export function buildTimeline(
     if (unreadHere) items.push({ kind: 'unread', key: 'unread' });
 
     const grouped =
+      options.grouping !== false &&
       !newDay &&
       !unreadHere &&
       previous !== null &&

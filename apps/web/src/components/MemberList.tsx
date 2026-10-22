@@ -87,7 +87,7 @@ export function MemberList({ guildId, channelId }: { guildId: string; channelId:
   sections.push({ key: 'offline', title: 'Offline', ids: offline });
 
   return (
-    <aside className="member-list" aria-label="Members">
+    <aside className="member-list" data-harmony="member-list" aria-label="Members">
       <div className="member-scroll">
         {sections
           .filter((section) => section.ids.length > 0)

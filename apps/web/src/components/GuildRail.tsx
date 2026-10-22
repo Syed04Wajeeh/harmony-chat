@@ -63,7 +63,7 @@ export function GuildRail({ activeGuildId }: { activeGuildId: string | null }) {
 
   return (
     <Tooltip.Provider delayDuration={150} skipDelayDuration={300}>
-      <nav className="guild-rail" aria-label="Servers">
+      <nav className="guild-rail" data-harmony="guild-rail" aria-label="Servers">
         <ul>
           <RailItem
             to={homePath(all)}

@@ -8,6 +8,7 @@ import { decodeMentions, encodeMentions } from '../lib/mentions.js';
 import { messageIdentity } from '../lib/identity.js';
 import { Markdown } from './Markdown.js';
 import { formatAbsolute, formatClock, formatTimestamp } from '../lib/time.js';
+import { useSettings } from '../store/settings.js';
 import type { OutboxItem } from '../store/store.js';
 import { Attachments } from './Attachments.js';
 import { Avatar } from './Avatar.js';
@@ -179,6 +180,8 @@ export const MessageItem = memo(function MessageItem({
   const handlers = useMessageHandlers();
   const { meId, nameOf, editingId, highlightId, onOpenSheet } = handlers;
   const coarse = useCoarsePointer();
+  // Redraws the timestamps when the clock style changes.
+  useSettings((state) => state.settings.behavior.timeFormat);
   const longPress = useLongPress(() => onOpenSheet(message), coarse && !pending);
 
   const guildId = useApp((state) => state.channels[message.channelId]?.guildId ?? null);
@@ -207,6 +210,7 @@ export const MessageItem = memo(function MessageItem({
     <li
       id={`m-${message.id}`}
       className="message"
+      data-harmony="message"
       data-grouped={grouped || undefined}
       data-mentioned={mentioned || undefined}
       data-pending={pending?.status}
@@ -244,6 +248,7 @@ export const MessageItem = memo(function MessageItem({
                 <button
                   type="button"
                   className="message-author"
+                  data-harmony="message-author"
                   data-role={color !== null || undefined}
                   style={roleColorStyle(color)}
                 >
@@ -266,7 +271,7 @@ export const MessageItem = memo(function MessageItem({
             <InlineEditor message={message} />
           ) : (
             message.content && (
-              <div className="message-content">
+              <div className="message-content" data-harmony="message-content">
                 <Markdown
                   content={message.content}
                   nameOf={nameOf}

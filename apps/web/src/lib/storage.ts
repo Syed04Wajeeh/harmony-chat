@@ -14,6 +14,13 @@ export const safeStorage = {
       // Not persisted; the app works without it.
     }
   },
+  remove(key: string): void {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Nothing to clean up if storage is unavailable.
+    }
+  },
 };
 
 const LAST_CHANNEL_KEY = 'harmony.lastChannels';

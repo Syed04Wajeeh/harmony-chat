@@ -1,13 +1,15 @@
 import { useEffect } from 'react';
 import { getRealtime } from '../store/connection.js';
+import { useSettings } from '../store/settings.js';
 import { appStore } from '../store/store.js';
 
-export const IDLE_AFTER_MS = 10 * 60 * 1000;
 const EVENTS = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'] as const;
 
-/** Flips an "online" user to idle after ten quiet minutes, and back on the next interaction. */
+/** Flips an "online" user to idle after the chosen quiet time (0 never), and back on the next interaction. */
 export function useAutoIdle(): void {
+  const minutes = useSettings((state) => state.settings.behavior.autoIdleMinutes);
   useEffect(() => {
+    if (minutes === 0) return undefined;
     let idle = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -18,7 +20,7 @@ export function useAutoIdle(): void {
     };
     const arm = () => {
       clearTimeout(timer);
-      timer = setTimeout(goIdle, IDLE_AFTER_MS);
+      timer = setTimeout(goIdle, minutes * 60 * 1000);
     };
     const onActivity = () => {
       if (idle) {
@@ -36,5 +38,5 @@ export function useAutoIdle(): void {
       clearTimeout(timer);
       for (const name of EVENTS) window.removeEventListener(name, onActivity);
     };
-  }, []);
+  }, [minutes]);
 }

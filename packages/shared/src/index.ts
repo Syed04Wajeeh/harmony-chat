@@ -1,5 +1,7 @@
 export * from './bots.js';
 export * from './chat.js';
+export * from './color.js';
+export * from './css.js';
 export * from './embeds.js';
 export * from './emoji.js';
 export * from './health.js';
@@ -7,6 +9,9 @@ export * from './mentions.js';
 export * from './modules.js';
 export * from './modules/polls.js';
 export * from './permissions.js';
+export * from './presets.js';
 export * from './protocol.js';
+export * from './settings.js';
+export * from './theme.js';
 
 export const version = '0.0.0';

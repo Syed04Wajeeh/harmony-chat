@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router';
 import { api, ApiError } from '../api/client.js';
 import { GuildIcon } from '../components/Avatar.js';
 import { Toasts } from '../components/Toasts.js';
+import { useGuildBrand } from '../hooks/useGuildBrand.js';
 import { guildPath } from '../lib/paths.js';
 import { attempt, loadGuildChannels } from '../store/actions.js';
 import { appStore } from '../store/store.js';
@@ -18,6 +19,7 @@ export function InvitePage() {
   const navigate = useNavigate();
   const [state, setState] = useState<State>({ status: 'loading' });
   const [joining, setJoining] = useState(false);
+  const brand = useGuildBrand(state.status === 'ready' ? state.preview.guild.accentColor : null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -52,7 +54,7 @@ export function InvitePage() {
 
   return (
     <main className="invite-page">
-      <div className="invite-card">
+      <div className="invite-card" style={brand} data-harmony="invite-card">
         {state.status === 'loading' && <p role="status">Loading invite…</p>}
         {state.status === 'error' && (
           <>
@@ -65,9 +67,17 @@ export function InvitePage() {
         )}
         {state.status === 'ready' && (
           <>
+            {state.preview.guild.bannerUrl && (
+              <div className="invite-banner" data-harmony="guild-banner">
+                <img src={state.preview.guild.bannerUrl} alt="" />
+              </div>
+            )}
             <GuildIcon guild={state.preview.guild} size={80} />
             <p className="invite-eyebrow">You have been invited to join</p>
             <h1>{state.preview.guild.name}</h1>
+            {state.preview.guild.description && (
+              <p className="invite-description">{state.preview.guild.description}</p>
+            )}
             <p className="invite-meta">
               {state.preview.memberCount} {state.preview.memberCount === 1 ? 'member' : 'members'}
             </p>

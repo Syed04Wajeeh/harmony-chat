@@ -3,8 +3,13 @@ import { BrowserRouter, Route, Routes } from 'react-router';
 import { bootstrap } from './store/actions.js';
 import { startDispatcher } from './store/dispatcher.js';
 import { InvitePage } from './routes/InvitePage.js';
+import { AdvancedAppearancePage } from './components/settings/AdvancedAppearancePage.js';
 import { AppearancePage } from './components/settings/AppearancePage.js';
+import { BehaviorPage } from './components/settings/BehaviorPage.js';
+import { ThemeEditorPage } from './components/settings/ThemeEditorPage.js';
+import { ThemesPage } from './components/settings/ThemesPage.js';
 import { BotDetailPage } from './components/settings/BotDetailPage.js';
+import { AppearanceEffects } from './components/AppearanceEffects.js';
 import { DesktopBridge } from './components/DesktopBridge.js';
 import { BotsPage } from './components/settings/BotsPage.js';
 import { DesktopPage } from './components/settings/DesktopPage.js';
@@ -74,10 +79,15 @@ export function App() {
     <BrowserRouter>
       <Bootstrap>
         <DesktopBridge />
+        <AppearanceEffects />
         <Routes>
           <Route path="/invite/:code" element={<InvitePage />} />
           <Route path="/settings/user" element={<UserSettingsLayout />}>
             <Route path="appearance" element={<AppearancePage />} />
+            <Route path="themes" element={<ThemesPage />} />
+            <Route path="themes/:ref" element={<ThemeEditorPage />} />
+            <Route path="advanced" element={<AdvancedAppearancePage />} />
+            <Route path="behavior" element={<BehaviorPage />} />
             <Route path="desktop" element={<DesktopPage />} />
             <Route path="bots" element={<BotsPage />} />
             <Route path="bots/:botId" element={<BotDetailPage />} />

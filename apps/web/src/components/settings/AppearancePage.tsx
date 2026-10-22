@@ -1,51 +1,21 @@
-import { useState } from 'react';
 import {
   DENSITIES,
+  MAX_FONT_SCALE,
+  MESSAGE_FONTS,
+  MIN_FONT_SCALE,
   PANEL_STYLES,
-  THEMES,
-  loadAppearance,
-  saveAppearance,
+  REDUCED_MOTION,
   type Appearance,
-} from '../../lib/appearance.js';
+} from '@harmony/shared';
+import { MESSAGE_FONT_STACKS } from '../../lib/appearance.js';
+import { useSettings } from '../../store/settings.js';
 import { Avatar } from '../Avatar.js';
+import { RangeField, Segmented, SwitchRow } from './controls.js';
 import { SettingsCard, SettingsPage } from './SettingsLayout.js';
 
-const THEME_LABELS = { system: 'System', dark: 'Dark', light: 'Light' } as const;
 const DENSITY_LABELS = { compact: 'Compact', cozy: 'Cozy', comfortable: 'Comfortable' } as const;
 const PANEL_LABELS = { floating: 'Floating', flat: 'Flat' } as const;
-
-function Segmented<T extends string>({
-  legend,
-  name,
-  options,
-  labels,
-  value,
-  onChange,
-}: {
-  legend: string;
-  name: string;
-  options: readonly T[];
-  labels: Record<T, string>;
-  value: T;
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div role="radiogroup" aria-label={legend} className="segmented">
-      {options.map((option) => (
-        <label key={option}>
-          <input
-            type="radio"
-            name={name}
-            value={option}
-            checked={value === option}
-            onChange={() => onChange(option)}
-          />
-          {labels[option]}
-        </label>
-      ))}
-    </div>
-  );
-}
+const MOTION_LABELS = { system: 'Match device', on: 'Reduce', off: 'Full' } as const;
 
 const PREVIEW_ADA = { id: 'preview-ada', displayName: 'Ada', avatarUrl: null };
 const PREVIEW_LINUS = { id: 'preview-linus', displayName: 'Linus', avatarUrl: null };
@@ -94,28 +64,16 @@ function Preview() {
 }
 
 export function AppearancePage() {
-  const [appearance, setAppearance] = useState<Appearance>(loadAppearance);
-  const update = (patch: Partial<Appearance>) => {
-    const next = { ...appearance, ...patch };
-    setAppearance(next);
-    saveAppearance(next);
-  };
+  const appearance = useSettings((state) => state.settings.appearance);
+  const update = useSettings((state) => state.update);
+  const set = (patch: Partial<Appearance>) => update({ appearance: patch });
 
   return (
     <SettingsPage title="Appearance" back="/settings/user">
       <p className="settings-lead">
-        These choices apply to this browser and take effect immediately.
+        Saved to your account, so every device you sign in on looks the same. Colors live under
+        Themes.
       </p>
-      <SettingsCard title="Theme" description="System follows your device's light or dark setting.">
-        <Segmented
-          legend="Theme"
-          name="theme"
-          options={THEMES}
-          labels={THEME_LABELS}
-          value={appearance.theme}
-          onChange={(theme) => update({ theme })}
-        />
-      </SettingsCard>
       <SettingsCard
         title="Density"
         description="How much room messages and lists take. Touch screens keep larger tap targets."
@@ -126,7 +84,7 @@ export function AppearancePage() {
           options={DENSITIES}
           labels={DENSITY_LABELS}
           value={appearance.density}
-          onChange={(density) => update({ density })}
+          onChange={(density) => set({ density })}
         />
       </SettingsCard>
       <SettingsCard
@@ -139,7 +97,54 @@ export function AppearancePage() {
           options={PANEL_STYLES}
           labels={PANEL_LABELS}
           value={appearance.panels}
-          onChange={(panels) => update({ panels })}
+          onChange={(panels) => set({ panels })}
+        />
+      </SettingsCard>
+      <SettingsCard title="Text" description="Scales everything that is sized in text units.">
+        <RangeField
+          label="Text size"
+          value={appearance.fontScale}
+          min={MIN_FONT_SCALE}
+          max={MAX_FONT_SCALE}
+          step={0.0625}
+          format={(value) => `${String(Math.round(value * 100))}%`}
+          onChange={(fontScale) => set({ fontScale })}
+        />
+        <label className="field">
+          <span>Message font</span>
+          <select
+            value={appearance.messageFont}
+            onChange={(event) =>
+              set({ messageFont: event.target.value as Appearance['messageFont'] })
+            }
+          >
+            {MESSAGE_FONTS.map((font) => (
+              <option key={font} value={font}>
+                {MESSAGE_FONT_STACKS[font].label}
+              </option>
+            ))}
+          </select>
+          <small className="field-hint">
+            Atkinson Hyperlegible is designed for low vision. All fonts ship with the app.
+          </small>
+        </label>
+      </SettingsCard>
+      <SettingsCard title="Motion" description="Animations and transitions across the app.">
+        <Segmented
+          legend="Motion"
+          name="motion"
+          options={REDUCED_MOTION}
+          labels={MOTION_LABELS}
+          value={appearance.reducedMotion}
+          onChange={(reducedMotion) => set({ reducedMotion })}
+        />
+      </SettingsCard>
+      <SettingsCard title="Servers">
+        <SwitchRow
+          label="Use each server's accent color"
+          description="Recolors buttons and highlights while a server with an accent is open. Your own custom themes always win."
+          checked={appearance.useGuildAccent}
+          onChange={(useGuildAccent) => set({ useGuildAccent })}
         />
       </SettingsCard>
       <SettingsCard title="Preview">

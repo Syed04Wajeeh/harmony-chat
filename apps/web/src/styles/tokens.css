@@ -16,6 +16,9 @@
     'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas,
     'Liberation Mono', monospace;
 
+  /* Message text and the composer; Appearance settings swap the stack. */
+  --font-message: var(--font-ui);
+
   --font-size-ui: 0.875rem;
   --font-size-message: 0.9375rem;
   --text-xs: 0.75rem;

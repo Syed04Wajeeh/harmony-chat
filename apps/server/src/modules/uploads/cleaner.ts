@@ -66,7 +66,12 @@ export class UploadCleaner {
                   nested
                     .selectFrom('guilds')
                     .select('guilds.id')
-                    .whereRef('guilds.icon_attachment_id', '=', 'attachments.id'),
+                    .where((eb) =>
+                      eb.or([
+                        eb('guilds.icon_attachment_id', '=', eb.ref('attachments.id')),
+                        eb('guilds.banner_attachment_id', '=', eb.ref('attachments.id')),
+                      ]),
+                    ),
                 ),
               ),
             )

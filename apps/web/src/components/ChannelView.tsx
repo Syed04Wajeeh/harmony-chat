@@ -30,6 +30,7 @@ import { Composer } from './Composer.js';
 import { ChannelPanels } from '../modules/slots.js';
 import { MessageList, type PendingMessage } from './MessageList.js';
 import { MessageSheet } from './MessageSheet.js';
+import { useSettings } from '../store/settings.js';
 import { ConfirmDialog } from './Overlay.js';
 import { TypingIndicator } from './TypingIndicator.js';
 import type { Attachment } from '@harmony/shared';
@@ -116,7 +117,11 @@ export function ChannelView({ channelId }: { channelId: string }) {
       firstUnreadId(messages, openedAt.hadUnread ? openedAt.lastRead : null, me?.id ?? '', hasMore),
     [messages, openedAt, me?.id, hasMore],
   );
-  const items = useMemo(() => buildTimeline(messages, { unreadFromId }), [messages, unreadFromId]);
+  const grouping = useSettings((state) => state.settings.behavior.messageGrouping);
+  const items = useMemo(
+    () => buildTimeline(messages, { unreadFromId, grouping }),
+    [messages, unreadFromId, grouping],
+  );
 
   const pending = useMemo<PendingMessage[]>(() => {
     if (!me) return [];

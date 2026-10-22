@@ -5,6 +5,7 @@ import { compareIds } from '../lib/ids.js';
 import { appStore, type OutboxItem } from './store.js';
 import { useUi } from './ui.js';
 import { getRealtime } from './connection.js';
+import { loadSettings } from './settings.js';
 
 const PAGE_SIZE = 50;
 const MAX_JUMP_PAGES = 20;
@@ -42,7 +43,11 @@ export async function fetchSnapshot(signal?: AbortSignal) {
 }
 
 export async function bootstrap(signal?: AbortSignal): Promise<void> {
-  const { me, snapshot } = await fetchSnapshot(signal);
+  const [{ me, snapshot }] = await Promise.all([
+    fetchSnapshot(signal),
+    // Appearance is a nicety: the app still works with the defaults if this fails.
+    loadSettings(signal).catch(() => undefined),
+  ]);
   appStore.getState().loadSnapshot(snapshot, me);
 }
 

@@ -51,6 +51,7 @@ function EmbedCard({ embed, nameOf, meId }: { embed: Embed } & Omit<Props, 'embe
   return (
     <article
       className="embed"
+      data-harmony="embed"
       style={color ? ({ '--embed-color': color } as CSSProperties) : undefined}
     >
       {embed.author?.name && (

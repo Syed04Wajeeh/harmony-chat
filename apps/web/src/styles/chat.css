@@ -279,6 +279,7 @@
 }
 
 .message-content {
+  font-family: var(--font-message);
   font-size: var(--font-size-message);
   line-height: var(--leading-message);
   overflow-wrap: anywhere;
@@ -809,6 +810,7 @@ html[data-keyboard='open'] .composer {
   border: 0;
   background: transparent;
   resize: none;
+  font-family: var(--font-message);
   font-size: var(--font-size-message);
   line-height: 1.45;
   max-height: 160px;

@@ -4,7 +4,10 @@ import { SettingsLayout, type SettingsNavItem } from './SettingsLayout.js';
 
 export function UserSettingsLayout() {
   const items: SettingsNavItem[] = [
-    { to: '/settings/user/appearance', label: 'Appearance', group: 'App' },
+    { to: '/settings/user/appearance', label: 'Display', group: 'Appearance' },
+    { to: '/settings/user/themes', label: 'Themes', group: 'Appearance' },
+    { to: '/settings/user/advanced', label: 'Advanced', group: 'Appearance' },
+    { to: '/settings/user/behavior', label: 'Behavior', group: 'App' },
     ...(releasesUrl() && !isDesktopApp()
       ? [{ to: '/settings/user/desktop', label: 'Desktop app', group: 'App' }]
       : []),

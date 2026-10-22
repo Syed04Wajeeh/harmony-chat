@@ -125,7 +125,12 @@ export function MessageList({
 
   return (
     <div className="message-area">
-      <div ref={scroller} className="message-scroller" onScroll={handleScroll}>
+      <div
+        ref={scroller}
+        className="message-scroller"
+        data-harmony="message-list"
+        onScroll={handleScroll}
+      >
         {loaded && !hasMore && hasContent && (
           <div className="list-start">This is the start of the conversation.</div>
         )}

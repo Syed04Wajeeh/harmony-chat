@@ -1,5 +1,7 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import path from 'node:path';
+import { DevApi } from './support/dev-api.js';
+import { scenePng } from './support/png.js';
 import { seedBookClub, type Seeded } from './support/seed.js';
 import {
   generateEvents,
@@ -35,6 +37,29 @@ let seeded: Seeded;
 const background: BrowserContext[] = [];
 let linusPage: Page;
 
+const DEFAULT_APPEARANCE = {
+  mode: 'system',
+  themeId: 'harmony-dark',
+  density: 'cozy',
+  panels: 'floating',
+  fontScale: 1,
+  messageFont: 'manrope',
+  useGuildAccent: true,
+  reducedMotion: 'system',
+  customCssEnabled: false,
+  customCss: '',
+};
+
+/** Appearance is saved on the server per user, so every shot starts from the defaults it asks for. */
+async function setAppearance(login: string, patch: Record<string, unknown> = {}) {
+  const api = new DevApi(baseURL, login);
+  const { version } = await api.request<{ version: number }>('GET', '/api/me/settings');
+  await api.request('PATCH', '/api/me/settings', {
+    version,
+    appearance: { ...DEFAULT_APPEARANCE, ...patch },
+  });
+}
+
 async function visit(
   browser: Browser,
   login: string,
@@ -43,12 +68,8 @@ async function visit(
   appearance?: { theme?: string; density?: string; panels?: string },
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext(options);
-  // The UI font is bundled, so shots match real devices. Appearance choices live in localStorage.
-  if (appearance) {
-    await context.addInitScript((value) => {
-      localStorage.setItem('harmony.appearance', JSON.stringify(value));
-    }, appearance);
-  }
+  const { theme, ...rest } = appearance ?? {};
+  await setAppearance(login, { ...rest, ...(theme && { mode: theme }) });
   await context.addCookies([{ name: 'dev_login', value: login, url: baseURL }]);
   const page = await context.newPage();
   await page.goto(url);
@@ -583,4 +604,110 @@ test.describe('roles', () => {
     await channel.page.screenshot({ path: shot('desktop-channel-permissions') });
     await channel.context.close();
   });
+});
+
+test.describe('customization', () => {
+  const ada = 'ada@example.com';
+  const sampleCss = [
+    '/* Tint the message under the pointer. */',
+    '[data-harmony="message"]:hover {',
+    '  background: var(--color-bg-hover);',
+    '}',
+    '',
+    '[data-harmony="sidebar"] {',
+    '  letter-spacing: 0.01em;',
+    '}',
+    '',
+    '@import url("https://fonts.example/more.css");',
+  ].join('\n');
+
+  test.beforeAll(async () => {
+    const banner = await seeded.api.ada.upload('banner.png', scenePng(960, 320));
+    await seeded.api.ada.request('PATCH', `/api/guilds/${seeded.guildId}`, {
+      accentColor: 0x3b9ec7,
+      bannerAttachmentId: banner.id,
+      description: 'A cozy club for people who read slowly and talk fast. New members welcome.',
+    });
+  });
+
+  for (const [prefix, device] of [
+    ['desktop', DESKTOP],
+    ['mobile', PHONE],
+  ] as const) {
+    test(`${prefix} themes, editor and custom CSS`, async ({ browser }) => {
+      const gallery = await visit(browser, ada, device, '/settings/user/themes');
+      await gallery.page.getByRole('heading', { level: 1, name: 'Themes' }).waitFor();
+      await gallery.page.waitForTimeout(500);
+      await gallery.page.screenshot({ path: shot(`${prefix}-themes`) });
+      await gallery.context.close();
+
+      const editor = await visit(
+        browser,
+        ada,
+        device,
+        '/settings/user/themes/new?from=harmony-dark',
+      );
+      await editor.page.getByRole('textbox', { name: 'Muted value' }).fill('#2f2e2b');
+      await editor.page.getByText(/below AA and may be hard to read/).waitFor();
+      await editor.page.waitForTimeout(400);
+      await editor.page.screenshot({ path: shot(`${prefix}-theme-editor`) });
+      await editor.page.locator('[data-contrast="muted"]').scrollIntoViewIfNeeded();
+      await editor.page.waitForTimeout(300);
+      await editor.page.screenshot({ path: shot(`${prefix}-theme-contrast`) });
+      await editor.context.close();
+
+      const css = await visit(browser, ada, device, '/settings/user/advanced');
+      await css.page.getByLabel('Stylesheet').fill(sampleCss);
+      await css.page.getByText(/These are removed when saved/).waitFor();
+      await css.page.waitForTimeout(300);
+      await css.page.screenshot({ path: shot(`${prefix}-custom-css`) });
+      await css.context.close();
+    });
+
+    test(`${prefix} presets in the chat view`, async ({ browser }) => {
+      for (const themeId of ['midnight', 'rose', 'high-contrast']) {
+        await setAppearance(ada, { themeId, useGuildAccent: false });
+        const context = await browser.newContext(device);
+        await context.addCookies([{ name: 'dev_login', value: ada, url: baseURL }]);
+        const page = await context.newPage();
+        await page.goto(general());
+        await settle(page);
+        await page.screenshot({ path: shot(`${prefix}-theme-${themeId}`) });
+        await context.close();
+      }
+    });
+
+    test(`${prefix} guild banner, accent and invite`, async ({ browser }) => {
+      const guild = await visit(browser, ada, device, general());
+      await settle(guild.page);
+      if (prefix === 'mobile') {
+        await guild.page.getByRole('button', { name: 'Open navigation' }).tap();
+        await guild.page.waitForTimeout(500);
+      }
+      await guild.page.screenshot({ path: shot(`${prefix}-guild-branding`) });
+      await guild.context.close();
+
+      const settings = await visit(
+        browser,
+        ada,
+        device,
+        `/settings/server/${seeded.guildId}/overview`,
+      );
+      await settings.page.getByRole('heading', { level: 1, name: 'Overview' }).waitFor();
+      await settings.page.waitForTimeout(600);
+      await settings.page.screenshot({ path: shot(`${prefix}-server-branding`), fullPage: false });
+      await settings.context.close();
+
+      const invite = await visit(
+        browser,
+        'visitor@example.com',
+        device,
+        `/invite/${seeded.inviteCode}`,
+      );
+      await invite.page.getByRole('button', { name: 'Accept invite' }).waitFor();
+      await invite.page.waitForTimeout(600);
+      await invite.page.screenshot({ path: shot(`${prefix}-invite-banner`) });
+      await invite.context.close();
+    });
+  }
 });

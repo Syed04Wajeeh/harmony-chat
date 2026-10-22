@@ -1,6 +1,13 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  COLOR_TOKENS,
+  LENGTH_TOKENS,
+  SEMANTIC_TOKENS,
+  findPreset,
+  type ColorToken,
+} from '@harmony/shared';
 
 const dir = path.dirname(new URL(import.meta.url).pathname);
 const files = readdirSync(dir).filter((name) => name.endsWith('.css'));
@@ -91,5 +98,57 @@ describe('theme layer', () => {
       (name) => !light.has(name) && !name.startsWith('--color-tone'),
     );
     expect(missing).toEqual([]);
+  });
+
+  it('the theme allowlist in @harmony/shared equals the themeable semantic tokens defined here', () => {
+    const dark = new Set(
+      declarations(blockAfter(':root {\n  color-scheme: dark')).map((d) => d.split(':')[0] ?? ''),
+    );
+    const colors = [...dark]
+      .filter((name) => name.startsWith('--color-'))
+      .map((name) => name.slice(2));
+    // Corner radii and the avatar shape are themeable; the pill radius, sizes and spacing are not.
+    const lengths = [
+      ...new Set(
+        [
+          ...tokens.matchAll(
+            /--((?:radius-(?:panel|card|control|tile|inline|sheet))|avatar-shape)\s*:/g,
+          ),
+        ].map((m) => m[1] ?? ''),
+      ),
+    ];
+    expect([...COLOR_TOKENS].sort()).toEqual(colors.sort());
+    expect(Object.keys(LENGTH_TOKENS).sort()).toEqual(lengths.sort());
+    expect(new Set(SEMANTIC_TOKENS).size).toBe(SEMANTIC_TOKENS.length);
+  });
+
+  it('every built-in Harmony preset color that is a plain palette reference matches the stylesheet', () => {
+    const palette: Record<string, string> = {};
+    for (const m of read('palette.css').matchAll(/(--palette-[\w-]+)\s*:\s*(#[0-9a-f]{6})/gi)) {
+      palette[m[1] ?? ''] = (m[2] ?? '').toLowerCase();
+    }
+    const direct = (block: string) =>
+      [...block.matchAll(/--(color-[\w-]+)\s*:\s*var\((--palette-[\w-]+)\)\s*;/g)].map(
+        (m) => [m[1] ?? '', palette[m[2] ?? ''] ?? ''] as const,
+      );
+    const cases = [
+      ['harmony-dark', blockAfter(':root {\n  color-scheme: dark')],
+      ['harmony-paper', blockAfter(":root[data-theme='light']")],
+    ] as const;
+    for (const [id, block] of cases) {
+      const preset = findPreset(id);
+      expect(direct(block).length).toBeGreaterThan(15);
+      const mismatches = direct(block)
+        .filter(
+          ([token, value]) =>
+            !token.startsWith('color-tone') &&
+            preset?.tokens[token as ColorToken]?.toLowerCase() !== value,
+        )
+        .map(
+          ([token, value]) =>
+            `${id} ${token}: stylesheet ${value}, preset ${preset?.tokens[token as ColorToken] ?? 'missing'}`,
+        );
+      expect(mismatches).toEqual([]);
+    }
   });
 });

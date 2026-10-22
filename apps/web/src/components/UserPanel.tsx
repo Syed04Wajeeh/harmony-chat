@@ -19,7 +19,7 @@ export function UserPanel() {
   const current = STATUSES.find((status) => status.value === me.status);
 
   return (
-    <div className="user-panel">
+    <div className="user-panel" data-harmony="user-panel">
       <Menu>
         <MenuTrigger
           className="user-panel-button"

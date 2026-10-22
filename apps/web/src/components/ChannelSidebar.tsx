@@ -32,6 +32,7 @@ export function ChannelSidebar({ guildId, activeChannelId }: Props) {
   return (
     <aside
       className="channel-sidebar"
+      data-harmony="sidebar"
       aria-label={guildId === HOME ? 'Direct messages' : 'Channels'}
     >
       {guildId === HOME || guildId === null ? (
@@ -130,9 +131,15 @@ function GuildChannels({
 
   return (
     <>
+      {guild.bannerUrl && (
+        <div className="sidebar-banner" data-harmony="guild-banner">
+          <img src={guild.bannerUrl} alt="" />
+        </div>
+      )}
       <Menu>
         <MenuTrigger
           className="sidebar-header sidebar-header-button"
+          data-banner={guild.bannerUrl ? '' : undefined}
           aria-label={`${guild.name} menu`}
         >
           <h2>{guild.name}</h2>
@@ -187,6 +194,7 @@ function GuildChannels({
               <NavLink
                 to={channelPath(channel)}
                 className="channel-link"
+                data-harmony="channel-link"
                 data-unread={channel.unreadCount > 0 ? '' : undefined}
                 aria-current={channel.id === activeChannelId ? 'page' : undefined}
               >

@@ -19,6 +19,8 @@ import {
   UserStatus,
 } from './chat.js';
 import { ChannelOverwrite, Role } from './permissions.js';
+import { UserSettings } from './settings.js';
+import { CustomTheme } from './theme.js';
 
 export const MAX_FRAME_BYTES = 16 * 1024;
 export const BACKFILL_LIMIT = 200;
@@ -67,6 +69,8 @@ const userEvents = [
   z.object({ type: z.literal('mention'), channelId: Id, messageId: Id }),
   z.object({ type: z.literal('guild.joined'), guild: GuildSummary }),
   z.object({ type: z.literal('guild.updated'), guild: Guild }),
+  z.object({ type: z.literal('settings.updated'), settings: UserSettings }),
+  z.object({ type: z.literal('themes.updated'), themes: z.array(CustomTheme) }),
   z.object({ type: z.literal('guild.removed'), guildId: Id }),
   z.object({ type: z.literal('guild.member_joined'), guildId: Id, user: DirectoryUser }),
   z.object({ type: z.literal('guild.member_left'), guildId: Id, userId: Id }),

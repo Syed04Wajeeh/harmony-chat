@@ -155,12 +155,17 @@ export const CreateChannelBody = z.object({
 export type CreateChannelBody = z.input<typeof CreateChannelBody>;
 
 export const MAX_GUILD_NAME_LENGTH = 100;
+export const MAX_GUILD_DESCRIPTION_LENGTH = 300;
 export const GuildName = z.string().trim().min(1).max(MAX_GUILD_NAME_LENGTH);
 
 export const Guild = z.object({
   id: Id,
   name: z.string(),
   iconUrl: z.string().nullable(),
+  /** 0xRRGGBB; recolors the app while the guild is open for members who enable it. */
+  accentColor: z.number().int().min(0).max(0xffffff).nullable(),
+  bannerUrl: z.string().nullable(),
+  description: z.string().nullable(),
   ownerId: Id,
   memberCount: z.number().int(),
 });
@@ -181,6 +186,10 @@ export const UpdateGuildBody = z
     name: GuildName.optional(),
     /** An image the caller uploaded with POST /api/uploads; null removes the icon. */
     iconAttachmentId: z.uuid().nullable().optional(),
+    accentColor: z.number().int().min(0).max(0xffffff).nullable().optional(),
+    /** An image the caller uploaded; null removes the banner. */
+    bannerAttachmentId: z.uuid().nullable().optional(),
+    description: z.string().trim().max(MAX_GUILD_DESCRIPTION_LENGTH).nullable().optional(),
   })
   .refine((body) => Object.values(body).some((value) => value !== undefined), {
     message: 'Nothing to update',
@@ -212,7 +221,14 @@ export const CreateInviteBody = z.object({
 export const InviteParams = z.object({ code: z.string().min(1).max(64) });
 export const InvitePreview = z.object({
   code: z.string(),
-  guild: z.object({ id: Id, name: z.string(), iconUrl: z.string().nullable() }),
+  guild: z.object({
+    id: Id,
+    name: z.string(),
+    iconUrl: z.string().nullable(),
+    accentColor: z.number().int().nullable(),
+    bannerUrl: z.string().nullable(),
+    description: z.string().nullable(),
+  }),
   memberCount: z.number().int(),
   alreadyMember: z.boolean(),
 });

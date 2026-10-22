@@ -121,14 +121,19 @@ export class UploadService {
   }
 
   /**
-   * Guild icons are shown to every signed-in user, including people previewing an invite;
+   * Guild icons and banners are shown to every signed-in user, including people previewing an invite;
    * webhook avatars appear next to messages members can read, so they are public the same way.
    */
-  private async isGuildIcon(attachmentId: string): Promise<boolean> {
+  private async isGuildImage(attachmentId: string): Promise<boolean> {
     const guild = await this.db
       .selectFrom('guilds')
       .select('id')
-      .where('icon_attachment_id', '=', attachmentId)
+      .where((eb) =>
+        eb.or([
+          eb('icon_attachment_id', '=', attachmentId),
+          eb('banner_attachment_id', '=', attachmentId),
+        ]),
+      )
       .executeTakeFirst();
     if (guild) return true;
     const webhook = await this.db
@@ -167,7 +172,7 @@ export class UploadService {
         .where('user_id', '=', user.id)
         .executeTakeFirst();
       if (!member) throw new AppError(403, 'forbidden', 'You are not a member of this channel');
-    } else if (row.uploader_id !== user.id && !(await this.isGuildIcon(id))) {
+    } else if (row.uploader_id !== user.id && !(await this.isGuildImage(id))) {
       throw new AppError(403, 'forbidden', 'This upload is not attached to a message you can see');
     }
 

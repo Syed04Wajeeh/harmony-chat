@@ -1,6 +1,6 @@
 # Theming and appearance tokens
 
-The web client's look is driven by CSS custom properties in three layers. Components only ever read the top layer, so a theme (the built-in light theme today, user themes, server branding and custom CSS in Phase 5) can restyle the whole app by overriding tokens and nothing else.
+The web client's look is driven by CSS custom properties in three layers. Components only ever read the top layer, so a theme (presets, user themes, guild accents and custom CSS) can restyle the whole app by overriding tokens and nothing else.
 
 ```
 primitives   palette.css   --palette-*          raw color scales, default theme only
@@ -96,46 +96,80 @@ Raw scales for the default theme. Warm, slightly olive neutrals, so the dark the
 
 ## Switches on `<html>`
 
-`lib/appearance.ts` writes three attributes, persisted in `localStorage` (`harmony.appearance`) until Phase 5 moves it to the server:
+`lib/appearance.ts` writes these from the user's settings (saved on the server, see below):
 
-| Attribute      | Values                                                 | Effect                                                                               |
-| -------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| `data-theme`   | `dark`, `light`; absent follows `prefers-color-scheme` | Remaps the color tokens                                                              |
-| `data-density` | `compact`, `cozy`, `comfortable`                       | Sets `--density`                                                                     |
-| `data-panels`  | `floating`, `flat`                                     | `flat` zeroes `--panel-gap`, `--radius-panel`, `--radius-sheet` and `--shadow-panel` |
+| Attribute / property | Values                                                 | Effect                                                                               |
+| -------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `data-theme`         | `dark`, `light`; absent follows `prefers-color-scheme` | Remaps the color tokens                                                              |
+| `data-density`       | `compact`, `cozy`, `comfortable`                       | Sets `--density`                                                                     |
+| `data-panels`        | `floating`, `flat`                                     | `flat` zeroes `--panel-gap`, `--radius-panel`, `--radius-sheet` and `--shadow-panel` |
+| `data-motion`        | `reduce`, `full`; absent follows the OS                | Overrides `prefers-reduced-motion`                                                   |
+| `data-avatars`       | `on`, `off`                                            | Hides avatars in the message list                                                    |
+| `style` font-size    | 87.5% to 125%                                          | Text scale (everything is sized in `rem`)                                            |
+| `--font-message`     | Manrope, Inter, Atkinson Hyperlegible, IBM Plex Sans   | Typeface of message text and the composer; all four are bundled                      |
+
+## Themes are data
+
+A theme is `{ id, name, base: 'dark' | 'light', tokens }`. `tokens` overrides **only** semantic
+tokens from an allowlist exported by `@harmony/shared` (`SEMANTIC_TOKENS`: every `--color-*` token,
+the corner radii and `--avatar-shape`). `styles/styles.test.ts` fails if the allowlist and
+`tokens.css` drift apart. Values are applied at runtime as inline custom properties on `<html>`,
+so components need no changes and the no-color-literal rule still holds for component CSS.
+
+- **Presets** (`presets.ts`): Harmony Dark, Harmony Paper, Midnight, Forest, Ember, Rosé, Solarized
+  and High Contrast. They are built from a few seed colors by `deriveTokens`, which nudges every
+  text token until it reaches 4.5:1 (7:1 for High Contrast) on the surfaces it sits on; tests check
+  every preset. The two Harmony themes are the stylesheet defaults, so they apply no inline tokens;
+  a test keeps their preset data equal to the palette references in `tokens.css`.
+- **Color mode** (system, dark, light) steers only the two Harmony themes. Every other theme brings
+  its own base, which sets `data-theme`.
+- **Custom themes** live in `user_themes` (20 per user) and are managed under Settings, Themes. A
+  theme missing tokens falls back to its base's values. Validation (server and client) accepts
+  colors as hex, `rgb()` or `hsl()` and radius lengths in fixed ranges, nothing else.
+- **Editor**: grouped color controls with hex text, an accent quick picker that re-derives the
+  accent family, radius sliders, a live preview built from the real chat components, and a contrast
+  checker (WCAG ratios, AA/AAA badges, "Auto-fix" nudges failing foregrounds to AA).
+- **Sharing**: Copy theme string gives compact JSON (`{"v":1,"name":...,"base":...,"tokens":{...}}`);
+  Import validates it exactly like a theme built in the editor.
 
 ```ts
-import { applyAppearance, saveAppearance } from './lib/appearance';
-applyAppearance({ theme: 'light', density: 'compact', panels: 'flat' }); // just apply
-saveAppearance({ theme: 'dark', density: 'cozy', panels: 'floating' }); // persist and apply
+import { applyAppearance, resolveTheme } from './lib/appearance';
+applyAppearance(settings.appearance, { customThemes, guildAccent: guild.accentColor });
 ```
 
-`applyAppearance` also keeps the `theme-color` meta tags in step with the canvas color.
+### Precedence
 
-## How a theme overrides tokens
+1. The user's **own (custom) theme** wins over everything: guild accents are ignored while one is
+   selected.
+2. Otherwise a **guild accent** overrides the accent family (`--color-accent`, `-hover`, `-soft`,
+   `-text`, `-contrast`) while that guild is open and the user's "Use each server's accent color"
+   switch is on. It is contrast-adjusted for the theme base with the same lightness bounds as role
+   colors (`readableColor`), and the text-on-accent color is chosen for contrast.
+3. Otherwise the **preset's own values**, then the stylesheet defaults.
 
-The default (dark) values are declared on `:root`. The light theme is the same semantic tokens under `:root[data-theme='light']`, repeated under `@media (prefers-color-scheme: light) { :root:not([data-theme]) }` so "system" works without JavaScript. A test requires the two light blocks to stay identical.
+### Custom CSS and hooks
 
-A custom theme is another block with the same shape, and it only needs the semantic layer:
+Settings, Advanced takes a stylesheet (20 KB, off by default) that is applied last, in
+`<style id="user-custom-css">`, for that user only. It passes through `sanitizeCss` on the server
+and in the browser; the threat model is in `docs/security/trust-model.md`. Stable hooks that
+survive restyling of class names:
 
-```css
-:root[data-theme='dusk'] {
-  color-scheme: dark;
-  --color-bg-canvas: #101418;
-  --color-bg-panel: #171c22;
-  --color-bg-raised: #1e252d;
-  --color-accent: #8fb4ff;
-  --color-accent-contrast: #0b1220;
-  /* ...every themed token in the table above */
-}
-```
+| `data-harmony`                                                                                            | Element                               |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `message`, `message-author`, `message-content`, `message-list`                                            | A message and its parts, the scroller |
+| `sidebar`, `channel-link`, `guild-banner`                                                                 | Channel sidebar, rows, banner         |
+| `guild-rail`, `channel-header`, `composer`, `member-list`, `user-panel`, `embed`, `avatar`, `invite-card` | Shell parts                           |
 
-Guidelines for a complete theme:
+Safe mode: opening Harmony with `?safe` turns off custom CSS and custom themes for that page load
+and shows a "Safe mode" pill with an Exit button.
 
-- Define all color tokens, not a subset. Any token left out falls through to the dark default.
-- Keep `--color-text-muted` and `--color-text-faint` at 4.5:1 or better on `bg-panel` and `bg-raised`, `--color-accent-contrast` on `--color-accent` at 4.5:1, and status colors at 3:1 on `bg-panel`.
-- Server branding overrides a few accent tokens (`--color-accent*`) and `--avatar-shape` or `--radius-*` only; user themes and custom CSS (Phase 5) can override anything in the table. Because components read no literals, there is nothing else to patch.
-- Fonts are bundled (`@fontsource-variable/*`, no third-party requests). A theme that changes `--font-ui` must also bundle its font.
+### Where settings live
+
+`user_settings` (JSON `appearance` and `behavior`, a `version`) is read once per session and sent
+live as `settings.updated`. Changes apply immediately, are saved after 300 ms with the version they
+were based on, and a `409` makes the client refetch and replay its change. A browser that still
+holds the old `harmony.appearance` local value moves it to the server once, then deletes it.
+`harmony.appearance.cache` only repeats the last applied look so the first paint matches.
 
 ## Contrast (default theme)
 

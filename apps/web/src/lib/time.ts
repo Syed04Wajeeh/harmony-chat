@@ -1,4 +1,13 @@
-const clock = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const clockFormats = {
+  '12h': new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }),
+  '24h': new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }),
+};
+let clock = clockFormats['12h'];
+
+/** Clock style for every timestamp; components that show one subscribe to the setting to redraw. */
+export function setTimeFormat(format: '12h' | '24h'): void {
+  clock = clockFormats[format];
+}
 const dayFull = new Intl.DateTimeFormat(undefined, {
   weekday: 'long',
   month: 'long',

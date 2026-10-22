@@ -32,7 +32,11 @@ interface AvatarProps {
 
 export function Avatar({ user, size = 40, status }: AvatarProps) {
   return (
-    <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.4 }}>
+    <span
+      className="avatar"
+      data-harmony="avatar"
+      style={{ width: size, height: size, fontSize: size * 0.4 }}
+    >
       {user.avatarUrl ? (
         <img src={user.avatarUrl} alt="" width={size} height={size} referrerPolicy="no-referrer" />
       ) : (

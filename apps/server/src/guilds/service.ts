@@ -36,6 +36,10 @@ interface GuildRow {
   owner_id: string;
   icon_attachment_id: string | null;
   icon_filename: string | null;
+  accent_color: number | null;
+  banner_attachment_id: string | null;
+  banner_filename: string | null;
+  description: string | null;
   member_count: number;
 }
 
@@ -49,6 +53,12 @@ const toGuild = (row: GuildRow): Guild => ({
     row.icon_attachment_id && row.icon_filename
       ? attachmentUrl(row.icon_attachment_id, row.icon_filename)
       : null,
+  accentColor: row.accent_color,
+  bannerUrl:
+    row.banner_attachment_id && row.banner_filename
+      ? attachmentUrl(row.banner_attachment_id, row.banner_filename)
+      : null,
+  description: row.description,
   ownerId: row.owner_id,
   memberCount: row.member_count,
 });
@@ -77,10 +87,12 @@ export class GuildService {
   async list(userId: string, onlyGuildId?: string): Promise<GuildSummary[]> {
     const { rows } = await sql<GuildRow>`
       select g.id, g.name, g.owner_id, g.icon_attachment_id, a.filename as icon_filename,
+        g.accent_color, g.banner_attachment_id, b.filename as banner_filename, g.description,
         (select count(*)::int from guild_members m where m.guild_id = g.id) as member_count
       from guild_members gm
       join guilds g on g.id = gm.guild_id
       left join attachments a on a.id = g.icon_attachment_id
+      left join attachments b on b.id = g.banner_attachment_id
       where gm.user_id = ${userId}
         ${onlyGuildId ? sql`and g.id = ${onlyGuildId}` : sql``}
       order by g.name, g.id
@@ -114,24 +126,18 @@ export class GuildService {
 
   async update(actor: Actor, guildId: string, body: UpdateGuildBody): Promise<Guild> {
     await this.perms.require(actor, guildId, 'manage_guild');
-    if (body.iconAttachmentId) {
-      const icon = await this.db
-        .selectFrom('attachments')
-        .select('id')
-        .where('id', '=', body.iconAttachmentId)
-        .where('uploader_id', '=', actor.id)
-        .where('message_id', 'is', null)
-        .where('content_type', 'in', RASTER_TYPES)
-        .executeTakeFirst();
-      if (!icon) {
-        throw new AppError(400, 'invalid_icon', 'The icon must be an image you uploaded');
-      }
-    }
+    await this.requireImage(actor, body.iconAttachmentId, 'invalid_icon', 'The icon');
+    await this.requireImage(actor, body.bannerAttachmentId, 'invalid_banner', 'The banner');
     await this.db
       .updateTable('guilds')
       .set({
         ...(body.name !== undefined && { name: body.name }),
         ...(body.iconAttachmentId !== undefined && { icon_attachment_id: body.iconAttachmentId }),
+        ...(body.bannerAttachmentId !== undefined && {
+          banner_attachment_id: body.bannerAttachmentId,
+        }),
+        ...(body.accentColor !== undefined && { accent_color: body.accentColor }),
+        ...(body.description !== undefined && { description: body.description || null }),
       })
       .where('id', '=', guildId)
       .execute();
@@ -141,6 +147,24 @@ export class GuildService {
       this.events.toUser(userId, { type: 'guild.updated', guild }),
     );
     return guild;
+  }
+
+  private async requireImage(
+    actor: Actor,
+    attachmentId: string | null | undefined,
+    code: string,
+    subject: string,
+  ): Promise<void> {
+    if (!attachmentId) return;
+    const image = await this.db
+      .selectFrom('attachments')
+      .select('id')
+      .where('id', '=', attachmentId)
+      .where('uploader_id', '=', actor.id)
+      .where('message_id', 'is', null)
+      .where('content_type', 'in', RASTER_TYPES)
+      .executeTakeFirst();
+    if (!image) throw new AppError(400, code, `${subject} must be an image you uploaded`);
   }
 
   /** Only the owner (or an instance admin, as moderation) deletes a guild. */
@@ -407,7 +431,14 @@ export class GuildService {
       .executeTakeFirst();
     return {
       code,
-      guild: { id: guild.id, name: guild.name, iconUrl: guild.iconUrl },
+      guild: {
+        id: guild.id,
+        name: guild.name,
+        iconUrl: guild.iconUrl,
+        accentColor: guild.accentColor,
+        bannerUrl: guild.bannerUrl,
+        description: guild.description,
+      },
       memberCount: guild.memberCount,
       alreadyMember: member !== undefined,
     };
@@ -483,8 +514,11 @@ export class GuildService {
   private async load(guildId: string): Promise<Guild> {
     const { rows } = await sql<GuildRow>`
       select g.id, g.name, g.owner_id, g.icon_attachment_id, a.filename as icon_filename,
+        g.accent_color, g.banner_attachment_id, b.filename as banner_filename, g.description,
         (select count(*)::int from guild_members m where m.guild_id = g.id) as member_count
-      from guilds g left join attachments a on a.id = g.icon_attachment_id
+      from guilds g
+      left join attachments a on a.id = g.icon_attachment_id
+      left join attachments b on b.id = g.banner_attachment_id
       where g.id = ${guildId}
     `.execute(this.db);
     const row = rows[0];

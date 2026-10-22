@@ -27,6 +27,7 @@ export default defineConfig({
             'servers.spec.ts',
             'polls.spec.ts',
             'roles.spec.ts',
+            'customization.spec.ts',
           ],
           use: { viewport: { width: 1280, height: 800 } },
         },

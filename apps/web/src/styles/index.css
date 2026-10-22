@@ -1,4 +1,7 @@
 @import '@fontsource-variable/manrope/index.css';
+@import '@fontsource-variable/inter/index.css';
+@import '@fontsource-variable/atkinson-hyperlegible-next/index.css';
+@import '@fontsource-variable/ibm-plex-sans/index.css';
 @import '@fontsource-variable/jetbrains-mono/index.css';
 @import './palette.css';
 @import './tokens.css';
@@ -9,3 +12,4 @@
 @import './integrations.css';
 @import './modules.css';
 @import './roles.css';
+@import './appearance.css';

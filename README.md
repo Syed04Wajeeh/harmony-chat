@@ -84,6 +84,28 @@ docker run --rm --network host -e E2E_NO_WEBSERVER=1 -e E2E_BASE_URL=http://loca
 | `pnpm build`            | Build shared, server, web and desktop page     |
 | `pnpm format`           | Prettier                                       |
 
+## Customization
+
+Appearance is saved per user on the server, so it follows you across devices and updates live in other open sessions.
+
+- **Themes**: eight presets (Harmony Dark and Paper, Midnight, Forest, Ember, Rosé, Solarized, High Contrast), all WCAG AA. Build your own in the theme editor with a live preview and a contrast checker that warns about unreadable pairs and can auto-fix them; share a theme as a short string.
+- **Display**: density, flat or floating panels, text size, message font (Manrope, Inter, Atkinson Hyperlegible, IBM Plex Sans), reduced-motion override. **Behavior**: 12 or 24-hour clock, avatars, grouping, member list default, Enter to send, idle timeout.
+- **Custom CSS** (opt-in) with stable `data-harmony` hooks, sanitized so it cannot load remote resources. `?safe` in the address turns custom CSS and themes off if a style breaks the page.
+- **Server branding**: owners and `manage_guild` holders set an accent color, banner and description; members see the banner in the sidebar and on invite pages, and the accent while the server is open (they can turn that off).
+
+Details: [docs/theming.md](docs/theming.md), [Custom CSS threat model](docs/security/trust-model.md).
+
+| Themes                                                             | Editor                                                        |
+| ------------------------------------------------------------------ | ------------------------------------------------------------- |
+| ![Theme gallery](docs/screenshots/desktop-themes.png)              | ![Theme editor](docs/screenshots/desktop-theme-editor.png)    |
+| ![Midnight](docs/screenshots/desktop-theme-midnight.png)           | ![Rosé](docs/screenshots/desktop-theme-rose.png)              |
+| ![High contrast](docs/screenshots/desktop-theme-high-contrast.png) | ![Server banner](docs/screenshots/desktop-guild-branding.png) |
+
+| Phone                                                   |                                                       |                                                         |
+| ------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------- |
+| ![Themes](docs/screenshots/mobile-themes.png)           | ![Editor](docs/screenshots/mobile-theme-editor.png)   | ![Contrast](docs/screenshots/mobile-theme-contrast.png) |
+| ![Midnight](docs/screenshots/mobile-theme-midnight.png) | ![Custom CSS](docs/screenshots/mobile-custom-css.png) | ![Invite](docs/screenshots/mobile-invite-banner.png)    |
+
 ## Desktop app
 
 Installers for Windows (`.exe` and `.msi`), macOS (Apple silicon `.dmg`) and Linux (`.AppImage` and `.deb`) are attached to the [GitHub releases](https://github.com/Syed04Wajeeh/harmony-chat/releases). The app is a small [Tauri](https://tauri.app) shell (about 10 MB, it uses the system webview): on first start it asks for your Harmony server URL, checks that it answers like Harmony, and then shows the server in its own window with a tray icon, launch at login, native notifications for mentions and DMs, an unread badge and auto-update.

@@ -30,6 +30,7 @@ import { EmojiPickerButton } from './EmojiPicker.js';
 import { CloseIcon, FileIcon, PaperclipIcon, PlusIcon, SendIcon, SmileIcon } from './Icons.js';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './Menu.js';
 import { useComposerActions, useComposerDialog } from '../modules/slots.js';
+import { useSettings } from '../store/settings.js';
 
 const TYPING_THROTTLE_MS = 3000;
 const MAX_HEIGHT_PX = 160;
@@ -67,6 +68,7 @@ export function Composer({
   me,
 }: Props) {
   const coarse = useCoarsePointer();
+  const sendOnEnter = useSettings((state) => state.settings.behavior.sendOnEnter);
   const access = useGuildAccess(guildId ?? '', guildId ? channelId : undefined);
   const canAttach = guildId === null || !access.loaded || access.has('attach_files');
   const field = useRef<HTMLTextAreaElement>(null);
@@ -258,7 +260,8 @@ export function Composer({
       return;
     }
     // Phones have an explicit send button; Enter there is a newline.
-    if (event.key === 'Enter' && !event.shiftKey && !coarse && !event.nativeEvent.isComposing) {
+    const sends = sendOnEnter ? !event.shiftKey : event.ctrlKey || event.metaKey;
+    if (event.key === 'Enter' && sends && !coarse && !event.nativeEvent.isComposing) {
       event.preventDefault();
       submit();
     }
@@ -285,7 +288,7 @@ export function Composer({
   }
 
   return (
-    <div className="composer">
+    <div className="composer" data-harmony="composer">
       {replyTo && (
         <div className="composer-reply">
           <span>

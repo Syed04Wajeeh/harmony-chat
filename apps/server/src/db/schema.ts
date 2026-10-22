@@ -18,6 +18,9 @@ export interface GuildsTable {
   id: Generated<string>;
   name: string;
   icon_attachment_id: string | null;
+  accent_color: Generated<number | null>;
+  banner_attachment_id: Generated<string | null>;
+  description: Generated<string | null>;
   owner_id: string;
   is_default: Generated<boolean>;
   created_at: Timestamp;
@@ -210,6 +213,24 @@ export interface GuildModulesTable {
   updated_at: Generated<Date>;
 }
 
+export interface UserSettingsTable {
+  user_id: string;
+  appearance: ColumnType<Record<string, unknown>, string | undefined, string>;
+  behavior: ColumnType<Record<string, unknown>, string | undefined, string>;
+  version: Generated<number>;
+  updated_at: Generated<Date>;
+}
+
+export interface UserThemesTable {
+  id: Generated<string>;
+  user_id: string;
+  name: string;
+  base: 'dark' | 'light';
+  tokens: ColumnType<Record<string, string>, string, string>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
 export interface Database {
   users: UsersTable;
   guilds: GuildsTable;
@@ -231,4 +252,6 @@ export interface Database {
   event_outbox: EventOutboxTable;
   event_deliveries: EventDeliveriesTable;
   guild_modules: GuildModulesTable;
+  user_settings: UserSettingsTable;
+  user_themes: UserThemesTable;
 }

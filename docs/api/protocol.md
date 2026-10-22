@@ -151,6 +151,39 @@ Response `200` `{ "presence": [ { "userId": "8", "status": "online" | "idle" | "
 Users that are not listed are offline (this includes invisible users). Fetch once after each
 (re)connect, then apply `presence.updated` frames.
 
+## Settings and themes
+
+Per-user, human sessions only. Appearance and behavior preferences live on the server so every
+device agrees; the shapes are the `UserSettings`, `CustomTheme` and `ThemeInput` schemas in
+`packages/shared`.
+
+### `GET /api/me/settings`
+
+Response `200` `{ appearance, behavior, version, updatedAt }`. A user who never saved gets the
+defaults at `version: 0`. `appearance` holds `mode` (`system`/`dark`/`light`), `themeId` (a preset
+id or one of your theme ids), `density`, `panels`, `fontScale` (0.875 to 1.25), `messageFont`,
+`useGuildAccent`, `reducedMotion` (`system`/`on`/`off`), `customCssEnabled` and `customCss`.
+`behavior` holds `timeFormat`, `showAvatars`, `messageGrouping`, `memberListDefault`,
+`sendOnEnter`, `linkPreviews` (reserved) and `autoIdleMinutes`.
+
+### `PATCH /api/me/settings`
+
+Body `{ "version": n, "appearance"?: {...}, "behavior"?: {...} }` with only the changed fields.
+Optimistic concurrency: `version` must equal the stored one, otherwise `409 version_conflict` and
+nothing is applied; the client refetches, replays its change on the fresh copy and retries.
+`customCss` is sanitized before it is stored (see the trust model) and is at most 20 KB. Response
+`200` the saved settings with the new `version`. Errors: `400` (out of range, unknown `themeId`),
+`409 version_conflict`. The user's other sessions receive `settings.updated`.
+
+### `GET /api/me/themes`, `POST /api/me/themes`, `PUT /api/me/themes/:id`, `DELETE /api/me/themes/:id`
+
+A theme is `{ name (1..40), base: "dark" | "light", tokens }`. `tokens` may set only the semantic
+tokens in the allowlist (`COLOR_TOKENS` and the radius tokens in `@harmony/shared`); colors must be
+hex, `rgb()` or `hsl()`, lengths are bounded. Anything else (`url()`, `var()`, `;`, `}`, comments,
+unknown names) is `400`. At most 20 themes per user (`400 theme_limit`). Other users' themes are
+`404`. Deleting the selected theme resets `themeId` to the default. Every change sends
+`themes.updated` with the full list to the user's sessions.
+
 ## Guilds
 
 ### `GET /api/guilds`
@@ -164,10 +197,13 @@ becomes owner and member, and a `general` channel is created. Errors: `400`.
 
 ### `PATCH /api/guilds/:id`
 
-Needs `manage_guild`. Body: any of `{ "name": string, "iconAttachmentId": uuid | null }`
-(at least one). The icon must be an image (png, jpeg, gif or webp) uploaded by you with
-`POST /api/uploads` and not yet attached to a message; `null` removes it. Response `200` Guild.
-Errors: `400 invalid_icon`, `403 missing_permission`, `404 guild_not_found`.
+Needs `manage_guild`. Body: any of `{ "name": string, "iconAttachmentId": uuid | null,
+"bannerAttachmentId": uuid | null, "accentColor": 0..16777215 | null, "description": string | null }`
+(at least one; description is at most 300 characters, empty clears it). The icon and the banner
+must be images (png, jpeg, gif or webp) uploaded by you with `POST /api/uploads` and not yet
+attached to a message; `null` removes them. Response `200` Guild, which carries `accentColor`,
+`bannerUrl` and `description` (all nullable). Errors: `400 invalid_icon`, `400 invalid_banner`,
+`403 missing_permission`, `404 guild_not_found`.
 
 ### `DELETE /api/guilds/:id`
 
@@ -244,7 +280,14 @@ Any signed-in user. Response `200`:
 ```json
 {
   "code": "k3Jq9_xT2a",
-  "guild": { "id": "3", "name": "Book club", "iconUrl": null },
+  "guild": {
+    "id": "3",
+    "name": "Book club",
+    "iconUrl": null,
+    "accentColor": 3907271,
+    "bannerUrl": "/api/attachments/<id>/banner.png",
+    "description": "Tea and slow reading."
+  },
   "memberCount": 4,
   "alreadyMember": false
 }
@@ -692,6 +735,8 @@ long disconnect if that matters.
 { "type": "mention", "channelId": "11", "messageId": "981" }
 { "type": "guild.joined", "guild": { "...GuildSummary": "..." } }
 { "type": "guild.updated", "guild": { "...Guild": "..." } }
+{ "type": "settings.updated", "settings": { "...UserSettings": "..." } }
+{ "type": "themes.updated", "themes": [{ "...CustomTheme": "..." }] }
 { "type": "guild.removed", "guildId": "3" }
 { "type": "guild.member_joined", "guildId": "3", "user": { "...DirectoryUser": "..." } }
 { "type": "guild.member_left", "guildId": "3", "userId": "8" }

@@ -40,7 +40,7 @@ export function ChannelHeader({ channel }: Props) {
   const membersShown = desktop ? membersOpen : drawer === 'right';
 
   return (
-    <header className="channel-header">
+    <header className="channel-header" data-harmony="channel-header">
       {!desktop && (
         <button
           className="icon-button nav-button"

@@ -12,6 +12,9 @@ import {
   GuildSummary,
   Channel,
   ChannelSummary,
+  CustomTheme,
+  ListThemesResponse,
+  UserSettings,
   Invite,
   InvitePreview,
   ListBotsResponse,
@@ -43,6 +46,8 @@ import {
   type UpdateBotBody,
   type UpdateGuildBody,
   type UpdateGuildModuleBody,
+  type SettingsPatch,
+  type ThemeInput,
   type UserStatus,
 } from '@harmony/shared';
 
@@ -99,6 +104,20 @@ export const api = {
   me: (signal?: AbortSignal) => request('/api/me', { schema: Me, signal }),
   setStatus: (status: UserStatus) =>
     request('/api/me', { method: 'PATCH', body: { status }, schema: Me }),
+  settings: (signal?: AbortSignal) => request('/api/me/settings', { schema: UserSettings, signal }),
+  patchSettings: (version: number, patch: SettingsPatch) =>
+    request('/api/me/settings', {
+      method: 'PATCH',
+      body: { version, ...patch },
+      schema: UserSettings,
+    }),
+  themes: async (signal?: AbortSignal) =>
+    (await request('/api/me/themes', { schema: ListThemesResponse, signal })).themes,
+  createTheme: (body: ThemeInput) =>
+    request('/api/me/themes', { method: 'POST', body, schema: CustomTheme }),
+  updateTheme: (id: string, body: ThemeInput) =>
+    request(`/api/me/themes/${id}`, { method: 'PUT', body, schema: CustomTheme }),
+  deleteTheme: (id: string) => request(`/api/me/themes/${id}`, { method: 'DELETE' }),
   users: async (signal?: AbortSignal) =>
     (await request('/api/users', { schema: ListUsersResponse, signal })).users,
   presence: async (signal?: AbortSignal) =>

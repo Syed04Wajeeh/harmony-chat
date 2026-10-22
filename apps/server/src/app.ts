@@ -45,6 +45,8 @@ import { TypingService } from './realtime/typing.js';
 import { LocalDiskStorage, type Storage } from './uploads/storage.js';
 import { roleRoutes } from './roles/routes.js';
 import { RoleService } from './roles/service.js';
+import { SettingsService } from './settings/service.js';
+import { settingsRoutes } from './settings/routes.js';
 import { userRoutes } from './users/routes.js';
 import { MessageDecorators } from './messages/decorators.js';
 import { DomainEvents } from './modules/domain-events.js';
@@ -255,6 +257,7 @@ export async function buildApp({
         errorResponseBuilder: () => new AppError(429, 'rate_limited', 'Too many requests'),
       });
       await api.register(userRoutes, { users, presence });
+      await api.register(settingsRoutes, { settings: new SettingsService(db, events) });
       await api.register(guildRoutes, { guilds, channels });
       await api.register(roleRoutes, { roles, guilds, perms });
       await api.register(channelRoutes, { channels });
