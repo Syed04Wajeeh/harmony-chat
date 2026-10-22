@@ -19,6 +19,8 @@ tailscale serve --bg --https=18470 http://127.0.0.1:8470
 # PUBLIC_ORIGIN=https://chat.example.ts.net:18470
 ```
 
+Bots and integrations (bot tokens, incoming webhooks, slash commands, signed outgoing events) are described in [docs/api/protocol.md](docs/api/protocol.md) and [docs/security/trust-model.md](docs/security/trust-model.md); `examples/` has a bot, an Uptime Kuma recipe and a curl script. Events are delivered by a separate `worker` service, and `127.0.0.1:8471` is a host-local ingress that only forwards bot-token requests, webhooks and interaction follow-ups. Bots owned by an instance admin can reach private hosts listed in `OUTBOUND_PRIVATE_ALLOWLIST`; everyone else's can only reach public addresses.
+
 Set `ALLOWED_LOGINS` (comma-separated) to restrict access to specific tailnet users; empty allows any user on the tailnet.
 
 To exercise the API without Serve, send the headers it would add:
@@ -61,6 +63,7 @@ Open http://localhost:5173. The Origin check applies in development too, and def
 - `apps/server`: Fastify 5 API, Kysely migrations
 - `apps/web`: Vite + React client
 - `packages/shared`: zod schemas and the WebSocket protocol, shared by both
+- `examples`: echo bot, Uptime Kuma recipe, webhook script
 - `deploy/nginx`: reverse-proxy config template
 
 Design decisions are tracked in [NOTES.md](NOTES.md).

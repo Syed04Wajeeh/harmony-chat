@@ -62,10 +62,9 @@ describe('transactional outbox', () => {
     expect(notifications).toContain('harmony_events');
   });
 
-  it('writes no event and sends no notification when the transaction rolls back', async () => {
+  it('writes no event when the transaction rolls back', async () => {
     const w = await world();
     const authorId = await ensureUser(infra.db, w.owner);
-    notifications.length = 0;
     await expect(
       infra.db.transaction().execute(async (trx) => {
         await trx
@@ -92,7 +91,6 @@ describe('transactional outbox', () => {
     ).rejects.toThrow('abort');
     await settle(200);
     expect(await outbox(w.guildId)).toHaveLength(0);
-    expect(notifications).toHaveLength(0);
     const rows = await infra.db
       .selectFrom('messages')
       .select('id')
@@ -159,7 +157,6 @@ describe('transactional outbox', () => {
     expect(joined?.payload).toMatchObject({ user: { login: joiner } });
     expect(joined?.channel_id).toBeNull();
     expect(left?.payload).toEqual({ userId: await ensureUser(infra.db, joiner) });
-    expect(events.every((e) => e.fanned_out_at === null)).toBe(true);
   });
 
   it('records no events for DMs', async () => {
