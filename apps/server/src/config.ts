@@ -129,6 +129,8 @@ const WorkerConfigSchema = z.object({
   OUTBOUND_PRIVATE_ALLOWLIST: csv,
   HEARTBEAT_FILE: z.string().min(1).default('/tmp/worker-heartbeat'),
   WORKER_POLL_MS: z.coerce.number().int().min(10).default(5000),
+  /** After a NOTIFY wake-up, wait this long so a burst of events is fanned out as one batch. */
+  WORKER_BATCH_WINDOW_MS: z.coerce.number().int().min(0).default(50),
   DELIVERY_TIMEOUT_MS: z.coerce.number().int().min(10).default(5000),
   DELIVERY_BACKOFF_BASE_MS: z.coerce.number().int().min(1).default(2000),
   DELIVERY_BACKOFF_CAP_MS: z.coerce

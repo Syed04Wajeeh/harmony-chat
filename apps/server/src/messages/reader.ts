@@ -93,6 +93,26 @@ export class MessageReader {
     return message;
   }
 
+  /**
+   * Loads a message the caller has just created in the same transaction. A new message has no
+   * reactions, and the caller already knows its mentions and whether it has attachments, so only
+   * the message query runs (plus the attachment query when there are attachments) instead of four.
+   */
+  async loadCreated(
+    id: string,
+    known: { mentions: readonly string[]; hasAttachments: boolean },
+  ): Promise<Message> {
+    const rows = await this.query().where('messages.id', '=', id).execute();
+    const mentions = [...known.mentions].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1));
+    const [message] = await this.hydrate(rows, {
+      reactions: new Map(),
+      mentions: new Map([[id, mentions]]),
+      ...(!known.hasAttachments && { attachments: new Map() }),
+    });
+    if (!message) throw new Error(`message ${id} vanished`);
+    return message;
+  }
+
   /** Turns `limit + 1` rows fetched newest-first into a page, oldest first. */
   async pageDescending(rows: MessageRow[], limit: number): Promise<Page> {
     const hasMore = rows.length > limit;
@@ -105,12 +125,20 @@ export class MessageReader {
     return { messages: await this.hydrate(rows.slice(0, limit)), hasMore: rows.length > limit };
   }
 
-  async hydrate(rows: MessageRow[]): Promise<Message[]> {
+  /** `known` supplies side tables the caller already has, so their queries are skipped. */
+  async hydrate(
+    rows: MessageRow[],
+    known: {
+      reactions?: Map<string, Reaction[]>;
+      attachments?: Map<string, Attachment[]>;
+      mentions?: Map<string, string[]>;
+    } = {},
+  ): Promise<Message[]> {
     const visible = rows.filter((row) => !row.deleted_at).map((row) => row.id);
     const [reactions, attachments, mentions] = await Promise.all([
-      this.reactions(visible),
-      this.attachments(visible),
-      this.mentions(visible),
+      known.reactions ?? this.reactions(visible),
+      known.attachments ?? this.attachments(visible),
+      known.mentions ?? this.mentions(visible),
     ]);
     return rows.map((row) => {
       const deleted = row.deleted_at !== null;

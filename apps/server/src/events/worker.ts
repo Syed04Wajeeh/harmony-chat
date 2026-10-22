@@ -38,6 +38,7 @@ type WorkerOptions = Pick<
   | 'DATABASE_URL'
   | 'OUTBOUND_PRIVATE_ALLOWLIST'
   | 'WORKER_POLL_MS'
+  | 'WORKER_BATCH_WINDOW_MS'
   | 'DELIVERY_TIMEOUT_MS'
   | 'DELIVERY_BACKOFF_BASE_MS'
   | 'DELIVERY_BACKOFF_CAP_MS'
@@ -269,6 +270,10 @@ export class EventWorker {
       }
       if (this.stopping) break;
       await this.sleep();
+      // Coalesce: under load every message NOTIFYs, and a pass per notification costs a fan-out
+      // query for two or three rows. Waiting briefly turns that into one pass per window.
+      const window = this.options.WORKER_BATCH_WINDOW_MS ?? 0;
+      if (window > 0 && !this.stopping) await new Promise((r) => setTimeout(r, window));
     }
   }
 

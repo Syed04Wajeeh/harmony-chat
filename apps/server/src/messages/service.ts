@@ -127,8 +127,13 @@ export class MessageService {
           .where('id', 'in', attachmentIds)
           .execute();
       }
-      const notify = await this.syncMentions(trx, row.id, channelId, author.id, content);
-      const message = await new MessageReader(trx).loadOne(row.id);
+      // A new message has no mention rows yet, so nothing to delete, and what was inserted is
+      // exactly what the loaded message will carry.
+      const notify = await this.syncMentions(trx, row.id, channelId, author.id, content, true);
+      const message = await new MessageReader(trx).loadCreated(row.id, {
+        mentions: notify,
+        hasAttachments: attachmentIds.length > 0,
+      });
       await this.emit(trx, channel.guild_id, channelId, 'message.created', { message });
       return { message, notify };
     });
@@ -386,6 +391,7 @@ export class MessageService {
     channelId: string,
     authorId: string,
     content: string,
+    isNew = false,
   ): Promise<string[]> {
     const candidates = parseMentions(content).filter((id) => id !== authorId);
     const valid =
@@ -400,11 +406,13 @@ export class MessageService {
               .execute()
           ).map((row) => row.user_id);
 
-    await trx
-      .deleteFrom('message_mentions')
-      .where('message_id', '=', messageId)
-      .$if(valid.length > 0, (qb) => qb.where('user_id', 'not in', valid))
-      .execute();
+    if (!isNew) {
+      await trx
+        .deleteFrom('message_mentions')
+        .where('message_id', '=', messageId)
+        .$if(valid.length > 0, (qb) => qb.where('user_id', 'not in', valid))
+        .execute();
+    }
     if (valid.length === 0) return [];
     const inserted = await trx
       .insertInto('message_mentions')
