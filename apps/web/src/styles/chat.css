@@ -782,7 +782,8 @@ html[data-keyboard='open'] .composer {
   color: var(--text-faint);
 }
 
-.mention-list {
+.mention-list,
+.command-list {
   position: absolute;
   left: 0;
   right: 0;
@@ -796,7 +797,8 @@ html[data-keyboard='open'] .composer {
   overflow-y: auto;
 }
 
-.mention-list li {
+.mention-list li,
+.command-list li {
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -807,7 +809,9 @@ html[data-keyboard='open'] .composer {
 }
 
 .mention-list li[aria-selected='true'],
-.mention-list li:hover {
+.mention-list li:hover,
+.command-list li[aria-selected='true'],
+.command-list li:hover {
   background: var(--bg-active);
 }
 

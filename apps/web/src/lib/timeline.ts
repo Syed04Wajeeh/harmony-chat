@@ -1,4 +1,5 @@
 import type { Message } from '@harmony/shared';
+import { sameSender } from './identity.js';
 import { compareIds } from './ids.js';
 import { formatDayLabel, isSameDay } from './time.js';
 
@@ -37,7 +38,7 @@ export function buildTimeline(
       !previous.deleted &&
       !message.deleted &&
       message.replyTo === null &&
-      previous.author.id === message.author.id &&
+      sameSender(previous, message) &&
       date.getTime() - new Date(previous.createdAt).getTime() < GROUP_WINDOW_MS;
 
     items.push({ kind: 'message', key: message.id, message, grouped });

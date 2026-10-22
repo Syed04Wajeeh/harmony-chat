@@ -1,28 +1,27 @@
-import { MAX_GUILD_NAME_LENGTH, type GuildSummary } from '@harmony/shared';
+import { MAX_GUILD_NAME_LENGTH } from '@harmony/shared';
 import { useRef, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { api, uploadFile } from '../../api/client.js';
 import { attempt } from '../../store/actions.js';
-import { appStore } from '../../store/store.js';
+import { appStore, useApp } from '../../store/store.js';
 import { GuildIcon } from '../Avatar.js';
-import { ConfirmDialog, Modal } from '../Overlay.js';
+import { ConfirmDialog } from '../Overlay.js';
+import { SettingsCard, SettingsPage } from './SettingsLayout.js';
 
-interface Props {
-  guild: GuildSummary;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
-
-export function GuildSettingsDialog({ guild, open, onOpenChange }: Props) {
-  const [name, setName] = useState(guild.name);
-  const [busy, setBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+export function OverviewPage() {
+  const { guildId = '' } = useParams();
+  const guild = useApp((state) => state.guilds[guildId]);
+  const meId = useApp((state) => state.me?.id);
   const picker = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const [name, setName] = useState(guild?.name ?? '');
+  const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  if (!guild) return null;
 
   async function update(body: Parameters<typeof api.updateGuild>[1]) {
     setBusy(true);
-    const updated = await attempt(api.updateGuild(guild.id, body), 'Could not save changes');
+    const updated = await attempt(api.updateGuild(guildId, body), 'Could not save changes');
     if (updated) appStore.getState().upsertGuild(updated);
     setBusy(false);
     return updated;
@@ -30,7 +29,7 @@ export function GuildSettingsDialog({ guild, open, onOpenChange }: Props) {
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (await update({ name: name.trim() })) onOpenChange(false);
+    await update({ name: name.trim() });
   }
 
   async function chooseIcon(file: File | undefined) {
@@ -42,20 +41,17 @@ export function GuildSettingsDialog({ guild, open, onOpenChange }: Props) {
   }
 
   async function remove() {
-    const result = await attempt(
-      api.deleteGuild(guild.id).then(() => true),
+    const deleted = await attempt(
+      api.deleteGuild(guildId).then(() => true),
       'Could not delete',
     );
-    if (result) {
-      onOpenChange(false);
-      void navigate('/');
-    }
+    if (deleted) void navigate('/');
   }
 
   return (
-    <>
-      <Modal open={open} onOpenChange={onOpenChange} title="Server settings">
-        <form onSubmit={(event) => void save(event)} className="form">
+    <SettingsPage title="Overview" back={`/settings/server/${guildId}`}>
+      <SettingsCard title="Server">
+        <form className="form" onSubmit={(event) => void save(event)}>
           <div className="icon-editor">
             <GuildIcon guild={guild} size={72} />
             <div className="icon-editor-actions">
@@ -92,14 +88,7 @@ export function GuildSettingsDialog({ guild, open, onOpenChange }: Props) {
               onChange={(event) => setName(event.target.value)}
             />
           </label>
-          <div className="modal-actions modal-actions-split">
-            <button
-              type="button"
-              className="button button-danger-outline"
-              onClick={() => setConfirmDelete(true)}
-            >
-              Delete server
-            </button>
+          <div className="modal-actions">
             <button
               className="button button-primary"
               disabled={busy || !name.trim() || name.trim() === guild.name}
@@ -108,7 +97,22 @@ export function GuildSettingsDialog({ guild, open, onOpenChange }: Props) {
             </button>
           </div>
         </form>
-      </Modal>
+      </SettingsCard>
+      {guild.ownerId === meId && (
+        <SettingsCard
+          title="Delete server"
+          description="All channels and messages in this server are permanently deleted for everyone."
+          danger
+        >
+          <button
+            type="button"
+            className="button button-danger-outline"
+            onClick={() => setConfirmDelete(true)}
+          >
+            Delete server
+          </button>
+        </SettingsCard>
+      )}
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
@@ -118,6 +122,6 @@ export function GuildSettingsDialog({ guild, open, onOpenChange }: Props) {
         danger
         onConfirm={() => void remove()}
       />
-    </>
+    </SettingsPage>
   );
 }

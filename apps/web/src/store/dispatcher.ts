@@ -1,4 +1,5 @@
 import type { RealtimeClient } from '../api/realtime.js';
+import { describeError } from '../lib/errors.js';
 import { fetchSnapshot, loadLatest, reportError } from './actions.js';
 import { getRealtime } from './connection.js';
 import { appStore } from './store.js';
@@ -7,6 +8,11 @@ import { useUi } from './ui.js';
 /** Subscribing to every channel is a burst of frames; stay under the socket's token bucket. */
 const SUBSCRIBE_BURST = 15;
 const SUBSCRIBE_INTERVAL_MS = 400;
+
+const hasOutboxItem = (nonce: string): boolean =>
+  Object.values(appStore.getState().outbox).some((items) =>
+    items.some((item) => item.nonce === nonce),
+  );
 
 /**
  * The single place where the socket meets the store: frames go into `applyFrame`, and
@@ -84,8 +90,12 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
   });
   const offFrame = realtime.onFrame((frame) => {
     appStore.getState().applyFrame(frame);
-    if (frame.type === 'error' && !frame.nonce && frame.code === 'rate_limited') {
-      useUi.getState().pushToast('You are going too fast. Try again in a moment.');
+    if (frame.type === 'error') {
+      // A nonce no queued message owns belongs to a rejected slash command.
+      const rejectedCommand = frame.nonce !== undefined && !hasOutboxItem(frame.nonce);
+      if (rejectedCommand || (!frame.nonce && frame.code === 'rate_limited')) {
+        useUi.getState().pushToast(describeError(frame.code, frame.message));
+      }
     }
     if (frame.type === 'channel.joined' || frame.type === 'guild.removed') syncSubscriptions();
   });

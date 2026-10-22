@@ -1,7 +1,9 @@
 import type { UserStatus } from '@harmony/shared';
+import { Link } from 'react-router';
 import { changeStatus } from '../store/actions.js';
 import { useApp } from '../store/store.js';
 import { Avatar, StatusDot } from './Avatar.js';
+import { SettingsIcon } from './Icons.js';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './Menu.js';
 
 const STATUSES: { value: UserStatus; label: string; hint?: string }[] = [
@@ -41,6 +43,9 @@ export function UserPanel() {
           ))}
         </MenuContent>
       </Menu>
+      <Link to="/settings/user" className="icon-button" aria-label="User settings">
+        <SettingsIcon />
+      </Link>
     </div>
   );
 }

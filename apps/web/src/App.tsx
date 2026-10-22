@@ -3,6 +3,13 @@ import { BrowserRouter, Route, Routes } from 'react-router';
 import { bootstrap } from './store/actions.js';
 import { startDispatcher } from './store/dispatcher.js';
 import { InvitePage } from './routes/InvitePage.js';
+import { BotDetailPage } from './components/settings/BotDetailPage.js';
+import { BotsPage } from './components/settings/BotsPage.js';
+import { GuildBotsPage } from './components/settings/GuildBotsPage.js';
+import { IntegrationsPage } from './components/settings/IntegrationsPage.js';
+import { OverviewPage } from './components/settings/OverviewPage.js';
+import { ServerSettingsLayout } from './components/settings/ServerSettings.js';
+import { UserSettingsLayout } from './components/settings/UserSettings.js';
 import { Shell } from './routes/Shell.js';
 
 type Boot = { status: 'loading' } | { status: 'ready' } | { status: 'error'; message: string };
@@ -61,6 +68,15 @@ export function App() {
       <Bootstrap>
         <Routes>
           <Route path="/invite/:code" element={<InvitePage />} />
+          <Route path="/settings/user" element={<UserSettingsLayout />}>
+            <Route path="bots" element={<BotsPage />} />
+            <Route path="bots/:botId" element={<BotDetailPage />} />
+          </Route>
+          <Route path="/settings/server/:guildId" element={<ServerSettingsLayout />}>
+            <Route path="overview" element={<OverviewPage />} />
+            <Route path="integrations" element={<IntegrationsPage />} />
+            <Route path="bots" element={<GuildBotsPage />} />
+          </Route>
           <Route path="/channels/:guildId?/:channelId?" element={<Shell />} />
           <Route path="*" element={<Shell />} />
         </Routes>

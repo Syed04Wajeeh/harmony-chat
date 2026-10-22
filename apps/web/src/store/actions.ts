@@ -1,5 +1,6 @@
-import type { Attachment, Message, UserStatus } from '@harmony/shared';
+import type { Attachment, Message, OptionValue, UserStatus } from '@harmony/shared';
 import { api, ApiError } from '../api/client.js';
+import { describeError } from '../lib/errors.js';
 import { compareIds } from '../lib/ids.js';
 import { appStore, type OutboxItem } from './store.js';
 import { useUi } from './ui.js';
@@ -12,10 +13,7 @@ export function reportError(error: unknown, fallback = 'Something went wrong'): 
   if (error instanceof DOMException && error.name === 'AbortError') return;
   let message = fallback;
   if (error instanceof ApiError) {
-    message =
-      error.code === 'rate_limited'
-        ? 'You are going too fast. Try again in a moment.'
-        : error.message;
+    message = describeError(error.code, error.message);
   } else if (error instanceof TypeError) {
     message = 'Cannot reach the server';
   }
@@ -139,6 +137,23 @@ function transmit(item: OutboxItem): void {
     ...(item.attachments.length > 0 && { attachmentIds: item.attachments.map((a) => a.id) }),
   });
   if (!sent) appStore.getState().failOutbox(item.nonce, 'Not connected');
+}
+
+/** Runs a slash command; the outcome comes back as a message or an `interaction.*` frame. */
+export function invokeCommand(
+  channelId: string,
+  name: string,
+  options: Record<string, OptionValue>,
+): boolean {
+  const sent = getRealtime().send({
+    type: 'command.invoke',
+    channelId,
+    name,
+    options,
+    nonce: crypto.randomUUID(),
+  });
+  if (!sent) useUi.getState().pushToast('Not connected. Try again in a moment.');
+  return sent;
 }
 
 export function retryOutbox(channelId: string, nonce: string): void {

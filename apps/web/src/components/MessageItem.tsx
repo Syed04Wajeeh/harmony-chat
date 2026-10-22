@@ -3,11 +3,14 @@ import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useCoarsePointer } from '../hooks/useMediaQuery.js';
 import { useLongPress } from '../hooks/useLongPress.js';
 import { decodeMentions, encodeMentions } from '../lib/mentions.js';
+import { messageIdentity } from '../lib/identity.js';
 import { Markdown } from './Markdown.js';
 import { formatAbsolute, formatClock, formatTimestamp } from '../lib/time.js';
 import type { OutboxItem } from '../store/store.js';
 import { Attachments } from './Attachments.js';
 import { Avatar } from './Avatar.js';
+import { AuthorBadge } from './AuthorBadge.js';
+import { Embeds } from './Embeds.js';
 import { useMessageHandlers } from './chat-context.js';
 import { EmojiPickerButton } from './EmojiPicker.js';
 import { CopyIcon, EditIcon, PinIcon, ReplyIcon, SmileIcon, TrashIcon } from './Icons.js';
@@ -184,6 +187,7 @@ export const MessageItem = memo(function MessageItem({
     );
   }
 
+  const identity = messageIdentity(message);
   const mine = message.author.id === meId;
   const mentioned = message.mentions.includes(meId);
   const editing = editingId === message.id;
@@ -215,9 +219,9 @@ export const MessageItem = memo(function MessageItem({
               <button
                 type="button"
                 className="avatar-button"
-                aria-label={`${message.author.displayName}'s profile`}
+                aria-label={`${identity.name}'s profile`}
               >
-                <Avatar user={message.author} size={40} />
+                <Avatar user={identity.avatarUser} size={40} />
               </button>
             </ProfilePopover>
           )}
@@ -227,9 +231,10 @@ export const MessageItem = memo(function MessageItem({
             <div className="message-header">
               <ProfilePopover userId={message.author.id}>
                 <button type="button" className="message-author">
-                  {message.author.displayName}
+                  {identity.name}
                 </button>
               </ProfilePopover>
+              {identity.badge && <AuthorBadge kind={identity.badge} />}
               <time dateTime={message.createdAt} title={formatAbsolute(message.createdAt)}>
                 {formatTimestamp(message.createdAt)}
               </time>
@@ -260,6 +265,9 @@ export const MessageItem = memo(function MessageItem({
                 />
               </div>
             )
+          )}
+          {message.embeds && message.embeds.length > 0 && (
+            <Embeds embeds={message.embeds} nameOf={nameOf} meId={meId} />
           )}
           <Attachments attachments={message.attachments} />
           {!pending && <Reactions message={message} />}

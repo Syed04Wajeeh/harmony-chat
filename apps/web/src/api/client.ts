@@ -1,5 +1,8 @@
 import {
   Attachment,
+  Bot,
+  CreatedBot,
+  CreatedWebhook,
   ErrorResponse,
   Guild,
   GuildMembersResponse,
@@ -7,17 +10,27 @@ import {
   ChannelSummary,
   Invite,
   InvitePreview,
+  ListBotsResponse,
   ListChannelsResponse,
+  ListCommandsResponse,
+  ListDeliveriesResponse,
   ListGuildsResponse,
   ListMessagesResponse,
   ListUsersResponse,
+  ListWebhooksResponse,
   Me,
   MembersResponse,
   Message,
   PinsResponse,
   PresenceResponse,
   ReadState,
+  RotatedSigningSecret,
+  RotatedToken,
+  type CreateBotBody,
   type CreateChannelBody,
+  type CreateWebhookBody,
+  type DELIVERY_STATUSES,
+  type UpdateBotBody,
   type UpdateGuildBody,
   type UserStatus,
 } from '@harmony/shared';
@@ -144,6 +157,66 @@ export const api = {
   unpin: (id: string) => request(`/api/messages/${id}/pin`, { method: 'DELETE', schema: Message }),
   pins: async (channelId: string, signal?: AbortSignal) =>
     (await request(`/api/channels/${channelId}/pins`, { schema: PinsResponse, signal })).messages,
+  guildCommands: async (guildId: string, signal?: AbortSignal) =>
+    (await request(`/api/guilds/${guildId}/commands`, { schema: ListCommandsResponse, signal }))
+      .commands,
+
+  bots: async (signal?: AbortSignal) =>
+    (await request('/api/bots', { schema: ListBotsResponse, signal })).bots,
+  bot: (id: string, signal?: AbortSignal) => request(`/api/bots/${id}`, { schema: Bot, signal }),
+  createBot: (body: CreateBotBody) =>
+    request('/api/bots', { method: 'POST', body, schema: CreatedBot }),
+  updateBot: (id: string, body: UpdateBotBody) =>
+    request(`/api/bots/${id}`, { method: 'PATCH', body, schema: Bot }),
+  deleteBot: (id: string) => request(`/api/bots/${id}`, { method: 'DELETE' }),
+  rotateBotToken: async (id: string) =>
+    (await request(`/api/bots/${id}/token`, { method: 'POST', schema: RotatedToken })).token,
+  rotateSigningSecret: async (id: string) =>
+    (
+      await request(`/api/bots/${id}/signing-secret`, {
+        method: 'POST',
+        schema: RotatedSigningSecret,
+      })
+    ).signingSecret,
+  deliveries: async (
+    botId: string,
+    options: {
+      status?: (typeof DELIVERY_STATUSES)[number] | undefined;
+      before?: string | undefined;
+      limit?: number;
+      signal?: AbortSignal;
+    } = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (options.status) query.set('status', options.status);
+    if (options.before) query.set('before', options.before);
+    if (options.limit) query.set('limit', String(options.limit));
+    const suffix = query.size ? `?${query.toString()}` : '';
+    return (
+      await request(`/api/bots/${botId}/deliveries${suffix}`, {
+        schema: ListDeliveriesResponse,
+        signal: options.signal,
+      })
+    ).deliveries;
+  },
+  redeliver: (botId: string, deliveryId: string) =>
+    request(`/api/bots/${botId}/deliveries/${deliveryId}/redeliver`, { method: 'POST' }),
+  addGuildBot: (guildId: string, botId: string) =>
+    request(`/api/guilds/${guildId}/bots`, { method: 'POST', body: { botId } }),
+  removeGuildBot: (guildId: string, botId: string) =>
+    request(`/api/guilds/${guildId}/bots/${botId}`, { method: 'DELETE' }),
+
+  webhooks: async (channelId: string, signal?: AbortSignal) =>
+    (await request(`/api/channels/${channelId}/webhooks`, { schema: ListWebhooksResponse, signal }))
+      .webhooks,
+  createWebhook: (channelId: string, body: CreateWebhookBody) =>
+    request(`/api/channels/${channelId}/webhooks`, {
+      method: 'POST',
+      body,
+      schema: CreatedWebhook,
+    }),
+  deleteWebhook: (id: string) => request(`/api/webhooks/${id}`, { method: 'DELETE' }),
+
   search: (options: { q: string; channelId?: string; before?: string; signal?: AbortSignal }) => {
     const query = new URLSearchParams({ q: options.q });
     if (options.channelId) query.set('channelId', options.channelId);

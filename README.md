@@ -1,6 +1,6 @@
 # Harmony
 
-A self-hosted, Discord-style team chat app: servers (guilds) with public and private channels, DMs, message history with keyset pagination, replies, reactions, mentions, pins, search, file uploads, unread counts and presence, delivered live over WebSockets and Redis pub/sub. Identity comes from Tailscale Serve, so there are no passwords or sign-up. The REST and WebSocket contract is in [docs/api/protocol.md](docs/api/protocol.md).
+A self-hosted, Discord-style team chat app: servers (guilds) with public and private channels, DMs, message history with keyset pagination, replies, reactions, mentions, pins, search, file uploads, unread counts and presence, delivered live over WebSockets and Redis pub/sub. Bots and integrations have a UI too: BOT/WEBHOOK badges, Discord-style embed cards, slash commands with autocomplete and typed options, ephemeral replies, and settings screens for webhooks, bots (scopes, URLs, one-time secrets) and the event delivery log. Identity comes from Tailscale Serve, so there are no passwords or sign-up. The REST and WebSocket contract is in [docs/api/protocol.md](docs/api/protocol.md).
 
 ## Quickstart (Docker)
 
@@ -56,10 +56,10 @@ To try it on a phone, run Vite with `--host` and open the machine's LAN address;
 ```sh
 pnpm test:unit          # server + web (Vitest, Testing Library)
 pnpm test:integration   # Testcontainers, needs Docker
-pnpm test:e2e           # Playwright: two users, mobile drawer, long-press sheet, uploads
+pnpm test:e2e           # Playwright: two users, mobile drawer, long-press sheet, uploads, webhooks, bots
 ```
 
-`pnpm test:e2e` needs the dev Postgres/Redis above and a Chromium (`pnpm --filter @harmony/web exec playwright install chromium`). Playwright starts the API in development mode and Vite on 127.0.0.1:18080 / :15173 itself, or reuses them if they are running. CI runs the same suite in its `e2e` job against Postgres and Redis service containers.
+`pnpm test:e2e` needs the dev Postgres/Redis above and a Chromium (`pnpm --filter @harmony/web exec playwright install chromium`). Playwright starts the API in development mode (with `OUTBOUND_PRIVATE_ALLOWLIST=localhost,127.0.0.1`) and Vite on 127.0.0.1:18080 / :15173 itself, or reuses them if they are running. The bot test runs `examples/echo-bot` against that API; it needs the instance admin, which is the first user in an empty database, and skips itself otherwise. CI runs the same suite in its `e2e` job against Postgres and Redis service containers.
 
 To run the browser inside Docker instead (useful on a headless server), start the API and Vite yourself, then:
 
@@ -71,7 +71,7 @@ docker run --rm --network host -e E2E_NO_WEBSERVER=1 -e E2E_BASE_URL=http://loca
 
 ### Screenshots
 
-`E2E_SCREENSHOTS=1 pnpm --filter @harmony/web test:e2e` seeds a fictional book club (Ada, Linus, Grace, Margaret, Alan, all `@example.com`) into an empty dev database and rewrites `docs/screenshots/`. Start from a fresh database, since the first user created is the instance admin. Icons in `apps/web/public` are rasterized from `icon.svg` with `apps/web/scripts/make-icons.mjs`.
+`E2E_SCREENSHOTS=1 pnpm --filter @harmony/web test:e2e` seeds a fictional book club (Ada, Linus, Grace, Margaret, Alan, all `@example.com`) into an empty dev database and rewrites `docs/screenshots/`. Start from a fresh database, since the first user created is the instance admin. The integrations shots (a "Home Lab" server with Uptime Kuma and job-scan webhooks, an echo bot and its delivery log) also need the event worker running (`pnpm --filter @harmony/server exec tsx src/worker.ts` with the same `DATABASE_URL`, `OUTBOUND_PRIVATE_ALLOWLIST=localhost,127.0.0.1`) so the log has deliveries. The web client reads an optional `VITE_DOCS_BASE_URL` at build time to link the integration guides. Icons in `apps/web/public` are rasterized from `icon.svg` with `apps/web/scripts/make-icons.mjs`.
 
 | Command                 | What it does                                   |
 | ----------------------- | ---------------------------------------------- |
@@ -98,6 +98,19 @@ docker run --rm --network host -e E2E_NO_WEBSERVER=1 -e E2E_BASE_URL=http://loca
 | ![Replies and reactions](docs/screenshots/mobile-reactions.png) | ![Image](docs/screenshots/mobile-image.png)   | ![Composer](docs/screenshots/mobile-keyboard.png)       |
 
 ![Desktop](docs/screenshots/desktop-channel.png)
+
+### Bots and integrations
+
+| Phone                                                                  |                                                            |                                                                       |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------- |
+| ![Uptime Kuma alerts](docs/screenshots/mobile-embeds-alerts.png)       | ![Job scan embed](docs/screenshots/mobile-embeds-jobs.png) | ![Slash autocomplete](docs/screenshots/mobile-slash-autocomplete.png) |
+| ![Ephemeral reply](docs/screenshots/mobile-ephemeral-reply.png)        | ![Bot settings](docs/screenshots/mobile-bot-settings.png)  | ![Delivery log](docs/screenshots/mobile-delivery-log.png)             |
+| ![New webhook, shown once](docs/screenshots/mobile-webhook-create.png) |                                                            |                                                                       |
+
+![Alerts on desktop](docs/screenshots/desktop-embeds-alerts.png)
+![Webhook URL, shown once](docs/screenshots/desktop-webhook-create.png)
+![Bot settings on desktop](docs/screenshots/desktop-bot-settings.png)
+![Delivery log on desktop](docs/screenshots/desktop-delivery-log.png)
 
 Light theme, member list, search and the invite page are in [docs/screenshots](docs/screenshots).
 

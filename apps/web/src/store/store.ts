@@ -25,6 +25,12 @@ import {
   removeReaction,
   updateMessage,
 } from './messages.js';
+import {
+  addInteraction,
+  clearPendingFrom,
+  pruneExpired,
+  type LocalInteraction,
+} from './interactions.js';
 
 export interface ChannelHistory {
   messages: readonly Message[];
@@ -72,6 +78,9 @@ export interface AppState {
   followingChannelId: string | null;
   /** Mention events already counted, so a redelivered event does not count twice. */
   countedMentions: Record<string, true>;
+  /** Slash command placeholders, errors and ephemeral replies per channel; never sent to the server. */
+  interactions: Record<string, readonly LocalInteraction[]>;
+  interactionSeq: number;
 
   setConnection(status: ConnectionStatus): void;
   loadSnapshot(snapshot: Snapshot, me?: Me): void;
@@ -92,6 +101,8 @@ export interface AppState {
   failOutbox(nonce?: string, error?: string): void;
   removeOutbox(channelId: string, nonce: string): void;
   pruneTyping(now?: number): void;
+  dismissInteraction(channelId: string, key: string): void;
+  pruneInteractions(now?: number): void;
   applyFrame(frame: ServerFrame, now?: number): void;
 }
 
@@ -112,7 +123,8 @@ function mergeUsers(known: Record<string, User>, incoming: readonly User[]): Rec
     if (
       !current ||
       current.displayName !== user.displayName ||
-      current.avatarUrl !== user.avatarUrl
+      current.avatarUrl !== user.avatarUrl ||
+      current.isBot !== user.isBot
     ) {
       if (next === known) next = { ...known };
       next[user.id] = {
@@ -120,6 +132,7 @@ function mergeUsers(known: Record<string, User>, incoming: readonly User[]): Rec
         login: user.login,
         displayName: user.displayName,
         avatarUrl: user.avatarUrl,
+        ...(user.isBot && { isBot: true }),
       };
     }
   }
@@ -150,6 +163,14 @@ export function createAppStore(): StoreApi<AppState> {
           };
         }
         next.users = mergeUsers(state.users, [message.author]);
+
+        const interactions = state.interactions[message.channelId];
+        if (interactions) {
+          const cleared = clearPendingFrom(interactions, message.author.id);
+          if (cleared !== interactions) {
+            next.interactions = { ...state.interactions, [message.channelId]: cleared };
+          }
+        }
 
         const typing = state.typing[message.channelId];
         if (typing?.[message.author.id] !== undefined) {
@@ -194,6 +215,8 @@ export function createAppStore(): StoreApi<AppState> {
       activeChannelId: null,
       followingChannelId: null,
       countedMentions: {},
+      interactions: {},
+      interactionSeq: 0,
 
       setConnection: (connection) => set({ connection }),
 
@@ -391,6 +414,27 @@ export function createAppStore(): StoreApi<AppState> {
           return changed ? { typing } : state;
         }),
 
+      dismissInteraction: (channelId, key) =>
+        set((state) => ({
+          interactions: {
+            ...state.interactions,
+            [channelId]: (state.interactions[channelId] ?? []).filter((item) => item.key !== key),
+          },
+        })),
+
+      pruneInteractions: (now = Date.now()) =>
+        set((state) => {
+          let changed = false;
+          const interactions = Object.fromEntries(
+            Object.entries(state.interactions).map(([channelId, list]) => {
+              const live = pruneExpired(list, now);
+              if (live !== list) changed = true;
+              return [channelId, live];
+            }),
+          );
+          return changed ? { interactions } : state;
+        }),
+
       applyFrame: (frame, now = Date.now()) => {
         switch (frame.type) {
           case 'hello':
@@ -509,6 +553,7 @@ export function createAppStore(): StoreApi<AppState> {
               history: omit(state.history, frame.channelId),
               outbox: omit(state.outbox, frame.channelId),
               typing: omit(state.typing, frame.channelId),
+              interactions: omit(state.interactions, frame.channelId),
             }));
             break;
           case 'guild.joined':
@@ -536,6 +581,7 @@ export function createAppStore(): StoreApi<AppState> {
                 history: drop(state.history),
                 outbox: drop(state.outbox),
                 typing: drop(state.typing),
+                interactions: drop(state.interactions),
               };
             });
             break;
@@ -580,6 +626,37 @@ export function createAppStore(): StoreApi<AppState> {
                     [frame.guildId]: members.filter((id) => id !== frame.userId),
                   },
                 }),
+              };
+            });
+            break;
+          case 'interaction.pending':
+          case 'interaction.ephemeral':
+          case 'interaction.failed':
+            set((state) => {
+              const key = `${frame.interactionId}:${String(state.interactionSeq)}`;
+              const base = {
+                key,
+                interactionId: frame.interactionId,
+                botId: frame.botId,
+                command: frame.command,
+              };
+              const item: LocalInteraction =
+                frame.type === 'interaction.pending'
+                  ? { ...base, kind: 'pending', expiresAt: frame.expiresAt }
+                  : frame.type === 'interaction.ephemeral'
+                    ? {
+                        ...base,
+                        kind: 'ephemeral',
+                        content: frame.content,
+                        embeds: frame.embeds ?? [],
+                      }
+                    : { ...base, kind: 'failed', reason: frame.reason };
+              return {
+                interactionSeq: state.interactionSeq + 1,
+                interactions: {
+                  ...state.interactions,
+                  [frame.channelId]: addInteraction(state.interactions[frame.channelId], item),
+                },
               };
             });
             break;

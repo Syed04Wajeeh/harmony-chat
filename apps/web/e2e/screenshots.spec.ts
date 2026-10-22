@@ -1,6 +1,11 @@
-import { test, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import path from 'node:path';
 import { seedBookClub, type Seeded } from './support/seed.js';
+import {
+  generateEvents,
+  seedIntegrations,
+  type IntegrationsSeed,
+} from './support/seed-integrations.js';
 
 /**
  * Seeds a fictional book club and captures the screenshots used in the README.
@@ -257,4 +262,141 @@ test('desktop', async ({ browser }) => {
   await invite.page.waitForTimeout(300);
   await invite.page.screenshot({ path: shot('desktop-invite') });
   await invite.context.close();
+});
+
+test.describe('integrations', () => {
+  let home: IntegrationsSeed;
+
+  test.beforeAll(async () => {
+    const { ada, linus, grace } = seeded.api;
+    home = await seedIntegrations(baseURL, ada, [linus, grace]);
+    await generateEvents(ada, home.channels.general, 6);
+    // The worker delivers events in the background (`tsx src/worker.ts`); wait for its first results.
+    await expect
+      .poll(async () => (await ada.deliveries(home.botId)).some((d) => d.status === 'failed'), {
+        timeout: 30_000,
+        message: 'no failed delivery: is the worker running?',
+      })
+      .toBe(true);
+  });
+
+  test.afterAll(async () => home.stop());
+
+  const forms = [
+    ['mobile', PHONE],
+    ['desktop', DESKTOP],
+  ] as const;
+  const channelUrl = (channelId: string) => `/channels/${home.guildId}/${channelId}`;
+
+  for (const [prefix, options] of forms) {
+    test(`${prefix} embeds and slash commands`, async ({ browser }) => {
+      const alerts = await visit(
+        browser,
+        'ada@example.com',
+        options,
+        channelUrl(home.channels.alerts),
+      );
+      await settle(alerts.page);
+      await alerts.page.locator('.embed').last().waitFor();
+      await alerts.page.screenshot({ path: shot(`${prefix}-embeds-alerts`) });
+      await alerts.context.close();
+
+      const jobs = await visit(browser, 'ada@example.com', options, channelUrl(home.channels.jobs));
+      await settle(jobs.page);
+      await jobs.page.locator('.embed').last().waitFor();
+      // Phones cannot fit the whole message; start at its header.
+      await jobs.page
+        .locator('li.message', { has: jobs.page.locator('.embed') })
+        .evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      await jobs.page.waitForTimeout(200);
+      await jobs.page.screenshot({ path: shot(`${prefix}-embeds-jobs`) });
+      await jobs.context.close();
+
+      const { context, page } = await visit(
+        browser,
+        'ada@example.com',
+        options,
+        channelUrl(home.channels.general),
+      );
+      await settle(page);
+      const box = page.getByRole('textbox', { name: /^Message #/ });
+      await box.click();
+      await box.fill('/');
+      await page.getByRole('listbox', { name: 'Slash commands' }).waitFor();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: shot(`${prefix}-slash-autocomplete`) });
+
+      await page.getByRole('option', { name: /\/echo/ }).click();
+      await page.getByRole('textbox', { name: 'text' }).fill('Friday works for me, see you there');
+      await page.screenshot({ path: shot(`${prefix}-slash-options`) });
+      await page.getByRole('textbox', { name: 'text' }).press('Enter');
+      await page.getByText('Only you can see this').waitFor();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: shot(`${prefix}-ephemeral-reply`) });
+      await context.close();
+    });
+
+    test(`${prefix} settings`, async ({ browser }) => {
+      const settingsList = await visit(
+        browser,
+        'ada@example.com',
+        options,
+        `/settings/server/${home.guildId}`,
+      );
+      await settingsList.page
+        .getByRole('navigation', { name: 'Server settings sections' })
+        .waitFor();
+      await settingsList.page.waitForTimeout(300);
+      await settingsList.page.screenshot({ path: shot(`${prefix}-settings`) });
+      await settingsList.context.close();
+
+      const integrations = await visit(
+        browser,
+        'ada@example.com',
+        options,
+        `/settings/server/${home.guildId}/integrations`,
+      );
+      await integrations.page.getByRole('list', { name: 'Webhooks in alerts' }).waitFor();
+      await integrations.page.waitForTimeout(300);
+      await integrations.page.screenshot({ path: shot(`${prefix}-integrations`) });
+
+      // The real response is swapped for a fake token so no working URL ends up in an image.
+      await integrations.page.route('**/api/channels/*/webhooks', async (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        const response = await route.fetch();
+        const body = (await response.json()) as object;
+        return route.fulfill({ response, json: { ...body, url: home.fakeWebhookPath } });
+      });
+      await integrations.page.getByRole('button', { name: 'Create webhook' }).click();
+      await integrations.page.getByLabel('Channel').selectOption({ label: '#alerts' });
+      await integrations.page.getByLabel('Name').fill('Backup job');
+      await integrations.page.getByRole('button', { name: 'Create webhook' }).last().click();
+      await integrations.page.getByText("You won't see this again").waitFor();
+      await integrations.page.waitForTimeout(400);
+      await integrations.page.screenshot({ path: shot(`${prefix}-webhook-create`) });
+      await integrations.context.close();
+
+      const bot = await visit(
+        browser,
+        'ada@example.com',
+        options,
+        `/settings/user/bots/${home.botId}`,
+      );
+      await bot.page.getByRole('heading', { level: 1, name: 'Echo' }).waitFor();
+      await bot.page.waitForTimeout(400);
+      await bot.page.screenshot({ path: shot(`${prefix}-bot-settings`) });
+
+      const deliveries = bot.page.getByRole('heading', { name: 'Event deliveries' });
+      await deliveries.scrollIntoViewIfNeeded();
+      await bot.page.locator('.delivery-table tbody tr').first().waitFor();
+      await bot.page.evaluate(() =>
+        document.querySelector('.settings-main')?.scrollBy({ top: 300 }),
+      );
+      await bot.page.waitForTimeout(300);
+      await deliveries.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      await bot.page.waitForTimeout(300);
+      await bot.page.screenshot({ path: shot(`${prefix}-delivery-log`) });
+      await bot.context.close();
+    });
+  }
 });

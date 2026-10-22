@@ -1,21 +1,30 @@
-import { MAX_MESSAGE_LENGTH, type Message, type User } from '@harmony/shared';
+import { MAX_MESSAGE_LENGTH, type GuildCommand, type Message, type User } from '@harmony/shared';
 import {
-  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ClipboardEvent,
   type KeyboardEvent,
 } from 'react';
+import { useGuildCommands } from '../hooks/useGuildCommands.js';
 import { useCoarsePointer } from '../hooks/useMediaQuery.js';
 import type { Uploads } from '../hooks/useUploads.js';
+import {
+  buildInvocation,
+  findSlashQuery,
+  splitSlashInput,
+  suggestCommands,
+} from '../lib/commands.js';
 import { encodeMentions, findMentionQuery, insertMention, suggestUsers } from '../lib/mentions.js';
 import { formatBytes } from '../lib/time.js';
-import { sendMessage } from '../store/actions.js';
+import { invokeCommand, sendMessage } from '../store/actions.js';
+import { useApp } from '../store/store.js';
 import { getRealtime } from '../store/connection.js';
 import { Avatar } from './Avatar.js';
+import { CommandFields, type ActiveCommand } from './CommandFields.js';
 import { EmojiPickerButton } from './EmojiPicker.js';
 import { CloseIcon, FileIcon, PaperclipIcon, SendIcon, SmileIcon } from './Icons.js';
 
@@ -30,6 +39,8 @@ const drafts = new Map<string, Draft>();
 
 interface Props {
   channelId: string;
+  /** Null in direct messages, where there are no slash commands. */
+  guildId: string | null;
   placeholder: string;
   replyTo: Message | null;
   replyToName: string | null;
@@ -37,10 +48,12 @@ interface Props {
   onEditLast: () => void;
   uploads: Uploads;
   candidates: readonly User[];
+  me: User;
 }
 
 export function Composer({
   channelId,
+  guildId,
   placeholder,
   replyTo,
   replyToName,
@@ -48,6 +61,7 @@ export function Composer({
   onEditLast,
   uploads,
   candidates,
+  me,
 }: Props) {
   const coarse = useCoarsePointer();
   const field = useRef<HTMLTextAreaElement>(null);
@@ -59,6 +73,17 @@ export function Composer({
   const [activeIndex, setActiveIndex] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const listId = useId();
+  const { commands, refresh } = useGuildCommands(guildId);
+  const [active, setActive] = useState<ActiveCommand | null>(null);
+  const channelMap = useApp((state) => state.channels);
+  const guildChannels = useMemo(
+    () =>
+      Object.values(channelMap)
+        .filter((c) => guildId !== null && c.guildId === guildId && c.kind === 'text')
+        .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
+    [channelMap, guildId],
+  );
+  const members = useMemo(() => [me, ...candidates], [me, candidates]);
 
   const textRef = useRef(text);
   useEffect(() => {
@@ -83,13 +108,51 @@ export function Composer({
     if (replyTo) field.current?.focus();
   }, [replyTo]);
 
-  const query = dismissed ? null : findMentionQuery(text, caret);
+  const slashQuery = active || dismissed || !guildId ? null : findSlashQuery(text);
+  const commandMatches = slashQuery === null ? [] : suggestCommands(commands, slashQuery);
+  const showCommands = commandMatches.length > 0;
+
+  const query = active || dismissed || showCommands ? null : findMentionQuery(text, caret);
   const suggestions = query ? suggestUsers(candidates, query.query) : [];
   const showSuggestions = suggestions.length > 0;
 
-  const canSend = !uploads.busy && (text.trim().length > 0 || uploads.attachments.length > 0);
+  const canSend =
+    active !== null ||
+    (!uploads.busy && (text.trim().length > 0 || uploads.attachments.length > 0));
 
-  const submit = useCallback(() => {
+  const focusText = () => requestAnimationFrame(() => field.current?.focus());
+
+  function startCommand(command: GuildCommand, rest = '') {
+    const first = command.options[0];
+    setActive({
+      command,
+      values: first?.type === 'string' && rest.trim() ? { [first.name]: rest.trim() } : {},
+      errors: {},
+    });
+    setText('');
+    setActiveIndex(0);
+  }
+
+  function cancelCommand() {
+    setActive(null);
+    focusText();
+  }
+
+  function runCommand() {
+    if (!active) return;
+    const result = buildInvocation(active.command, active.values);
+    if (!result.ok) {
+      setActive({ ...active, errors: result.errors });
+      return;
+    }
+    if (invokeCommand(channelId, active.command.name, result.options)) {
+      setActive(null);
+      focusText();
+    }
+  }
+
+  function submit() {
+    if (active) return runCommand();
     if (!canSend) return;
     sendMessage({
       channelId,
@@ -102,7 +165,7 @@ export function Composer({
     drafts.delete(channelId);
     uploads.clear();
     onCancelReply();
-  }, [canSend, channelId, text, replyTo, uploads, onCancelReply]);
+  }
 
   function choose(user: User) {
     if (!query) return;
@@ -117,7 +180,15 @@ export function Composer({
     });
   }
 
+  function chooseCommand(command: GuildCommand) {
+    startCommand(command);
+  }
+
   function onChange(value: string, selection: number) {
+    const typed = guildId ? splitSlashInput(value) : null;
+    const known = typed && commands.find((command) => command.name === typed.name);
+    if (known) return startCommand(known, typed.rest);
+    if (guildId && value.startsWith('/') && !text.startsWith('/')) refresh();
     setText(value);
     setCaret(selection);
     setDismissed(false);
@@ -130,6 +201,25 @@ export function Composer({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (showCommands) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        setActiveIndex((index) => (index + step + commandMatches.length) % commandMatches.length);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        const command = commandMatches[activeIndex];
+        if (command) chooseCommand(command);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setDismissed(true);
+        return;
+      }
+    }
     if (showSuggestions) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -241,7 +331,32 @@ export function Composer({
           ))}
         </ul>
       )}
+      {active && (
+        <p className="command-hint">
+          <strong>{active.command.botName}</strong> · {active.command.description}
+        </p>
+      )}
       <div className="composer-box">
+        {showCommands && (
+          <ul id={listId} className="command-list" role="listbox" aria-label="Slash commands">
+            {commandMatches.map((command, index) => (
+              <li
+                key={command.name}
+                id={`${listId}-${command.name}`}
+                role="option"
+                aria-selected={index === activeIndex}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  chooseCommand(command);
+                }}
+              >
+                <span className="command-name">/{command.name}</span>
+                <span className="command-desc">{command.description}</span>
+                <span className="command-bot">{command.botName}</span>
+              </li>
+            ))}
+          </ul>
+        )}
         {showSuggestions && (
           <ul id={listId} className="mention-list" role="listbox" aria-label="Mention suggestions">
             {suggestions.map((user, index) => (
@@ -279,27 +394,48 @@ export function Composer({
         >
           <PaperclipIcon />
         </button>
-        <textarea
-          ref={field}
-          className="composer-input"
-          rows={1}
-          value={text}
-          maxLength={MAX_MESSAGE_LENGTH}
-          placeholder={placeholder}
-          aria-label={placeholder}
-          aria-autocomplete="list"
-          aria-controls={showSuggestions ? listId : undefined}
-          aria-activedescendant={
-            showSuggestions && suggestions[activeIndex]
-              ? `${listId}-${suggestions[activeIndex].id}`
-              : undefined
-          }
-          enterKeyHint={coarse ? 'enter' : 'send'}
-          onChange={(event) => onChange(event.target.value, event.target.selectionStart)}
-          onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-        />
+        {active ? (
+          <CommandFields
+            active={active}
+            members={members}
+            channels={guildChannels}
+            onChange={(name, value) =>
+              setActive({
+                ...active,
+                values: { ...active.values, [name]: value },
+                errors: Object.fromEntries(
+                  Object.entries(active.errors).filter(([key]) => key !== name),
+                ),
+              })
+            }
+            onSubmit={runCommand}
+            onCancel={cancelCommand}
+          />
+        ) : (
+          <textarea
+            ref={field}
+            className="composer-input"
+            rows={1}
+            value={text}
+            maxLength={MAX_MESSAGE_LENGTH}
+            placeholder={placeholder}
+            aria-label={placeholder}
+            aria-autocomplete="list"
+            aria-controls={showSuggestions || showCommands ? listId : undefined}
+            aria-activedescendant={
+              showCommands && commandMatches[activeIndex]
+                ? `${listId}-${commandMatches[activeIndex].name}`
+                : showSuggestions && suggestions[activeIndex]
+                  ? `${listId}-${suggestions[activeIndex].id}`
+                  : undefined
+            }
+            enterKeyHint={coarse ? 'enter' : 'send'}
+            onChange={(event) => onChange(event.target.value, event.target.selectionStart)}
+            onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+          />
+        )}
         <EmojiPickerButton
           label="Insert emoji"
           className="icon-button composer-button"
@@ -310,7 +446,7 @@ export function Composer({
         <button
           type="button"
           className="send-button"
-          aria-label="Send message"
+          aria-label={active ? 'Run command' : 'Send message'}
           disabled={!canSend}
           onPointerDown={(event) => event.preventDefault()}
           onClick={submit}

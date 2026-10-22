@@ -5,9 +5,9 @@ import { channelPath, HOME } from '../lib/paths.js';
 import { attempt } from '../store/actions.js';
 import { guildChannels, sortDms } from '../store/selectors.js';
 import { appStore, useApp } from '../store/store.js';
+import { useCanManage } from './settings/ServerSettings.js';
 import { Avatar } from './Avatar.js';
 import { CreateChannelDialog } from './dialogs/CreateChannelDialog.js';
-import { GuildSettingsDialog } from './dialogs/GuildSettingsDialog.js';
 import { InviteDialog } from './dialogs/InviteDialog.js';
 import {
   ChevronDownIcon,
@@ -109,7 +109,8 @@ function GuildChannels({
   const channels = useApp((state) => state.channels);
   const meId = useApp((state) => state.me?.id);
   const navigate = useNavigate();
-  const [dialog, setDialog] = useState<'invite' | 'create' | 'settings' | 'leave' | null>(null);
+  const [dialog, setDialog] = useState<'invite' | 'create' | 'leave' | null>(null);
+  const canManage = useCanManage(guildId);
   if (!guild) return null;
   const isOwner = guild.ownerId === meId;
   const list = guildChannels(Object.values(channels), guildId);
@@ -142,8 +143,11 @@ function GuildChannels({
           <MenuItem icon={<PlusIcon />} onSelect={() => setDialog('create')}>
             Create channel
           </MenuItem>
-          {isOwner && (
-            <MenuItem icon={<SettingsIcon />} onSelect={() => setDialog('settings')}>
+          {canManage && (
+            <MenuItem
+              icon={<SettingsIcon />}
+              onSelect={() => void navigate(`/settings/server/${guildId}`)}
+            >
               Server settings
             </MenuItem>
           )}
@@ -204,14 +208,6 @@ function GuildChannels({
         open={dialog === 'create'}
         onOpenChange={(open) => !open && setDialog(null)}
       />
-      {isOwner && (
-        <GuildSettingsDialog
-          key={guild.name + String(guild.iconUrl)}
-          guild={guild}
-          open={dialog === 'settings'}
-          onOpenChange={(open) => !open && setDialog(null)}
-        />
-      )}
       <ConfirmDialog
         open={dialog === 'leave'}
         onOpenChange={(open) => !open && setDialog(null)}

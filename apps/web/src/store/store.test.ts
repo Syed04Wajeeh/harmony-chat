@@ -294,3 +294,115 @@ describe('channels and guilds', () => {
     expect(state().history['10']?.hasMore).toBe(true);
   });
 });
+
+describe('slash command interactions', () => {
+  const pending = (id: string, extra: Record<string, unknown> = {}) =>
+    ({
+      type: 'interaction.pending',
+      interactionId: id,
+      channelId: '10',
+      command: 'roll',
+      botId: '9',
+      expiresAt: '2026-10-22T09:15:00.000Z',
+      ...extra,
+    }) as const;
+  const list = (channelId = '10') => state().interactions[channelId] ?? [];
+
+  it('shows a placeholder while a deferred command runs and does not duplicate it', () => {
+    state().applyFrame(pending('5'));
+    state().applyFrame(pending('5'));
+    expect(list()).toHaveLength(1);
+    expect(list()[0]).toMatchObject({
+      kind: 'pending',
+      interactionId: '5',
+      botId: '9',
+      command: 'roll',
+    });
+  });
+
+  it('replaces the placeholder with an ephemeral reply that stays local', () => {
+    state().applyFrame(pending('5'));
+    state().applyFrame({
+      type: 'interaction.ephemeral',
+      interactionId: '5',
+      channelId: '10',
+      command: 'roll',
+      botId: '9',
+      content: 'only you',
+    });
+    expect(list()).toMatchObject([{ kind: 'ephemeral', content: 'only you', embeds: [] }]);
+    expect(history().some((m) => m.content === 'only you')).toBe(false);
+  });
+
+  it('keeps several ephemeral replies of one interaction as separate entries', () => {
+    const reply = (content: string) =>
+      ({
+        type: 'interaction.ephemeral',
+        interactionId: '5',
+        channelId: '10',
+        command: 'roll',
+        botId: '9',
+        content,
+      }) as const;
+    state().applyFrame(reply('first'));
+    state().applyFrame(reply('second'));
+    const keys = list().map((item) => item.key);
+    expect(new Set(keys).size).toBe(2);
+    const [first] = keys;
+    if (first) state().dismissInteraction('10', first);
+    expect(list()).toMatchObject([{ content: 'second' }]);
+  });
+
+  it('turns a placeholder into an inline failure', () => {
+    state().applyFrame(pending('5'));
+    state().applyFrame({
+      type: 'interaction.failed',
+      interactionId: '5',
+      channelId: '10',
+      command: 'roll',
+      botId: '9',
+      reason: 'timeout',
+    });
+    expect(list()).toMatchObject([{ kind: 'failed', reason: 'timeout' }]);
+  });
+
+  it('clears the placeholder when the bot posts in the channel', () => {
+    state().applyFrame(pending('5'));
+    state().applyFrame(pending('6', { botId: '12' }));
+    state().applyFrame({
+      type: 'message.created',
+      message: message('101', { author: { ...user('9', 'Roller'), isBot: true } }),
+    });
+    expect(list()).toMatchObject([{ interactionId: '6' }]);
+  });
+
+  it('drops placeholders at their expiry time but keeps replies', () => {
+    state().applyFrame(pending('5'));
+    state().applyFrame({
+      type: 'interaction.ephemeral',
+      interactionId: '7',
+      channelId: '10',
+      command: 'echo',
+      botId: '9',
+      content: 'kept',
+    });
+    state().pruneInteractions(Date.parse('2026-10-22T09:14:59.000Z'));
+    expect(list()).toHaveLength(2);
+    state().pruneInteractions(Date.parse('2026-10-22T09:15:01.000Z'));
+    expect(list()).toMatchObject([{ kind: 'ephemeral' }]);
+  });
+
+  it('forgets interactions with the channel', () => {
+    state().applyFrame(pending('5'));
+    state().applyFrame({ type: 'channel.removed', channelId: '10' });
+    expect(state().interactions['10']).toBeUndefined();
+  });
+
+  it('remembers that a user is a bot', () => {
+    state().applyFrame({
+      type: 'message.created',
+      message: message('102', { author: { ...user('9', 'Roller'), isBot: true } }),
+    });
+    expect(state().users['9']?.isBot).toBe(true);
+  });
+});

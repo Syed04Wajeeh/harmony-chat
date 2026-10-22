@@ -1,5 +1,6 @@
 import type {
   Attachment,
+  Bot,
   ChannelSummary,
   GuildSummary,
   Invite,
@@ -32,7 +33,7 @@ export class DevApi {
   }
 
   me() {
-    return this.call<{ id: string; displayName: string }>('GET', '/api/me');
+    return this.call<{ id: string; displayName: string; isAdmin: boolean }>('GET', '/api/me');
   }
   setStatus(status: UserStatus) {
     return this.call('PATCH', '/api/me', { status });
@@ -91,6 +92,41 @@ export class DevApi {
   }
   markRead(channelId: string, messageId: string) {
     return this.call('POST', `/api/channels/${channelId}/read`, { messageId });
+  }
+
+  createBot(body: {
+    name: string;
+    scopes?: string[];
+    interactionsUrl?: string;
+    eventsUrl?: string;
+    eventTypes?: string[];
+  }) {
+    return this.call<{ bot: Bot; token: string; signingSecret: string }>('POST', '/api/bots', body);
+  }
+  addBotToGuild(guildId: string, botId: string) {
+    return this.call('POST', `/api/guilds/${guildId}/bots`, { botId });
+  }
+  createWebhook(channelId: string, name: string) {
+    return this.call<{ id: string; url: string }>('POST', `/api/channels/${channelId}/webhooks`, {
+      name,
+    });
+  }
+  deliveries(botId: string) {
+    return this.call<{ deliveries: { status: string }[] }>(
+      'GET',
+      `/api/bots/${botId}/deliveries?limit=100`,
+    ).then((r) => r.deliveries);
+  }
+
+  /** Posts to a webhook URL path (`/api/webhooks/:id/:token`); the path is the only credential. */
+  async execute(path: string, payload: unknown): Promise<void> {
+    const response = await fetch(this.baseUrl + path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok)
+      throw new Error(`webhook failed: ${String(response.status)} ${await response.text()}`);
   }
 
   async upload(name: string, data: Buffer, type = 'image/png'): Promise<Attachment> {

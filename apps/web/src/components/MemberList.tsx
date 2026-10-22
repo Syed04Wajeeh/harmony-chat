@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { loadChannelMembers, loadGuildMembers } from '../store/actions.js';
 import { useApp } from '../store/store.js';
 import { Avatar } from './Avatar.js';
+import { AuthorBadge } from './AuthorBadge.js';
 import { ProfilePopover, usePresenceOf } from './ProfilePopover.js';
 
 function MemberRow({ userId }: { userId: string }) {
@@ -14,6 +15,7 @@ function MemberRow({ userId }: { userId: string }) {
         <button className="member-row" data-offline={status === 'offline' ? '' : undefined}>
           <Avatar user={user} size={36} status={status} />
           <span className="member-name">{user.displayName}</span>
+          {user.isBot && <AuthorBadge kind="bot" />}
         </button>
       </ProfilePopover>
     </li>
