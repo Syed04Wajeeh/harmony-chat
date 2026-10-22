@@ -1,6 +1,6 @@
 # Harmony
 
-A self-hosted, Discord-style team chat app: servers (guilds) with public and private channels, DMs, message history with keyset pagination, replies, reactions, mentions, pins, search, file uploads, unread counts and presence, delivered live over WebSockets and Redis pub/sub. Bots and integrations have a UI too: BOT/WEBHOOK badges, Discord-style embed cards, slash commands with autocomplete and typed options, ephemeral replies, and settings screens for webhooks, bots (scopes, URLs, one-time secrets) and the event delivery log. Identity comes from Tailscale Serve, so there are no passwords or sign-up. The REST and WebSocket contract is in [docs/api/protocol.md](docs/api/protocol.md).
+A self-hosted, Discord-style team chat app: servers (guilds) with public and private channels, DMs, message history with keyset pagination, replies, reactions, mentions, pins, search, file uploads, unread counts and presence, delivered live over WebSockets and Redis pub/sub. Bots and integrations have a UI too: BOT/WEBHOOK badges, embed cards, slash commands with autocomplete and typed options, ephemeral replies, and settings screens for webhooks, bots (scopes, URLs, one-time secrets) and the event delivery log. Identity comes from Tailscale Serve, so there are no passwords or sign-up. The REST and WebSocket contract is in [docs/api/protocol.md](docs/api/protocol.md).
 
 ## Quickstart (Docker)
 
@@ -112,6 +112,6 @@ docker run --rm --network host -e E2E_NO_WEBSERVER=1 -e E2E_BASE_URL=http://loca
 ![Bot settings on desktop](docs/screenshots/desktop-bot-settings.png)
 ![Delivery log on desktop](docs/screenshots/desktop-delivery-log.png)
 
-Light theme, member list, search and the invite page are in [docs/screenshots](docs/screenshots).
+Appearance (theme, density, flat or floating panels) is a user setting; the design tokens behind it are documented in [docs/theming.md](docs/theming.md). Light theme, compact and flat variants, member list, search and the invite page are in [docs/screenshots](docs/screenshots) (`desktop-light-*`, `mobile-light-*`, `desktop-compact.png`, `desktop-flat.png`, `desktop-appearance.png`).
 
 Design decisions are tracked in [NOTES.md](NOTES.md).

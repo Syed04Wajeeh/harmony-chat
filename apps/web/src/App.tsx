@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from 'react-router';
 import { bootstrap } from './store/actions.js';
 import { startDispatcher } from './store/dispatcher.js';
 import { InvitePage } from './routes/InvitePage.js';
+import { AppearancePage } from './components/settings/AppearancePage.js';
 import { BotDetailPage } from './components/settings/BotDetailPage.js';
 import { BotsPage } from './components/settings/BotsPage.js';
 import { GuildBotsPage } from './components/settings/GuildBotsPage.js';
@@ -69,6 +70,7 @@ export function App() {
         <Routes>
           <Route path="/invite/:code" element={<InvitePage />} />
           <Route path="/settings/user" element={<UserSettingsLayout />}>
+            <Route path="appearance" element={<AppearancePage />} />
             <Route path="bots" element={<BotsPage />} />
             <Route path="bots/:botId" element={<BotDetailPage />} />
           </Route>

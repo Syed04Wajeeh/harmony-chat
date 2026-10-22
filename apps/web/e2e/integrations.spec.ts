@@ -185,7 +185,10 @@ test('a webhook created in the UI posts a Discord embed that renders as a card',
   await expect(card).toContainText('Connection timed out');
   await expect(card).toContainText('Service Name');
   await expect(card.locator('.embed-field')).toHaveCount(3);
-  await expect(card).toHaveCSS('border-left-color', 'rgb(231, 76, 60)');
+  // The color bar is the card's ::before, painted from the sender's color.
+  await expect
+    .poll(() => card.evaluate((el) => getComputedStyle(el, '::before').backgroundColor))
+    .toBe('rgb(231, 76, 60)');
   const message = page.locator('li.message', { has: card });
   await expect(message.locator('.message-author')).toHaveText('Uptime Kuma');
   await expect(message.locator('.author-badge')).toHaveText('WEBHOOK');

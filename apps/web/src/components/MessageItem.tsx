@@ -13,7 +13,7 @@ import { AuthorBadge } from './AuthorBadge.js';
 import { Embeds } from './Embeds.js';
 import { useMessageHandlers } from './chat-context.js';
 import { EmojiPickerButton } from './EmojiPicker.js';
-import { CopyIcon, EditIcon, PinIcon, ReplyIcon, SmileIcon, TrashIcon } from './Icons.js';
+import { CopyIcon, EditIcon, MoreIcon, PinIcon, ReplyIcon, SmileIcon, TrashIcon } from './Icons.js';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './Menu.js';
 import { ProfilePopover } from './ProfilePopover.js';
 import { Reactions } from './Reactions.js';
@@ -146,7 +146,7 @@ function HoverToolbar({ message, mine }: { message: Message; mine: boolean }) {
       )}
       <Menu>
         <MenuTrigger className="icon-button icon-button-small" aria-label="More actions">
-          <span aria-hidden="true">⋯</span>
+          <MoreIcon width={18} height={18} />
         </MenuTrigger>
         <MenuContent align="end">
           <MenuItem icon={<PinIcon />} onSelect={() => onTogglePin(message)}>

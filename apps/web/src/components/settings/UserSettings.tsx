@@ -5,7 +5,10 @@ export function UserSettingsLayout() {
     <SettingsLayout
       title="User settings"
       base="/settings/user"
-      items={[{ to: '/settings/user/bots', label: 'My bots', group: 'Developer' }]}
+      items={[
+        { to: '/settings/user/appearance', label: 'Appearance', group: 'App' },
+        { to: '/settings/user/bots', label: 'My bots', group: 'Developer' },
+      ]}
     />
   );
 }

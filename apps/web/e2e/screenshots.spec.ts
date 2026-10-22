@@ -40,16 +40,15 @@ async function visit(
   login: string,
   options: Parameters<Browser['newContext']>[0],
   url: string,
+  appearance?: { theme?: string; density?: string; panels?: string },
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext(options);
-  // The Playwright image's system-ui has no bold face; use one that does so shots match real devices.
-  await context.addInitScript(() => {
-    document.addEventListener('DOMContentLoaded', () => {
-      const style = document.createElement('style');
-      style.textContent = ':root{--font-sans:"Liberation Sans",Arial,sans-serif}';
-      document.head.append(style);
-    });
-  });
+  // The UI font is bundled, so shots match real devices. Appearance choices live in localStorage.
+  if (appearance) {
+    await context.addInitScript((value) => {
+      localStorage.setItem('harmony.appearance', JSON.stringify(value));
+    }, appearance);
+  }
   await context.addCookies([{ name: 'dev_login', value: login, url: baseURL }]);
   const page = await context.newPage();
   await page.goto(url);
@@ -87,6 +86,7 @@ async function freshMessages() {
 
 async function settle(page: Page) {
   await page.getByRole('list', { name: 'Messages' }).waitFor();
+  await page.evaluate(() => document.fonts.load('15px "Manrope Variable"'));
   await page.waitForFunction(() => document.fonts.ready.then(() => true));
   await page.waitForFunction(() => [...document.images].every((img) => img.complete));
   await page.waitForTimeout(500);
@@ -181,8 +181,22 @@ test('mobile home, light theme and invite', async ({ browser }) => {
     general(),
   );
   await settle(light.page);
-  await light.page.screenshot({ path: shot('mobile-light') });
+  await light.page.screenshot({ path: shot('mobile-light-channel') });
+  await light.page.getByRole('button', { name: 'Open navigation' }).tap();
+  await light.page.waitForTimeout(500);
+  await light.page.screenshot({ path: shot('mobile-light-drawer') });
   await light.context.close();
+
+  const lightSettings = await visit(
+    browser,
+    'ada@example.com',
+    { ...PHONE, colorScheme: 'light' },
+    '/settings/user/appearance',
+  );
+  await lightSettings.page.getByRole('heading', { level: 1, name: 'Appearance' }).waitFor();
+  await lightSettings.page.waitForTimeout(400);
+  await lightSettings.page.screenshot({ path: shot('mobile-light-settings') });
+  await lightSettings.context.close();
 
   const invite = await visit(
     browser,
@@ -231,6 +245,7 @@ test('desktop', async ({ browser }) => {
   // Pins.
   await page.getByRole('button', { name: 'Pinned messages' }).click();
   await page.locator('.pin-item').first().waitFor();
+  await page.waitForTimeout(300);
   await page.screenshot({ path: shot('desktop-pins') });
   await page.keyboard.press('Escape');
 
@@ -249,8 +264,40 @@ test('desktop', async ({ browser }) => {
     general(),
   );
   await settle(light.page);
-  await light.page.screenshot({ path: shot('desktop-light') });
+  await light.page.screenshot({ path: shot('desktop-light-channel') });
+  const lightReply = light.page.locator(`#m-${seeded.replyMessageId}`);
+  await lightReply.scrollIntoViewIfNeeded();
+  await lightReply.hover();
+  await light.page.waitForTimeout(300);
+  await light.page.screenshot({ path: shot('desktop-light-replies') });
   await light.context.close();
+
+  const lightSettings = await visit(
+    browser,
+    'ada@example.com',
+    { ...DESKTOP, colorScheme: 'light' },
+    '/settings/user/appearance',
+  );
+  await lightSettings.page.getByRole('heading', { level: 1, name: 'Appearance' }).waitFor();
+  await lightSettings.page.waitForTimeout(400);
+  await lightSettings.page.screenshot({ path: shot('desktop-light-settings') });
+  await lightSettings.context.close();
+
+  const settings = await visit(browser, 'ada@example.com', DESKTOP, '/settings/user/appearance');
+  await settings.page.getByRole('heading', { level: 1, name: 'Appearance' }).waitFor();
+  await settings.page.waitForTimeout(400);
+  await settings.page.screenshot({ path: shot('desktop-appearance') });
+  await settings.context.close();
+
+  for (const [name, appearance] of [
+    ['desktop-compact', { density: 'compact' }],
+    ['desktop-flat', { panels: 'flat' }],
+  ] as const) {
+    const variant = await visit(browser, 'ada@example.com', DESKTOP, general(), appearance);
+    await settle(variant.page);
+    await variant.page.screenshot({ path: shot(name) });
+    await variant.context.close();
+  }
 
   const invite = await visit(
     browser,

@@ -54,7 +54,9 @@ export function MemberList({ guildId, channelId }: { guildId: string; channelId:
       <div className="member-scroll">
         {online.length > 0 && (
           <section>
-            <h3 className="member-heading">Online — {online.length}</h3>
+            <h3 className="member-heading">
+              Online <span>{online.length}</span>
+            </h3>
             <ul>
               {online.map((user) => (
                 <MemberRow key={user.id} userId={user.id} />
@@ -64,7 +66,9 @@ export function MemberList({ guildId, channelId }: { guildId: string; channelId:
         )}
         {offline.length > 0 && (
           <section>
-            <h3 className="member-heading">Offline — {offline.length}</h3>
+            <h3 className="member-heading">
+              Offline <span>{offline.length}</span>
+            </h3>
             <ul>
               {offline.map((user) => (
                 <MemberRow key={user.id} userId={user.id} />

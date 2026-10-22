@@ -1,0 +1,83 @@
+/*
+ * Layer 1: primitive tokens. Raw color scales for the default theme, nothing else.
+ * Components never read these; they read the semantic tokens in tokens.css.
+ * A custom theme either remaps the semantic tokens onto its own scales or replaces these values.
+ */
+:root {
+  /* Warm neutrals with a slight olive undertone. 0 is paper white, 1000 is the darkest canvas. */
+  --palette-neutral-0: #ffffff;
+  --palette-neutral-25: #fffdf9;
+  --palette-neutral-50: #f7f4ee;
+  --palette-neutral-100: #efebe2;
+  --palette-neutral-150: #e6e1d6;
+  --palette-neutral-200: #d9d4c7;
+  --palette-neutral-300: #bdb8aa;
+  --palette-neutral-400: #a09b8d;
+  --palette-neutral-500: #858074;
+  --palette-neutral-550: #6a665b;
+  --palette-neutral-600: #5c584e;
+  --palette-neutral-700: #403d36;
+  --palette-neutral-750: #34322d;
+  --palette-neutral-800: #2a2925;
+  --palette-neutral-850: #232220;
+  --palette-neutral-900: #1c1b19;
+  --palette-neutral-950: #181816;
+  --palette-neutral-1000: #141413;
+
+  /* Primary: sage / jade. */
+  --palette-jade-100: #ddf3ea;
+  --palette-jade-200: #bee6d4;
+  --palette-jade-300: #94d5bb;
+  --palette-jade-400: #6cc4a1;
+  --palette-jade-500: #5fb89a;
+  --palette-jade-600: #3f9c7e;
+  --palette-jade-700: #2c7a61;
+  --palette-jade-800: #225f4c;
+  --palette-jade-900: #1a4739;
+  --palette-jade-950: #11302a;
+
+  /* Secondary: apricot. Mentions, unread markers, "new" dividers. */
+  --palette-apricot-100: #fdebd3;
+  --palette-apricot-200: #fad6ac;
+  --palette-apricot-300: #f7be85;
+  --palette-apricot-400: #f2a65a;
+  --palette-apricot-500: #e48e3a;
+  --palette-apricot-600: #bf6f20;
+  --palette-apricot-700: #8f5114;
+  --palette-apricot-800: #66380e;
+  --palette-apricot-900: #432409;
+
+  --palette-red-300: #f5a29a;
+  --palette-red-400: #ef817a;
+  --palette-red-500: #e0584f;
+  --palette-red-600: #c23f37;
+  --palette-red-700: #9e2e28;
+  --palette-red-800: #741f1b;
+
+  --palette-amber-300: #f0d982;
+  --palette-amber-400: #e6c340;
+  --palette-amber-500: #d1a91f;
+  --palette-amber-600: #a98515;
+  --palette-amber-700: #7f6410;
+
+  --palette-green-300: #b3e29a;
+  --palette-green-400: #86cf5f;
+  --palette-green-500: #62b43e;
+  --palette-green-600: #46902b;
+  --palette-green-700: #346e20;
+
+  --palette-blue-300: #a9c6f4;
+  --palette-blue-400: #7fa8ec;
+  --palette-blue-500: #5e8ddb;
+  --palette-blue-600: #3f6fc0;
+  --palette-blue-700: #2f57a0;
+
+  /* Avatar fallbacks: earthy mid-tones that all carry light text. */
+  --palette-tone-0: #4f6fa8;
+  --palette-tone-1: #3b7a64;
+  --palette-tone-2: #9a6128;
+  --palette-tone-3: #a14860;
+  --palette-tone-4: #ae4f3e;
+  --palette-tone-5: #387a87;
+  --palette-tone-6: #7759a3;
+}

@@ -8,7 +8,7 @@ function Icon({ children, ...props }: SVGProps<SVGSVGElement> & { children: Reac
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -57,7 +57,7 @@ export const PinIcon = (p: P) => (
 );
 export const SendIcon = (p: P) => (
   <Icon {...p}>
-    <path d="M21 3 10 14M21 3l-7 18-4-7-7-4 18-7Z" />
+    <path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" />
   </Icon>
 );
 export const PlusIcon = (p: P) => (
@@ -162,5 +162,12 @@ export const ArrowLeftIcon = (p: P) => (
 export const ChevronRightIcon = (p: P) => (
   <Icon {...p}>
     <path d="m9 6 6 6-6 6" />
+  </Icon>
+);
+export const MoreIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="5.5" cy="12" r="1" />
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="18.5" cy="12" r="1" />
   </Icon>
 );

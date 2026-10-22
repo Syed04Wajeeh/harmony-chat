@@ -1,22 +1,35 @@
-/* Every color, radius, space and font used by the UI comes from here. Themes override these. */
+/*
+ * Layer 2: semantic tokens. Every component stylesheet reads only these (never --palette-*, never a
+ * color literal); see docs/theming.md. A theme overrides this layer, either by remapping tokens onto
+ * other palette values or by writing values directly.
+ *
+ * Switches live on <html>: data-theme="dark|light" (absent = follow the OS), data-density="compact|
+ * cozy|comfortable", data-panels="floating|flat". See lib/appearance.ts.
+ */
+
+/* ---- Theme-independent: type, geometry, space, motion, layers ---- */
 :root {
-  color-scheme: dark light;
+  --font-ui:
+    'Manrope Variable', Manrope, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';
+  --font-mono:
+    'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
 
-  --font-sans:
-    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif,
-    'Apple Color Emoji', 'Segoe UI Emoji';
-  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-
+  --font-size-ui: 0.875rem;
+  --font-size-message: 0.9375rem;
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
-  --text-base: 0.9375rem;
-  --text-md: 1rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.375rem;
+  --text-base: var(--font-size-ui);
+  --text-md: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.5rem;
   --leading-tight: 1.25;
   --leading-body: 1.5;
-  --weight-medium: 500;
-  --weight-bold: 650;
+  --leading-message: 1.55;
+  --weight-medium: 550;
+  --weight-bold: 700;
+  --weight-heavy: 750;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -27,126 +40,252 @@
   --space-8: 32px;
   --space-12: 48px;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-full: 999px;
+  --radius-panel: 16px;
+  --radius-card: 12px;
+  --radius-control: 10px;
+  --radius-tile: 12px;
+  --radius-inline: 6px;
+  --radius-pill: 999px;
+  --radius-sheet: 20px;
+  /* Avatars: 50% is a circle, ~30% a squircle, 0 a square. */
+  --avatar-shape: 30%;
+  --radius-avatar: var(--avatar-shape);
 
+  --panel-gap: 8px;
   --tap-min: 36px;
-  --rail-width: 72px;
-  --sidebar-width: 248px;
+  /* Minimum row height for list rows; only touch screens enforce one, so compact can be compact. */
+  --tap-row: 0px;
+  --rail-width: 68px;
+  --tile-size: 44px;
+  --sidebar-width: 256px;
   --member-width: 244px;
-  --header-height: 52px;
-  --drawer-width: min(332px, 88vw);
-  --drawer-right-width: min(300px, 84vw);
+  --header-height: 56px;
+  --drawer-width: min(352px, 90vw);
+  --drawer-right-width: min(300px, 86vw);
+  --sheet-inset: 8px;
+  --content-width: 800px;
+
+  /* Density: unitless multiplier. Rows, message rhythm and padding derive from it. */
+  --density: 1;
+  --row-height: calc(36px * var(--density));
+  --message-pad-y: calc(3px * var(--density));
+  --message-gap: calc(14px * var(--density));
+  --message-pad-x: var(--space-3);
+  --list-pad: calc(var(--space-2) * var(--density));
 
   --duration-fast: 120ms;
-  --duration: 240ms;
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration: 180ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 
   --z-drawer: 20;
   --z-banner: 30;
   --z-overlay: 50;
   --z-toast: 70;
-
-  /* Dark is the default theme. */
-  --bg-rail: #0d0f14;
-  --bg-sidebar: #161920;
-  --bg-main: #1b1e26;
-  --bg-raised: #232733;
-  --bg-input: #242836;
-  --bg-hover: rgb(255 255 255 / 5.5%);
-  --bg-active: rgb(255 255 255 / 10%);
-  --bg-code: #12141a;
-  --border: #2c3140;
-  --border-strong: #3a4054;
-  --scrim: rgb(5 6 10 / 62%);
-
-  --text: #e9ebf2;
-  --text-muted: #a2a9bc;
-  --text-faint: #7a8197;
-  --text-on-accent: #ffffff;
-  --text-link: #94a2ff;
-
-  --accent: #5b6cf2;
-  --accent-hover: #6f7ef5;
-  --accent-soft: rgb(91 108 242 / 18%);
-  --danger: #f06a67;
-  --danger-soft: rgb(240 106 103 / 16%);
-  --on-danger: #1b0b0b;
-
-  --mention-bg: rgb(245 185 74 / 11%);
-  --mention-bar: #f5b94a;
-  --mention-text: #ffd58a;
-  --mention-chip: rgb(91 108 242 / 24%);
-  --badge-bg: #e8504e;
-  --badge-text: #ffffff;
-  --unread-divider: #f06a67;
-
-  --status-online: #3dd68c;
-  --status-idle: #f5b94a;
-  --status-dnd: #f06a67;
-  --status-offline: #7a8197;
-
-  --tone-0: #5b6cf2;
-  --tone-1: #2f9e6e;
-  --tone-2: #b8731a;
-  --tone-3: #c2457f;
-  --tone-4: #c4524f;
-  --tone-5: #1f8fa3;
-  --tone-6: #8a58c9;
-  --tone-text: #ffffff;
-
-  --shadow-popover: 0 8px 28px rgb(0 0 0 / 45%), 0 0 0 1px var(--border);
-  --shadow-drawer: 8px 0 32px rgb(0 0 0 / 45%);
-  --focus-ring: 0 0 0 2px var(--bg-main), 0 0 0 4px var(--accent-hover);
 }
 
+/* ---- Dark (default) ---- */
+:root {
+  color-scheme: dark;
+
+  --color-bg-canvas: var(--palette-neutral-1000);
+  --color-bg-panel: var(--palette-neutral-900);
+  --color-bg-raised: var(--palette-neutral-850);
+  --color-bg-overlay: var(--palette-neutral-800);
+  --color-bg-input: var(--palette-neutral-950);
+  --color-bg-code: color-mix(in srgb, var(--palette-jade-500) 7%, var(--palette-neutral-950));
+  --color-bg-hover: color-mix(in srgb, var(--palette-neutral-100) 6%, transparent);
+  --color-bg-active: color-mix(in srgb, var(--palette-neutral-100) 11%, transparent);
+  --color-border: var(--palette-neutral-800);
+  --color-border-strong: var(--palette-neutral-700);
+  --color-scrim: color-mix(in srgb, var(--palette-neutral-1000) 66%, transparent);
+
+  --color-text: var(--palette-neutral-100);
+  --color-text-muted: var(--palette-neutral-300);
+  --color-text-faint: var(--palette-neutral-400);
+  --color-text-link: var(--palette-jade-300);
+
+  --color-accent: var(--palette-jade-500);
+  --color-accent-hover: var(--palette-jade-400);
+  --color-accent-soft: color-mix(in srgb, var(--palette-jade-500) 16%, transparent);
+  --color-accent-text: var(--palette-jade-300);
+  --color-accent-contrast: var(--palette-neutral-1000);
+
+  --color-mention: var(--palette-apricot-400);
+  --color-mention-soft: color-mix(in srgb, var(--palette-apricot-400) 11%, transparent);
+  --color-mention-text: var(--palette-apricot-300);
+  --color-mention-contrast: var(--palette-neutral-1000);
+  --color-unread: var(--palette-apricot-400);
+
+  --color-danger: var(--palette-red-400);
+  --color-danger-hover: var(--palette-red-300);
+  --color-danger-soft: color-mix(in srgb, var(--palette-red-400) 15%, transparent);
+  --color-danger-text: var(--palette-red-300);
+  --color-danger-contrast: var(--palette-neutral-1000);
+  --color-info: var(--palette-blue-400);
+
+  --color-status-online: var(--palette-green-400);
+  --color-status-idle: var(--palette-amber-400);
+  --color-status-dnd: var(--palette-red-400);
+  --color-status-offline: var(--palette-neutral-500);
+
+  --color-tone-0: var(--palette-tone-0);
+  --color-tone-1: var(--palette-tone-1);
+  --color-tone-2: var(--palette-tone-2);
+  --color-tone-3: var(--palette-tone-3);
+  --color-tone-4: var(--palette-tone-4);
+  --color-tone-5: var(--palette-tone-5);
+  --color-tone-6: var(--palette-tone-6);
+  --color-tone-contrast: var(--palette-neutral-0);
+
+  --color-switch-thumb: var(--palette-neutral-0);
+  --color-viewer-bg: color-mix(in srgb, var(--palette-neutral-1000) 92%, transparent);
+  --color-viewer-text: var(--palette-neutral-100);
+  --color-viewer-control: color-mix(in srgb, var(--palette-neutral-100) 14%, transparent);
+
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 28%), 0 10px 30px rgb(0 0 0 / 16%);
+  --shadow-raised: 0 6px 24px rgb(0 0 0 / 42%);
+  --shadow-sheet: 0 -4px 40px rgb(0 0 0 / 50%);
+}
+
+/* ---- Light: the same tokens on warm paper. Declared twice (OS preference and explicit choice);
+   styles.test.ts fails if the two blocks drift apart. ---- */
 @media (prefers-color-scheme: light) {
-  :root {
-    --bg-rail: #dfe2ec;
-    --bg-sidebar: #eef0f6;
-    --bg-main: #ffffff;
-    --bg-raised: #ffffff;
-    --bg-input: #eceef5;
-    --bg-hover: rgb(20 26 50 / 5%);
-    --bg-active: rgb(20 26 50 / 9%);
-    --bg-code: #f1f3f9;
-    --border: #dadde8;
-    --border-strong: #c3c8d8;
-    --scrim: rgb(20 24 40 / 45%);
+  :root:not([data-theme]) {
+    color-scheme: light;
 
-    --text: #1a1d28;
-    --text-muted: #525b72;
-    --text-faint: #7a8298;
-    --text-link: #3a4bd6;
+    --color-bg-canvas: var(--palette-neutral-50);
+    --color-bg-panel: var(--palette-neutral-25);
+    --color-bg-raised: var(--palette-neutral-0);
+    --color-bg-overlay: var(--palette-neutral-0);
+    --color-bg-input: var(--palette-neutral-50);
+    --color-bg-code: color-mix(in srgb, var(--palette-jade-700) 6%, var(--palette-neutral-50));
+    --color-bg-hover: color-mix(in srgb, var(--palette-neutral-900) 5%, transparent);
+    --color-bg-active: color-mix(in srgb, var(--palette-neutral-900) 9%, transparent);
+    --color-border: var(--palette-neutral-150);
+    --color-border-strong: var(--palette-neutral-200);
+    --color-scrim: color-mix(in srgb, var(--palette-neutral-900) 32%, transparent);
 
-    --accent: #4757e0;
-    --accent-hover: #3a4acb;
-    --accent-soft: rgb(71 87 224 / 12%);
-    --danger: #c9302d;
-    --danger-soft: rgb(201 48 45 / 10%);
-    --on-danger: #ffffff;
+    --color-text: var(--palette-neutral-900);
+    --color-text-muted: var(--palette-neutral-600);
+    --color-text-faint: var(--palette-neutral-550);
+    --color-text-link: var(--palette-jade-800);
 
-    --mention-bg: rgb(240 170 40 / 16%);
-    --mention-bar: #d98a0b;
-    --mention-text: #8a5200;
-    --mention-chip: rgb(71 87 224 / 14%);
-    --badge-bg: #d93c3a;
+    --color-accent: var(--palette-jade-700);
+    --color-accent-hover: var(--palette-jade-800);
+    --color-accent-soft: color-mix(in srgb, var(--palette-jade-600) 13%, transparent);
+    --color-accent-text: var(--palette-jade-800);
+    --color-accent-contrast: var(--palette-neutral-0);
 
-    --status-online: #1f9d63;
-    --status-idle: #d68a00;
-    --status-dnd: #d6403d;
-    --status-offline: #8a92a8;
+    --color-mention: var(--palette-apricot-400);
+    --color-mention-soft: color-mix(in srgb, var(--palette-apricot-400) 20%, transparent);
+    --color-mention-text: var(--palette-apricot-800);
+    --color-mention-contrast: var(--palette-neutral-1000);
+    --color-unread: var(--palette-apricot-600);
 
-    --shadow-popover: 0 8px 28px rgb(30 40 80 / 18%), 0 0 0 1px var(--border);
-    --shadow-drawer: 8px 0 32px rgb(30 40 80 / 22%);
-    --focus-ring: 0 0 0 2px var(--bg-main), 0 0 0 4px var(--accent);
+    --color-danger: var(--palette-red-600);
+    --color-danger-hover: var(--palette-red-700);
+    --color-danger-soft: color-mix(in srgb, var(--palette-red-600) 10%, transparent);
+    --color-danger-text: var(--palette-red-700);
+    --color-danger-contrast: var(--palette-neutral-0);
+    --color-info: var(--palette-blue-600);
+
+    --color-status-online: var(--palette-green-600);
+    --color-status-idle: var(--palette-amber-600);
+    --color-status-dnd: var(--palette-red-600);
+    --color-status-offline: var(--palette-neutral-500);
+
+    --color-switch-thumb: var(--palette-neutral-0);
+    --color-viewer-bg: color-mix(in srgb, var(--palette-neutral-1000) 92%, transparent);
+    --color-viewer-text: var(--palette-neutral-100);
+    --color-viewer-control: color-mix(in srgb, var(--palette-neutral-100) 14%, transparent);
+
+    --shadow-panel: 0 1px 2px rgb(60 50 30 / 6%), 0 8px 24px rgb(60 50 30 / 7%);
+    --shadow-raised: 0 6px 24px rgb(60 50 30 / 16%);
+    --shadow-sheet: 0 -4px 40px rgb(60 50 30 / 22%);
   }
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --color-bg-canvas: var(--palette-neutral-50);
+  --color-bg-panel: var(--palette-neutral-25);
+  --color-bg-raised: var(--palette-neutral-0);
+  --color-bg-overlay: var(--palette-neutral-0);
+  --color-bg-input: var(--palette-neutral-50);
+  --color-bg-code: color-mix(in srgb, var(--palette-jade-700) 6%, var(--palette-neutral-50));
+  --color-bg-hover: color-mix(in srgb, var(--palette-neutral-900) 5%, transparent);
+  --color-bg-active: color-mix(in srgb, var(--palette-neutral-900) 9%, transparent);
+  --color-border: var(--palette-neutral-150);
+  --color-border-strong: var(--palette-neutral-200);
+  --color-scrim: color-mix(in srgb, var(--palette-neutral-900) 32%, transparent);
+
+  --color-text: var(--palette-neutral-900);
+  --color-text-muted: var(--palette-neutral-600);
+  --color-text-faint: var(--palette-neutral-550);
+  --color-text-link: var(--palette-jade-800);
+
+  --color-accent: var(--palette-jade-700);
+  --color-accent-hover: var(--palette-jade-800);
+  --color-accent-soft: color-mix(in srgb, var(--palette-jade-600) 13%, transparent);
+  --color-accent-text: var(--palette-jade-800);
+  --color-accent-contrast: var(--palette-neutral-0);
+
+  --color-mention: var(--palette-apricot-400);
+  --color-mention-soft: color-mix(in srgb, var(--palette-apricot-400) 20%, transparent);
+  --color-mention-text: var(--palette-apricot-800);
+  --color-mention-contrast: var(--palette-neutral-1000);
+  --color-unread: var(--palette-apricot-600);
+
+  --color-danger: var(--palette-red-600);
+  --color-danger-hover: var(--palette-red-700);
+  --color-danger-soft: color-mix(in srgb, var(--palette-red-600) 10%, transparent);
+  --color-danger-text: var(--palette-red-700);
+  --color-danger-contrast: var(--palette-neutral-0);
+  --color-info: var(--palette-blue-600);
+
+  --color-status-online: var(--palette-green-600);
+  --color-status-idle: var(--palette-amber-600);
+  --color-status-dnd: var(--palette-red-600);
+  --color-status-offline: var(--palette-neutral-500);
+
+  --color-switch-thumb: var(--palette-neutral-0);
+  --color-viewer-bg: color-mix(in srgb, var(--palette-neutral-1000) 92%, transparent);
+  --color-viewer-text: var(--palette-neutral-100);
+  --color-viewer-control: color-mix(in srgb, var(--palette-neutral-100) 14%, transparent);
+
+  --shadow-panel: 0 1px 2px rgb(60 50 30 / 6%), 0 8px 24px rgb(60 50 30 / 7%);
+  --shadow-raised: 0 6px 24px rgb(60 50 30 / 16%);
+  --shadow-sheet: 0 -4px 40px rgb(60 50 30 / 22%);
+}
+
+/* ---- Explicit dark: wins over an OS light preference because the light block above is :not([data-theme]) ---- */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+/* ---- Density ---- */
+:root[data-density='compact'] {
+  --density: 0.78;
+  --message-pad-x: var(--space-2);
+}
+:root[data-density='comfortable'] {
+  --density: 1.3;
+  --message-pad-x: var(--space-4);
+}
+
+/* ---- Panels: flat is edge to edge ---- */
+:root[data-panels='flat'] {
+  --panel-gap: 0px;
+  --radius-panel: 0px;
+  --radius-sheet: 0px;
+  --sheet-inset: 0px;
+  --shadow-panel: none;
 }
 
 @media (pointer: coarse) {
   :root {
     --tap-min: 44px;
+    --tap-row: 44px;
   }
 }
