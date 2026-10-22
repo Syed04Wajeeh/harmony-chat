@@ -6,9 +6,43 @@ x-app-env: &app-env
   DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
   REDIS_URL: redis://redis:6379
 
+# What the app instances need on top of that; the migrate job and the worker never get the proxy secret.
+x-app-instance-env: &app-instance-env
+  <<: *app-env
+  PROXY_SHARED_SECRET: ${PROXY_SHARED_SECRET:?set PROXY_SHARED_SECRET in .env}
+  PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
+  ALLOWED_LOGINS: ${ALLOWED_LOGINS:-}
+  OUTBOUND_PRIVATE_ALLOWLIST: ${OUTBOUND_PRIVATE_ALLOWLIST:-}
+  UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
+
 # Images are pinned and upgraded deliberately; opt out of host-level auto-updaters.
 x-no-auto-update: &no-auto-update
   com.centurylinklabs.watchtower.enable: 'false'
+
+# Everything the two app instances share except INSTANCE_ID.
+x-app: &app
+  image: harmony-app:local
+  labels: *no-auto-update
+  restart: unless-stopped
+  volumes:
+    - harmony_uploads:/data/uploads
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+    redis:
+      condition: service_healthy
+  healthcheck:
+    test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/healthz']
+    interval: 10s
+    timeout: 3s
+    retries: 5
+    start_period: 5s
+  deploy:
+    resources:
+      limits:
+        cpus: '2'
+        memory: 512M
+  networks: [harmony_internal]
 
 services:
   postgres:
@@ -52,37 +86,20 @@ services:
         condition: service_healthy
     networks: [harmony_internal]
 
-  app:
-    image: harmony-app:local
-    labels: *no-auto-update
-    restart: unless-stopped
+  # Two identical app instances (see NOTES.md, "Two app instances behind nginx"). They share
+  # everything except INSTANCE_ID: all fan-out goes through Redis and all state is in
+  # Postgres/Redis, so nginx can send any request or WebSocket to either one.
+  app1:
+    <<: *app
     environment:
-      <<: *app-env
-      PROXY_SHARED_SECRET: ${PROXY_SHARED_SECRET:?set PROXY_SHARED_SECRET in .env}
-      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
-      ALLOWED_LOGINS: ${ALLOWED_LOGINS:-}
-      INSTANCE_ID: ${INSTANCE_ID:-app-1}
-      OUTBOUND_PRIVATE_ALLOWLIST: ${OUTBOUND_PRIVATE_ALLOWLIST:-}
-      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
-    volumes:
-      - harmony_uploads:/data/uploads
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/healthz']
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 512M
-    networks: [harmony_internal]
+      <<: *app-instance-env
+      INSTANCE_ID: app-1
+
+  app2:
+    <<: *app
+    environment:
+      <<: *app-instance-env
+      INSTANCE_ID: app-2
 
   # Delivers outgoing bot events from the transactional outbox. Same image as the app, no ports.
   worker:
@@ -92,7 +109,7 @@ services:
     command: ['node', 'apps/server/dist/worker.js']
     environment:
       <<: *app-env
-      INSTANCE_ID: ${INSTANCE_ID:-worker-1}
+      INSTANCE_ID: worker-1
       OUTBOUND_PRIVATE_ALLOWLIST: ${OUTBOUND_PRIVATE_ALLOWLIST:-}
     depends_on:
       migrate:
@@ -126,7 +143,9 @@ services:
     ports:
       - '127.0.0.1:8470:8080'
     depends_on:
-      app:
+      app1:
+        condition: service_healthy
+      app2:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/healthz']
@@ -149,7 +168,9 @@ services:
     ports:
       - '127.0.0.1:8471:8081'
     depends_on:
-      app:
+      app1:
+        condition: service_healthy
+      app2:
         condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8081/ 2>&1 | grep -q 404']
