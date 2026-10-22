@@ -20,6 +20,10 @@ export default tseslint.config(
     rules: reactHooks.configs.recommended.rules,
   },
   {
+    files: ['apps/desktop/**/*.ts'],
+    languageOptions: { globals: globals.browser },
+  },
+  {
     files: ['**/*.js', '**/*.mjs'],
     extends: [tseslint.configs.disableTypeChecked],
   },

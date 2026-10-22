@@ -14,7 +14,7 @@
     "lint": "pnpm build:shared && eslint .",
     "typecheck": "pnpm build:shared && pnpm -r --parallel typecheck",
     "test": "pnpm test:unit && pnpm test:integration",
-    "test:unit": "pnpm build:shared && pnpm --filter @harmony/server --filter @harmony/web test:unit",
+    "test:unit": "pnpm build:shared && pnpm --filter @harmony/server --filter @harmony/web --filter @harmony/desktop test:unit",
     "test:integration": "pnpm build:shared && pnpm --filter @harmony/server test:integration",
     "format": "prettier --write .",
     "test:e2e": "pnpm --filter @harmony/web test:e2e",

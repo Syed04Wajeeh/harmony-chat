@@ -10,3 +10,5 @@ playwright-report/
 *.tsbuildinfo
 .claude/
 docker-compose.override.yml
+target/
+apps/desktop/src-tauri/gen/

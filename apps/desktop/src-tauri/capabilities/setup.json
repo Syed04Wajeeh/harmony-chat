@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "setup",
+  "description": "The bundled setup page. No remote URL is listed, so a server page cannot use these commands.",
+  "windows": ["main"],
+  "permissions": ["allow-connect-server", "allow-get-server-url"]
+}

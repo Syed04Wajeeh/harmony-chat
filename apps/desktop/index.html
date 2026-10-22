@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Harmony</title>
+    <link rel="icon" href="/icon.svg" />
+  </head>
+  <body>
+    <main class="card">
+      <img class="logo" src="/icon.svg" alt="" width="64" height="64" />
+      <h1>Connect to Harmony</h1>
+      <p class="lead">Enter your Harmony server URL.</p>
+      <form id="setup" novalidate>
+        <label for="server-url">Server URL</label>
+        <input
+          id="server-url"
+          name="url"
+          type="text"
+          inputmode="url"
+          placeholder="https://chat.example.ts.net"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          autofocus
+        />
+        <p id="error" class="error" role="alert" hidden></p>
+        <button id="submit" type="submit">Connect</button>
+      </form>
+      <p class="hint">This device needs to be signed in to Tailscale.</p>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
