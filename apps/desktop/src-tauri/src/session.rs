@@ -130,15 +130,30 @@ mod tests {
 
         assert!(call("notify", "https://chat.example.ts.net:18470/channels/1").is_ok());
         assert!(call("notify", "https://chat.example.ts.net:18470/").is_ok());
-        assert!(call("notify", "https://chat.example.ts.net/").is_err(), "other port");
-        assert!(call("notify", "http://chat.example.ts.net:18470/").is_err(), "other scheme");
-        assert!(call("notify", "https://other.example.ts.net:18470/").is_err(), "other host");
+        assert!(
+            call("notify", "https://chat.example.ts.net/").is_err(),
+            "other port"
+        );
+        assert!(
+            call("notify", "http://chat.example.ts.net:18470/").is_err(),
+            "other scheme"
+        );
+        assert!(
+            call("notify", "https://other.example.ts.net:18470/").is_err(),
+            "other host"
+        );
         assert!(call("notify", "https://chat.example.ts.net.evil.test:18470/").is_err());
         assert!(
             call("connect_server", "https://chat.example.ts.net:18470/").is_err(),
             "setup commands are not exposed to the server"
         );
-        assert!(call("connect_server", "tauri://localhost/").is_ok(), "setup page");
-        assert!(call("notify", "tauri://localhost/").is_err(), "setup page has no bridge");
+        assert!(
+            call("connect_server", "tauri://localhost/").is_ok(),
+            "setup page"
+        );
+        assert!(
+            call("notify", "tauri://localhost/").is_err(),
+            "setup page has no bridge"
+        );
     }
 }
