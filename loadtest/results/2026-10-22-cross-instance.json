@@ -1,0 +1,61 @@
+{
+  "scenario": "cross-instance",
+  "date": "2026-10-22T06:29:45.206Z",
+  "messages": 1000,
+  "clientA": {
+    "pinnedTo": "app-1"
+  },
+  "clientB": {
+    "pinnedTo": "app-2"
+  },
+  "sendSeconds": 1.71,
+  "acked": 1000,
+  "persistedInDb": 1000,
+  "receivers": [
+    {
+      "name": "A (app1)",
+      "received": 1000,
+      "unique": 1000,
+      "duplicates": 0,
+      "missingVsDb": 0,
+      "missingVsAcks": 0,
+      "foreign": 0
+    },
+    {
+      "name": "B (app2)",
+      "received": 1000,
+      "unique": 1000,
+      "duplicates": 0,
+      "missingVsDb": 0,
+      "missingVsAcks": 0,
+      "foreign": 0
+    }
+  ],
+  "latencyMs": {
+    "aToB": {
+      "count": 500,
+      "min": 2,
+      "p50": 3,
+      "p90": 4,
+      "p95": 5,
+      "p99": 9,
+      "max": 23,
+      "mean": 3.522
+    },
+    "bToA": {
+      "count": 500,
+      "min": 2,
+      "p50": 3,
+      "p90": 4,
+      "p95": 5,
+      "p99": 10,
+      "max": 17,
+      "mean": 3.452
+    }
+  },
+  "leastConnSpreadOf60": {
+    "app-2": 30,
+    "app-1": 30
+  },
+  "pass": true
+}

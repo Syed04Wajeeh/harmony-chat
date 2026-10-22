@@ -20,6 +20,10 @@ export default tseslint.config(
     rules: reactHooks.configs.recommended.rules,
   },
   {
+    files: ['loadtest/k6/**/*.js'],
+    languageOptions: { globals: { __ENV: 'readonly', open: 'readonly' } },
+  },
+  {
     files: ['apps/desktop/**/*.ts'],
     languageOptions: { globals: globals.browser },
   },

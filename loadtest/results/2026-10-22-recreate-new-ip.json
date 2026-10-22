@@ -1,0 +1,24 @@
+{
+  "scenario": "recreate-app1-new-ip",
+  "date": "2026-10-22T06:45:13.536Z",
+  "oldIp": "172.22.0.6",
+  "newIp": "172.22.0.8",
+  "ipChanged": true,
+  "nginxRestarted": false,
+  "appStoppedAtMs": 2265,
+  "appHealthyAgainAtMs": 8415,
+  "firstConnectionBackOnApp1AtMs": 12751,
+  "msFromHealthyToTrafficOnApp1": 4336,
+  "restProbes": {
+    "total": 85,
+    "ok200": 85,
+    "non200": []
+  },
+  "wsProbes": {
+    "total": 85,
+    "connectFailed": 0,
+    "app1": 25,
+    "app2": 60
+  },
+  "pass": true
+}

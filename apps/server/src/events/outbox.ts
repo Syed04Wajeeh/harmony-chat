@@ -21,15 +21,15 @@ export async function enqueueEvent(
   trx: Transaction<Database> | Kysely<Database>,
   event: OutboxEvent,
 ): Promise<void> {
-  await trx
-    .insertInto('event_outbox')
-    .values({
-      guild_id: event.guildId,
-      channel_id: event.channelId ?? null,
-      type: event.type,
-      payload: JSON.stringify(event.data),
-      fanned_out_at: null,
-    })
-    .execute();
-  await sql`select pg_notify(${OUTBOX_CHANNEL}, '')`.execute(trx);
+  // One statement instead of an insert and a separate pg_notify: a round trip saved on every
+  // message. NOTIFY is still queued by the surrounding transaction and delivered on commit.
+  await sql`
+    with inserted as (
+      insert into event_outbox (guild_id, channel_id, type, payload)
+      values (${event.guildId}, ${event.channelId ?? null}, ${event.type},
+              ${JSON.stringify(event.data)}::jsonb)
+      returning id
+    )
+    select pg_notify(${OUTBOX_CHANNEL}, '') from inserted
+  `.execute(trx);
 }

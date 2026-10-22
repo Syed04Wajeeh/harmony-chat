@@ -94,6 +94,10 @@ Things to know:
 - **Private repository.** While this repository is private, the update check (`releases/latest/download/latest.json`) cannot be fetched without authentication, so auto-update does nothing and fails silently. It starts working once the repository is public or the release files are mirrored.
 - **Download link in the web app.** Build the server image with `VITE_RELEASES_URL` (for example `docker compose build --build-arg VITE_RELEASES_URL=https://github.com/Syed04Wajeeh/harmony-chat/releases/latest`) to show a "Desktop app" page with a download button in user settings. It is hidden when unset.
 
+## Scaling & performance
+
+The production compose file runs two identical app instances behind nginx (`least_conn`, no sticky sessions: all fan-out goes through Redis and all state is in Postgres and Redis). `docs/performance.md` has the measured results from an isolated copy of the stack: cross-instance delivery with 0 lost and 0 duplicated messages, failover when an instance is killed or recreated, fan-out latency, connection capacity and history throughput, each with its conditions and limits, plus how to reproduce them (`pnpm load:up`, `pnpm load:test`, `pnpm load:failover`, `pnpm load:down`). See [docs/performance.md](docs/performance.md).
+
 ## Layout
 
 - `apps/server`: Fastify 5 API, Kysely migrations
@@ -102,6 +106,7 @@ Things to know:
 - `packages/shared`: zod schemas and the WebSocket protocol, shared by both
 - `examples`: echo bot, Uptime Kuma recipe, webhook script
 - `deploy/nginx`: reverse-proxy config template
+- `deploy/load`, `loadtest`: isolated load-test stack, k6 scenarios, failover and cross-instance scripts
 
 ## Screenshots
 

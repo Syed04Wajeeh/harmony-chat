@@ -44,7 +44,7 @@ describe('nginx reverse proxy template', () => {
     network = await new Network().start();
     upstream = await new GenericContainer('nginx:1.27-alpine')
       .withNetwork(network)
-      .withNetworkAliases('app')
+      .withNetworkAliases('app1', 'app2')
       .withCopyContentToContainer([
         { content: ECHO_UPSTREAM, target: '/etc/nginx/conf.d/default.conf' },
       ])

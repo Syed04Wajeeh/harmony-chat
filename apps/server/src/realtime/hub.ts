@@ -93,7 +93,12 @@ export class Hub {
   }
 
   send(client: HubClient, frame: ServerFrame): void {
-    if (client.socket.readyState === WebSocket.OPEN) client.socket.send(JSON.stringify(frame));
+    this.sendJson(client, JSON.stringify(frame));
+  }
+
+  /** Sends an already-serialized frame, so fan-out serializes once per event, not per socket. */
+  private sendJson(client: HubClient, json: string): void {
+    if (client.socket.readyState === WebSocket.OPEN) client.socket.send(json);
   }
 
   closeAll(code: number, reason: string): void {
@@ -126,8 +131,8 @@ export class Hub {
   private dispatch(topic: string, payload: string): void {
     try {
       if (topic === PRESENCE_TOPIC) {
-        const frame = PresenceEvent.parse(JSON.parse(payload));
-        for (const client of this.clients) this.send(client, frame);
+        const json = JSON.stringify(PresenceEvent.parse(JSON.parse(payload)));
+        for (const client of this.clients) this.sendJson(client, json);
         return;
       }
       const room = this.rooms.get(topic);
@@ -135,8 +140,9 @@ export class Hub {
       const json: unknown = JSON.parse(payload);
 
       if (topic.startsWith(CHANNEL_TOPIC_PREFIX)) {
-        const frame = ChannelEvent.parse(json);
-        for (const client of room.clients) this.send(client, frame);
+        // Validated once, serialized once; every local socket gets the same string.
+        const out = JSON.stringify(ChannelEvent.parse(json));
+        for (const client of room.clients) this.sendJson(client, out);
       } else if (topic.startsWith(USER_TOPIC_PREFIX)) {
         const frame = UserEvent.parse(json);
         for (const client of [...room.clients]) {

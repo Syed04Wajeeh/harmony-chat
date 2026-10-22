@@ -1,0 +1,54 @@
+# Load-test only. Two extra listeners, each hard-wired to one app instance, with the same header
+# handling as the user proxy. They let the cross-instance proof pin a client to a known instance
+# and let the single-instance runs bypass app2 without changing the production upstream.
+upstream pinned_app1 {
+    zone pinned_app1 64k;
+    server app1:8080 resolve;
+    keepalive 64;
+}
+
+upstream pinned_app2 {
+    zone pinned_app2 64k;
+    server app2:8080 resolve;
+    keepalive 64;
+}
+
+server {
+    listen 8081;
+    client_max_body_size 1m;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header X-Harmony-Proxy-Secret "${PROXY_SHARED_SECRET}";
+
+    location /api/ws {
+        proxy_pass http://pinned_app1;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+    }
+
+    location / {
+        proxy_pass http://pinned_app1;
+    }
+}
+
+server {
+    listen 8082;
+    client_max_body_size 1m;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header X-Harmony-Proxy-Secret "${PROXY_SHARED_SECRET}";
+
+    location /api/ws {
+        proxy_pass http://pinned_app2;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+    }
+
+    location / {
+        proxy_pass http://pinned_app2;
+    }
+}

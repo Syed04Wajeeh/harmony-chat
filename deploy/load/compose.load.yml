@@ -1,0 +1,175 @@
+# Self-contained stack for load tests. Project name `harmony-load`; it shares NOTHING with the
+# production `harmony` project (own network, own volumes, own image tag, own ports), so it can be
+# started and destroyed without touching it.
+#
+#   pnpm load:up      build + start      pnpm load:down   stop and delete volumes
+#
+# CPU caps (recorded in docs/performance.md): app1/app2 2 CPUs each, postgres 2, redis 1, nginx 1,
+# worker 1.
+# Everything is published on 127.0.0.1 only. Secrets come from deploy/load/.env (generated,
+# gitignored). Rate limits are raised through env so the limiters do not hide server capacity.
+name: harmony-load
+
+x-no-auto-update: &no-auto-update
+  com.centurylinklabs.watchtower.enable: 'false'
+
+x-app-env: &app-env
+  NODE_ENV: production
+  LOG_LEVEL: ${LOAD_LOG_LEVEL:-warn}
+  DATABASE_URL: postgres://harmony:${LOAD_PG_PASSWORD:?run pnpm load:up}@postgres:5432/harmony
+  REDIS_URL: redis://redis:6379
+  PROXY_SHARED_SECRET: ${PROXY_SHARED_SECRET:?run pnpm load:up}
+  PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-https://load.example.test}
+  # Raised so the limiters (per-user HTTP, per-user messages, per-socket frames) do not cap the test.
+  RATE_LIMIT_MAX: '100000000'
+  MESSAGE_RATE_MAX: '100000000'
+  REACTION_RATE_MAX: '100000000'
+  WS_FRAME_BURST: '100000'
+  WS_FRAME_REFILL_PER_SECOND: '100000'
+
+x-app: &app
+  image: harmony-load-app:local
+  labels: *no-auto-update
+  restart: 'no'
+  volumes:
+    - uploads:/data/uploads
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+    redis:
+      condition: service_healthy
+  healthcheck:
+    test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/healthz']
+    interval: 5s
+    timeout: 3s
+    retries: 5
+    start_period: 5s
+  networks: [load]
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    labels: *no-auto-update
+    environment:
+      POSTGRES_USER: harmony
+      POSTGRES_PASSWORD: ${LOAD_PG_PASSWORD:?run pnpm load:up}
+      POSTGRES_DB: harmony
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U harmony -d harmony']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    cpus: 2
+    mem_limit: 2g
+    networks: [load]
+
+  redis:
+    image: redis:7-alpine
+    labels: *no-auto-update
+    command: ['redis-server', '--appendonly', 'no', '--save', '']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    cpus: 1
+    mem_limit: 1g
+    networks: [load]
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: harmony-load-app:local
+    labels: *no-auto-update
+    command: ['node', 'apps/server/dist/migrate.js']
+    restart: 'no'
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://harmony:${LOAD_PG_PASSWORD:?run pnpm load:up}@postgres:5432/harmony
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [load]
+
+  app1:
+    <<: *app
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app-1
+    cpus: 2
+    mem_limit: 2g
+
+  app2:
+    <<: *app
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app-2
+    cpus: 2
+    mem_limit: 2g
+
+  # Same as production: drains the transactional outbox that every message writes to. It is part of
+  # the cost of a message (an outbox row, a NOTIFY and a fan-out query per batch).
+  worker:
+    image: harmony-load-app:local
+    labels: *no-auto-update
+    restart: 'no'
+    command: ['node', 'apps/server/dist/worker.js']
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOAD_LOG_LEVEL:-warn}
+      DATABASE_URL: postgres://harmony:${LOAD_PG_PASSWORD:?run pnpm load:up}@postgres:5432/harmony
+      INSTANCE_ID: worker-1
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD-SHELL', 'test $$(( $$(date +%s) - $$(stat -c %Y /tmp/worker-heartbeat) )) -lt 60']
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    cpus: 1
+    mem_limit: 512m
+    networks: [load]
+
+  # The production user proxy, unchanged: same common.conf (least_conn upstream) and the same
+  # user.conf.template (stamps the proxy secret, passes Tailscale-* headers through). Load clients
+  # send `Tailscale-User-Login` and the right Origin themselves, standing in for Tailscale Serve.
+  nginx:
+    image: nginx:1.27-alpine
+    labels: *no-auto-update
+    environment:
+      PROXY_SHARED_SECRET: ${PROXY_SHARED_SECRET:?run pnpm load:up}
+      NGINX_ENVSUBST_FILTER: PROXY_
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../nginx/common.conf:/etc/nginx/conf.d/00-common.conf:ro
+      - ../nginx/user.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./pinned.conf.template:/etc/nginx/templates/10-pinned.conf.template:ro
+    ports:
+      - '127.0.0.1:8570:8080' # balanced across app1 and app2, exactly like production
+      - '127.0.0.1:8571:8081' # pinned to app1 (cross-instance proof, single-instance runs)
+      - '127.0.0.1:8572:8082' # pinned to app2
+    depends_on:
+      app1:
+        condition: service_healthy
+      app2:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/healthz']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    cpus: 1
+    mem_limit: 1g
+    networks: [load]
+
+volumes:
+  pgdata:
+  uploads:
+
+networks:
+  load:
