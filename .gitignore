@@ -16,3 +16,4 @@ deploy/load/.env
 loadtest/results/*.cpuprofile
 target/
 apps/desktop/src-tauri/gen/
+.deploy-nginx.sha

@@ -10,6 +10,8 @@ docker compose up -d --build
 curl http://127.0.0.1:8470/healthz
 ```
 
+For later deploys use `scripts/deploy.sh`, which also restarts the proxies when their bind-mounted config changed.
+
 Request path: Tailscale Serve (HTTPS) → `127.0.0.1:8470` → nginx → app. nginx is the only published port and stamps a shared secret on every request; the app rejects requests without it. Postgres and Redis stay on the internal network, and a one-shot `migrate` service applies migrations before the app starts. Uploads live in the `harmony_uploads` volume (limit `UPLOAD_MAX_BYTES`, default 10 MiB).
 
 Point Serve at nginx and set `PUBLIC_ORIGIN` to the exact URL browsers use, for example:
