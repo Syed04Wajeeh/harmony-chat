@@ -1,4 +1,6 @@
+export * from './bots.js';
 export * from './chat.js';
+export * from './embeds.js';
 export * from './emoji.js';
 export * from './health.js';
 export * from './mentions.js';

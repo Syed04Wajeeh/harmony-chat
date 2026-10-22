@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./signature": {
+      "types": "./dist/signature.d.ts",
+      "default": "./dist/signature.js"
     }
   },
   "files": [
@@ -22,6 +26,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/node": "^26.6.5",
     "typescript": "^6.0.3"
   }
 }

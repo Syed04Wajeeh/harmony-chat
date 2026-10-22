@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Embed } from './embeds.js';
 
 export const MAX_MESSAGE_LENGTH = 4000;
 export const MAX_NONCE_LENGTH = 64;
@@ -20,6 +21,8 @@ export const User = z.object({
   login: z.string(),
   displayName: z.string(),
   avatarUrl: z.string().nullable(),
+  /** True for bots and webhook authors. */
+  isBot: z.boolean().optional(),
 });
 export type User = z.infer<typeof User>;
 
@@ -115,6 +118,12 @@ export const Message = z.object({
   attachments: z.array(Attachment),
   /** Users mentioned with `<@id>` who were members of the channel when sent or edited. */
   mentions: z.array(Id),
+  embeds: z.array(Embed).optional(),
+  /** Set when the message was posted by an incoming webhook. */
+  webhookId: Id.nullable().optional(),
+  /** Per-message name and avatar given by a webhook caller; clients show them in place of the author's. */
+  displayNameOverride: z.string().nullable().optional(),
+  avatarUrlOverride: z.string().nullable().optional(),
 });
 export type Message = z.infer<typeof Message>;
 

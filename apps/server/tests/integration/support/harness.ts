@@ -126,9 +126,12 @@ export class TestSocket {
     login: string,
     headers: Record<string, string> = {},
   ): Promise<TestSocket> {
-    const socket = new WebSocket(`${target.wsUrl}/api/ws`, {
-      headers: { ...proxyHeaders(login), ...headers },
-    });
+    return TestSocket.connectWith(target, { ...proxyHeaders(login), ...headers });
+  }
+
+  /** Connects with exactly these headers, for credentials other than the proxy identity. */
+  static async connectWith(target: TestApp, headers: Record<string, string>): Promise<TestSocket> {
+    const socket = new WebSocket(`${target.wsUrl}/api/ws`, { headers });
     const client = new TestSocket(socket);
     await new Promise<void>((resolve, reject) => {
       socket.once('open', resolve);

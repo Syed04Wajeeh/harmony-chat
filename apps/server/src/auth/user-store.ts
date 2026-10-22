@@ -20,6 +20,7 @@ export function toDirectoryUser(row: Selectable<Database['users']>): DirectoryUs
     displayName: row.display_name,
     avatarUrl: row.avatar_url,
     isAdmin: row.is_admin,
+    ...(row.kind === 'bot' && { isBot: true }),
   };
 }
 

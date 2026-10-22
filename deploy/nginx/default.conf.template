@@ -44,3 +44,62 @@ server {
         proxy_pass http://harmony_app;
     }
 }
+
+# Bots only react to Authorization headers; this lets us route on them without ever
+# treating a lookalike scheme (Bearer, Basic) as one.
+map $http_authorization $harmony_bot_request {
+    default       0;
+    "~*^bot\s+\S" 1;
+}
+
+# Integration ingress for host-local scripts, published on 127.0.0.1 only. It carries exactly
+# three kinds of traffic: incoming webhooks, interaction follow-ups (both credentialed by a token
+# in the path) and requests that present `Authorization: Bot`. It never adds the proxy secret and
+# blanks every identity header, so nothing arriving here can ever act as a human.
+#
+# As above, proxy_set_header lives at server level only: a location that declares its own would
+# silently drop all of these.
+server {
+    listen 8081;
+    server_name _;
+
+    client_max_body_size 1m;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header X-Harmony-Proxy-Secret "";
+    proxy_set_header Tailscale-User-Login "";
+    proxy_set_header Tailscale-User-Name "";
+    proxy_set_header Tailscale-User-Profile-Pic "";
+    proxy_set_header Tailscale-Funnel-Request "";
+    proxy_set_header Tailscale-Headers-Info "";
+    proxy_set_header Tailscale-App-Capabilities "";
+
+    location /api/webhooks/ {
+        if ($request_method != POST) { return 404; }
+        proxy_pass http://harmony_app;
+    }
+
+    location /api/interactions/ {
+        if ($request_method != POST) { return 404; }
+        proxy_pass http://harmony_app;
+    }
+
+    location /api/ws {
+        if ($harmony_bot_request = 0) { return 404; }
+        proxy_pass http://harmony_app;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+    }
+
+    location /api/ {
+        if ($harmony_bot_request = 0) { return 404; }
+        proxy_pass http://harmony_app;
+    }
+
+    location / {
+        return 404;
+    }
+}

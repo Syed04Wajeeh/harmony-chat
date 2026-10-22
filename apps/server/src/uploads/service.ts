@@ -120,14 +120,23 @@ export class UploadService {
     }
   }
 
-  /** Guild icons are shown to every signed-in user, including people previewing an invite. */
+  /**
+   * Guild icons are shown to every signed-in user, including people previewing an invite;
+   * webhook avatars appear next to messages members can read, so they are public the same way.
+   */
   private async isGuildIcon(attachmentId: string): Promise<boolean> {
     const guild = await this.db
       .selectFrom('guilds')
       .select('id')
       .where('icon_attachment_id', '=', attachmentId)
       .executeTakeFirst();
-    return guild !== undefined;
+    if (guild) return true;
+    const webhook = await this.db
+      .selectFrom('webhooks')
+      .select('id')
+      .where('avatar_attachment_id', '=', attachmentId)
+      .executeTakeFirst();
+    return webhook !== undefined;
   }
 
   /** Opens an attachment for a user who may see it: channel members, or the uploader until attached. */

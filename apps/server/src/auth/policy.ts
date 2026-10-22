@@ -3,6 +3,15 @@ import type { IncomingHttpHeaders } from 'node:http';
 import { decodeMimeWords } from './rfc2047.js';
 
 export const PROXY_SECRET_HEADER = 'x-harmony-proxy-secret';
+/** Logins under this domain belong to bots and webhooks and are never valid human identities. */
+export const BOT_LOGIN_SUFFIX = '@bots.harmony.invalid';
+
+/** The credential of an `Authorization: Bot <token>` header, or null for any other scheme. */
+export function botCredential(headers: IncomingHttpHeaders): string | null {
+  const value = headers.authorization;
+  const match = typeof value === 'string' ? /^bot(?:\s+(.*))?$/i.exec(value) : null;
+  return match ? (match[1] ?? '').trim() : null;
+}
 
 export interface AuthPolicy {
   proxySecret?: string | undefined;
@@ -109,6 +118,9 @@ export function authenticate(request: RequestInfo, policy: AuthPolicy): Identity
     if (!identity) return fail(401, 'no_identity', 'No Tailscale user identity on the request');
   }
 
+  if (identity.login.endsWith(BOT_LOGIN_SUFFIX)) {
+    return fail(403, 'not_allowed', 'Bot identities cannot be claimed through the proxy');
+  }
   if (policy.allowedLogins.length > 0 && !policy.allowedLogins.includes(identity.login)) {
     return fail(403, 'not_allowed', 'This account is not allowed to use this server');
   }

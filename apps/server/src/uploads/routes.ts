@@ -19,7 +19,7 @@ export const uploadRoutes: FastifyPluginCallbackZod<UploadRoutesOptions> = (
 ) => {
   app.post(
     '/uploads',
-    { schema: { response: { 201: UploadResponse } } },
+    { config: { humanOnly: true }, schema: { response: { 201: UploadResponse } } },
     async (request, reply) => {
       if (!(await limiter.consume(request.user.id))) {
         throw new AppError(429, 'rate_limited', 'You are uploading too quickly');
@@ -36,7 +36,7 @@ export const uploadRoutes: FastifyPluginCallbackZod<UploadRoutesOptions> = (
 
   app.get(
     '/attachments/:id/:filename',
-    { schema: { params: AttachmentParams } },
+    { config: { scope: 'messages.read' }, schema: { params: AttachmentParams } },
     async (request, reply) => {
       const { row, stream } = await uploads.open(request.user, request.params.id);
       const disposition = INLINE_TYPES.has(row.content_type) ? 'inline' : 'attachment';

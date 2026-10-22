@@ -14,7 +14,10 @@ export const searchRoutes: FastifyPluginCallbackZod<{ reader: MessageReader }> =
    */
   app.get(
     '/search',
-    { schema: { querystring: SearchQuery, response: { 200: ListMessagesResponse } } },
+    {
+      config: { scope: 'messages.read' },
+      schema: { querystring: SearchQuery, response: { 200: ListMessagesResponse } },
+    },
     async (request) => {
       const { q, channelId, before, limit } = request.query;
       let query = reader

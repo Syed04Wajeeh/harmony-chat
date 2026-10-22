@@ -15,6 +15,7 @@ import { toDirectoryUser } from '../auth/user-store.js';
 import type { ChannelService } from '../channels/service.js';
 import type { Database } from '../db/schema.js';
 import { AppError } from '../errors.js';
+import { enqueueEvent } from '../events/outbox.js';
 import { attachmentUrl } from '../messages/reader.js';
 import type { PresenceService } from '../presence/service.js';
 import type { EventBus } from '../realtime/events.js';
@@ -174,6 +175,11 @@ export class GuildService {
         .where('guild_id', '=', guildId)
         .where('user_id', '=', actor.id)
         .execute();
+      await enqueueEvent(trx, {
+        guildId,
+        type: 'guild.member_left',
+        data: { userId: actor.id },
+      });
       return rows.map((row) => row.channel_id);
     });
 
@@ -353,7 +359,7 @@ export class GuildService {
   }
 
   /** The owner manages a guild; instance admins can too, as a moderation override. */
-  private async requireManager(actor: Actor, guildId: string) {
+  async requireManager(actor: Actor, guildId: string) {
     const guild = await this.db
       .selectFrom('guilds')
       .select(['id', 'owner_id'])

@@ -1,7 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
 import type { RawData, WebSocket } from 'ws';
-import { BACKFILL_LIMIT, ClientFrame, type DirectoryUser, type ServerFrame } from '@harmony/shared';
+import {
+  BACKFILL_LIMIT,
+  ClientFrame,
+  type BotScope,
+  type DirectoryUser,
+  type ServerFrame,
+} from '@harmony/shared';
+import type { BotPrincipal } from '../bots/auth.js';
+import type { InteractionService } from '../commands/interactions.js';
 import type { UserStore } from '../auth/user-store.js';
 import type { ChannelService } from '../channels/service.js';
 import { AppError } from '../errors.js';
@@ -18,6 +26,7 @@ export interface ConnectionDeps {
   users: UserStore;
   presence: PresenceService;
   typing: TypingService;
+  interactions: InteractionService;
   instanceId: string;
   presenceHeartbeatMs: number;
   frameBurst: number;
@@ -39,10 +48,11 @@ export function parseClientFrame(raw: string): ClientFrame | null {
 export function handleConnection(
   socket: WebSocket,
   user: DirectoryUser,
+  bot: BotPrincipal | null,
   log: FastifyBaseLogger,
   deps: ConnectionDeps,
 ): void {
-  const { hub, channels, messages, users, presence, typing, instanceId } = deps;
+  const { hub, channels, messages, users, presence, typing, interactions, instanceId } = deps;
   const client = hub.add(socket, user);
   const send = (frame: ServerFrame) => hub.send(client, frame);
   const connLog = log.child({ user: user.login, instanceId });
@@ -52,6 +62,7 @@ export function handleConnection(
   connLog.info('websocket connected');
 
   async function handle(frame: ClientFrame): Promise<void> {
+    requireFrameAccess(bot, frame);
     switch (frame.type) {
       case 'subscribe': {
         await channels.requireMember(frame.channelId, user.id);
@@ -89,6 +100,13 @@ export function handleConnection(
         await users.setStatus(user.id, frame.status);
         await presence.statusChanged(user.id, frame.status);
         return;
+      case 'command.invoke':
+        await interactions.invoke(user, frame.channelId, {
+          name: frame.name,
+          options: frame.options,
+          ...(frame.nonce && { nonce: frame.nonce }),
+        });
+        return;
     }
   }
 
@@ -98,7 +116,10 @@ export function handleConnection(
       send({ type: 'error', code: 'invalid_frame', message: 'Malformed frame' });
       return;
     }
-    const nonce = frame.type === 'message.send' ? { nonce: frame.nonce } : {};
+    const nonce =
+      frame.type === 'message.send' || (frame.type === 'command.invoke' && frame.nonce)
+        ? { nonce: frame.nonce }
+        : {};
     try {
       await handle(frame);
     } catch (error) {
@@ -151,6 +172,22 @@ export function handleConnection(
     connLog.info({ code }, 'websocket disconnected');
   });
   socket.on('error', (err) => connLog.warn({ err }, 'websocket error'));
+}
+
+/** Scope each frame needs from a bot; frames absent here are human-only. Humans pass through. */
+const FRAME_SCOPES: Partial<Record<ClientFrame['type'], BotScope>> = {
+  subscribe: 'messages.read',
+  'message.send': 'messages.write',
+  typing: 'messages.write',
+};
+
+function requireFrameAccess(bot: BotPrincipal | null, frame: ClientFrame): void {
+  if (!bot || frame.type === 'unsubscribe') return;
+  const scope = FRAME_SCOPES[frame.type];
+  if (!scope) throw new AppError(403, 'human_only', 'Bots cannot send this frame');
+  if (!bot.scopes.includes(scope)) {
+    throw new AppError(403, 'missing_scope', `This bot lacks the ${scope} scope`);
+  }
 }
 
 function rawToString(data: RawData): string {
