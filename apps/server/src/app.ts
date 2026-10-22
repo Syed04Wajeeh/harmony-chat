@@ -94,7 +94,7 @@ export async function buildApp({ config, db, redis, storage }: AppDeps): Promise
 
   const webRoot = existsSync(config.WEB_DIST_DIR) ? path.resolve(config.WEB_DIST_DIR) : null;
 
-  app.get('/healthz', (): HealthResponse => ({ status: 'ok' }));
+  app.get('/healthz', (): HealthResponse => ({ service: 'harmony', status: 'ok' }));
 
   app.get('/readyz', async (request, reply): Promise<HealthResponse> => {
     const [postgres, cache] = await Promise.all([

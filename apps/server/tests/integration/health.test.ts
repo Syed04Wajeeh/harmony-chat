@@ -38,7 +38,7 @@ describe('health endpoints', () => {
   it('GET /healthz is 200 and needs no authentication', async () => {
     const res = await target.app.inject('/healthz');
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ status: 'ok' });
+    expect(res.json()).toEqual({ service: 'harmony', status: 'ok' });
   });
 
   it('GET /readyz is 200 when dependencies are up', async () => {
