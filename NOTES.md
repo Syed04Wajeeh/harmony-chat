@@ -84,6 +84,8 @@ Only numbers actually measured, with conditions.
 
 - 2026-10-22, end of Phase 3 (bot platform, backend): 340 unit tests and 210 integration tests (Testcontainers Postgres, Redis and nginx), all passing in five consecutive full integration runs. The worker was also started from the compiled `dist/worker.js` against a throwaway Postgres: it migrated, wrote its heartbeat file, ran the retention pass and exited 0 on SIGTERM. Not measured: throughput of the worker under load, and the live compose stack (the `worker` service and the `8471` listener have not been deployed from here).
 
+- 2026-10-22, desktop app: the release workflow (run 39733407625, tag `v0.1.0` on a branch) built all three platforms green. Asset sizes: Windows NSIS setup 2.3 MB and MSI 3.2 MB, macOS aarch64 dmg 3.1 MB, Linux deb 3.7 MB and AppImage 82 MB (the AppImage carries its own copy of WebKitGTK; the others use the system webview). The generated `latest.json` listed darwin-aarch64, linux-x86_64 and windows-x86_64 entries. The Rust suite has 25 tests (URL rules, health probe against a local fake server, config file, notification arguments, and real IPC requests through Tauri's access control); the GUI itself was not run, since it needs a desktop session.
+
 ## Problems solved
 
 - `pnpm fetch` failed in Docker with `ERR_PNPM_IGNORED_BUILDS`: pnpm 12 refuses to continue when dependencies have unapproved install scripts. Fixed by declaring `allowBuilds` in `pnpm-workspace.yaml` (esbuild allowed; cpu-features, protobufjs and ssh2 from Testcontainers denied).
