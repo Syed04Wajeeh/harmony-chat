@@ -9,3 +9,4 @@ playwright-report/
 *.log
 *.tsbuildinfo
 .claude/
+docker-compose.override.yml

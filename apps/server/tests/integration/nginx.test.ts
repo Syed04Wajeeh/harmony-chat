@@ -11,10 +11,11 @@ import {
 } from 'testcontainers';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-const TEMPLATE = path.resolve(
+const NGINX_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '../../../../deploy/nginx/default.conf.template',
+  '../../../../deploy/nginx',
 );
+const nginxFile = (name: string) => readFileSync(path.join(NGINX_DIR, name), 'utf8');
 const SECRET = 'nginx-test-secret-nginx-test-secret-0123456789';
 
 // A stand-in upstream that echoes what nginx forwarded, so the real template can be exercised
@@ -53,10 +54,13 @@ describe('nginx reverse proxy template', () => {
       .withNetwork(network)
       .withEnvironment({ PROXY_SHARED_SECRET: SECRET, NGINX_ENVSUBST_FILTER: 'PROXY_' })
       .withCopyContentToContainer([
+        // Production runs these in two containers; one container exercises both listeners.
+        { content: nginxFile('common.conf'), target: '/etc/nginx/conf.d/00-common.conf' },
         {
-          content: readFileSync(TEMPLATE, 'utf8'),
+          content: nginxFile('user.conf.template'),
           target: '/etc/nginx/templates/default.conf.template',
         },
+        { content: nginxFile('integrations.conf'), target: '/etc/nginx/conf.d/integrations.conf' },
       ])
       .withExposedPorts(8080, 8081)
       .withWaitStrategy(Wait.forListeningPorts())

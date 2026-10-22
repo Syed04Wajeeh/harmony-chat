@@ -1,0 +1,13 @@
+# Copy to docker-compose.override.yml (gitignored) to let containers from another Compose
+# project reach Harmony's integration ingress at http://harmony-integrations:8081.
+services:
+  integrations:
+    networks:
+      harmony_internal: {}
+      homelab:
+        aliases: [harmony-integrations]
+
+networks:
+  homelab:
+    external: true
+    name: homelab_default # the other project's network, see `docker network ls`

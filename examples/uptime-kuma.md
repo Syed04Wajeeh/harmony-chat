@@ -25,7 +25,9 @@ The payload below was checked against `server/notification-providers/discord.js`
 
    The response contains `url` (`/api/webhooks/<id>/<token>`), shown only once.
 
-2. In Uptime Kuma: **Settings > Notifications > Setup Notification**, type **Discord**, and set **Webhook URL** to the integration ingress plus that path, for example `http://<host running Harmony>:8471/api/webhooks/<id>/<token>`. If Kuma runs on the same host in Docker, use the host's address as seen from the container, and make sure the firewall allows it. Port 8471 is published on loopback only; the webhook path is the only credential on it.
+2. In Uptime Kuma: **Settings > Notifications > Setup Notification**, type **Discord**, and set **Webhook URL** to the integration ingress plus that path. How Kuma reaches the ingress depends on where it runs (see [docs/integrations.md](../docs/integrations.md)):
+   - Kuma in Docker on the same host: attach the `integrations` service to Kuma's network with `docker-compose.override.yml`, then use `http://harmony-integrations:8081/api/webhooks/<id>/<token>`.
+   - Kuma elsewhere: anything that can reach the ingress port, or the public Harmony URL (`https://chat.example.ts.net:18470/api/webhooks/<id>/<token>`) from a tailnet device.
 
 3. Press **Test**. A message from "Uptime Kuma" should appear in the channel. Attach the notification to your monitors.
 
