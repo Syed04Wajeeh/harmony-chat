@@ -23,7 +23,7 @@ pub fn create_main(app: &AppHandle, hidden: bool) -> tauri::Result<WebviewWindow
     };
     let navigation_app = app.clone();
     let new_window_app = app.clone();
-    WebviewWindowBuilder::new(app, MAIN, start)
+    let window = WebviewWindowBuilder::new(app, MAIN, start)
         .title("Harmony")
         .inner_size(1200.0, 800.0)
         .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
@@ -47,7 +47,13 @@ pub fn create_main(app: &AppHandle, hidden: bool) -> tauri::Result<WebviewWindow
         .on_document_title_changed(|window, title| {
             let _ = window.set_title(&title);
         })
-        .build()
+        .build()?;
+    // Installs upgraded from 0.1.0 have a saved window state with decorations on; never let a
+    // restored state bring the native title bar back on Windows.
+    if cfg!(windows) {
+        window.set_decorations(false)?;
+    }
+    Ok(window)
 }
 
 pub fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
