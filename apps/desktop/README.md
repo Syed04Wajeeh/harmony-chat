@@ -2,6 +2,8 @@
 
 A [Tauri v2](https://v2.tauri.app) shell around a Harmony server. It opens your server in its own window and adds a custom title bar on Windows, a tray icon, launch at login, single instance, window-state memory, native notifications for mentions and DMs, an unread badge, and auto-update. The web client is not bundled: the window loads the server's own origin, so the Tailscale identity, the `Origin` checks and the UI version are exactly what the browser gets. There is no offline mode.
 
+![Harmony on Windows with the themed title bar (simulated bridge in a browser)](../../docs/screenshots/desktop-app-titlebar-dark.png)
+
 The security model of the bridge between the page and the app is in [docs/security/trust-model.md](../../docs/security/trust-model.md#desktop-app).
 
 ## Layout

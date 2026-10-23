@@ -610,6 +610,15 @@
   background: var(--color-bg-panel);
 }
 
+.settings-page-header::after {
+  content: '';
+  position: absolute;
+  inset: 100% 0 auto;
+  height: var(--space-3);
+  background: linear-gradient(var(--color-bg-panel), transparent);
+  pointer-events: none;
+}
+
 .settings-card {
   scroll-margin-top: var(--settings-header-room);
 }
