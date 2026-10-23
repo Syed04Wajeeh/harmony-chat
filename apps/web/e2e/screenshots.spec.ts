@@ -1,7 +1,7 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import path from 'node:path';
 import { DevApi } from './support/dev-api.js';
-import { scenePng } from './support/png.js';
+import { emojiPng, scenePng } from './support/png.js';
 import { seedBookClub, type Seeded } from './support/seed.js';
 import {
   generateEvents,
@@ -710,4 +710,149 @@ test.describe('customization', () => {
       await invite.context.close();
     });
   }
+});
+
+test.describe('profiles, emoji and perks', () => {
+  const ada = 'ada@example.com';
+  const emojiIds: Record<string, string> = {};
+  const SHAPES = [
+    ['party_blob', 'face', [255, 196, 61]],
+    ['sunny', 'sun', [255, 170, 40]],
+    ['leafy', 'flower', [236, 110, 160]],
+    ['heart_box', 'heart', [232, 70, 90]],
+    ['moon', 'moon', [160, 170, 230]],
+  ] as const;
+
+  test.beforeAll(async () => {
+    const { api, ids, guildId, channels } = seeded;
+    for (const name of ['ada', 'linus', 'grace'] as const) {
+      for (const perk of [
+        'animated_avatar',
+        'profile_banner_image',
+        'cross_server_emoji',
+        'custom_status_emoji',
+      ]) {
+        await api.ada.request('PUT', `/api/admin/users/${ids[name]}/perks`, { perk });
+      }
+    }
+    for (const [name, shape, color] of SHAPES) {
+      const file = await api.ada.upload(`${name}.png`, emojiPng(shape, [...color]));
+      const created = await api.ada.request<{ id: string }>(
+        'POST',
+        `/api/guilds/${guildId}/emoji`,
+        {
+          name,
+          attachmentId: file.id,
+        },
+      );
+      emojiIds[name] = created.id;
+    }
+    const token = (name: string) => `<:${name}:${emojiIds[name] ?? ''}>`;
+
+    const bookworm = await api.ada.createRole(guildId, { name: 'Bookworm', color: 0xd264b6 });
+    await api.ada.assignRole(guildId, ids.linus, bookworm.id);
+    await api.ada.setNickname(guildId, ids.linus, 'Linus the Short-Book Advocate');
+
+    const banner = await api.linus.upload('linus-banner.png', scenePng(960, 320));
+    await api.linus.request('PATCH', '/api/me/profile', {
+      bannerAttachmentId: banner.id,
+      accentColor: 0x539bf5,
+      pronouns: 'he/him',
+      bio: 'Short books, long conversations. Currently re-reading **Piranesi** and drinking too much tea.',
+      status: { emoji: token('sunny'), text: 'Reading in the garden', duration: 'today' },
+    });
+    await api.ada.request('PATCH', '/api/me/profile', {
+      bannerColor: 0x2da58e,
+      accentColor: 0x2da58e,
+      pronouns: 'she/her',
+      bio: 'Organizer of the book club. Ask me about the reading list.',
+      status: { emoji: '📚', text: 'Choosing the next book', duration: '4h' },
+    });
+    await api.grace.request('PATCH', '/api/me/profile', {
+      bannerColor: 0xd264b6,
+      status: { emoji: token('leafy'), text: 'Back at 3', duration: '1h' },
+    });
+
+    await api.ada.send(channels.general, `Welcome back everyone ${token('party_blob')}`);
+    await api.grace.send(
+      channels.general,
+      `${token('heart_box')} ${token('leafy')} ${token('sunny')}`,
+    );
+    const last = await api.linus.send(channels.general, `Tea is ready ${token('moon')}`);
+    await api.ada.react(last.id, token('party_blob'));
+    await api.grace.react(last.id, token('party_blob'));
+    await api.linus.react(last.id, token('leafy'));
+  });
+
+  test('desktop profile popover, editor, status menu, emoji, picker and perks', async ({
+    browser,
+  }) => {
+    const popover = await visit(browser, ada, DESKTOP, general());
+    await settle(popover.page);
+    await popover.page.locator('.message-author', { hasText: 'Linus' }).first().click();
+    await popover.page.locator('[data-harmony="profile-card"]').waitFor();
+    await popover.page.getByText('Reading in the garden').waitFor();
+    await popover.page.waitForTimeout(500);
+    await popover.page.screenshot({ path: shot('desktop-profile-popover') });
+    await popover.context.close();
+
+    const chat = await visit(browser, ada, DESKTOP, general());
+    await settle(chat.page);
+    await chat.page
+      .getByRole('list', { name: 'Messages' })
+      .evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await chat.page.waitForTimeout(600);
+    await chat.page.screenshot({ path: shot('desktop-custom-emoji') });
+
+    const tea = chat.page.locator('.message', { hasText: 'Tea is ready' });
+    await tea.hover();
+    await tea.getByRole('button', { name: 'Add reaction' }).first().click();
+    await chat.page.locator('.emoji-section').first().waitFor();
+    await chat.page.waitForTimeout(400);
+    await chat.page.screenshot({ path: shot('desktop-emoji-picker-custom') });
+    await chat.page.keyboard.press('Escape');
+
+    await chat.page.getByRole('button', { name: /Status:/ }).click();
+    await chat.page.getByRole('menuitem', { name: 'Set a custom status' }).waitFor();
+    await chat.page.waitForTimeout(300);
+    await chat.page.screenshot({ path: shot('desktop-status-menu') });
+    await chat.context.close();
+
+    const editor = await visit(browser, ada, DESKTOP, '/settings/user/profile');
+    await editor.page.getByRole('heading', { level: 1, name: 'Profile' }).waitFor();
+    await editor.page.getByText('About me').waitFor();
+    await editor.page.waitForTimeout(500);
+    await editor.page.screenshot({ path: shot('desktop-profile-editor') });
+    await editor.context.close();
+
+    const emoji = await visit(browser, ada, DESKTOP, `/settings/server/${seeded.guildId}/emoji`);
+    await emoji.page.getByRole('textbox', { name: 'Name of party_blob' }).waitFor();
+    await emoji.page.waitForTimeout(500);
+    await emoji.page.screenshot({ path: shot('desktop-emoji-settings') });
+    await emoji.context.close();
+
+    const perks = await visit(browser, ada, DESKTOP, '/settings/user/perks');
+    await perks.page.getByRole('table', { name: 'Perks by person' }).waitFor();
+    await perks.page.waitForTimeout(500);
+    await perks.page.screenshot({ path: shot('desktop-perks-admin') });
+    await perks.context.close();
+  });
+
+  test('mobile profile sheet and editor', async ({ browser }) => {
+    const phone = await visit(browser, ada, PHONE, general());
+    await settle(phone.page);
+    await phone.page.locator('.message-author', { hasText: 'Linus' }).first().tap();
+    await phone.page.locator('[data-harmony="profile-card"]').waitFor();
+    await phone.page.getByText('Reading in the garden').waitFor();
+    await phone.page.waitForTimeout(600);
+    await phone.page.screenshot({ path: shot('mobile-profile-sheet') });
+    await phone.context.close();
+
+    const editor = await visit(browser, ada, PHONE, '/settings/user/profile');
+    await editor.page.getByRole('heading', { level: 1, name: 'Profile' }).waitFor();
+    await editor.page.getByText('About me').waitFor();
+    await editor.page.waitForTimeout(500);
+    await editor.page.screenshot({ path: shot('mobile-profile-editor') });
+    await editor.context.close();
+  });
 });

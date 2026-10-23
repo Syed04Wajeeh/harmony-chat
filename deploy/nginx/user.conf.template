@@ -25,11 +25,12 @@ server {
     }
 
     # Uploads may be larger than the 1m default. The app enforces the real limit
-    # (UPLOAD_MAX_BYTES, default 10 MiB); keep this above it to allow for multipart overhead.
+    # (UPLOAD_MAX_BYTES, default 10 MiB, or UPLOAD_MAX_BYTES_PERK, default 50 MiB, with the
+    # larger_uploads perk); keep this above the larger one to allow for multipart overhead.
     # The location sets no proxy_set_header of its own, so the server-level ones, including
     # the proxy secret, still apply.
     location = /api/uploads {
-        client_max_body_size 11m;
+        client_max_body_size 51m;
         proxy_pass http://harmony_app;
     }
 

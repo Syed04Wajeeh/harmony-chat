@@ -24,6 +24,8 @@ import type { OutboxEvent } from '../events/outbox.js';
 import type { SendMessageInput as SendInput } from '../messages/service.js';
 import type { Storage } from '../uploads/storage.js';
 import type { RateLimiter } from '../rate-limit.js';
+import type { EmojiService } from '../emoji/service.js';
+import type { PerkService } from '../perks/service.js';
 
 declare module 'fastify' {
   interface FastifyContextConfig {
@@ -194,6 +196,10 @@ export interface ModuleContext<TConfig = unknown, TSettings = unknown> {
   };
 
   commands: { register(command: BuiltinCommand): void };
+
+  /** Instance perks (admin-granted entitlements) and the in-process custom emoji cache. */
+  perks: PerkService;
+  emoji: EmojiService;
 
   /** Goes out through Redis, so every instance delivers it to its own sockets. */
   publish: {

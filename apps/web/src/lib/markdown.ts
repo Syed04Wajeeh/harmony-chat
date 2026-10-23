@@ -9,6 +9,7 @@ export type Inline =
   | { type: 'bold' | 'italic' | 'strike'; children: Inline[] }
   | { type: 'link'; href: string; label: string }
   | { type: 'mention'; userId: string }
+  | { type: 'emoji'; id: string; name: string; animated: boolean }
   | { type: 'break' };
 
 export type Block =
@@ -20,6 +21,7 @@ const MAX_DEPTH = 6;
 const ESCAPABLE = '\\`*_~<>[]()#+-.!|:/@';
 const URL_START = /^https?:\/\/[^\s<>]+/i;
 const MENTION = /^<@(\d{1,18})>/;
+const EMOJI = /^<(a?):([a-z0-9_]{2,32}):(\d{1,18})>/;
 const FENCE = /^```([\w+-]*)[ \t]*\n([\s\S]*?)\n?```[ \t]*(?:\n|$)/;
 
 export function parseMarkdown(source: string): Block[] {
@@ -158,6 +160,13 @@ export function parseInline(source: string, depth = 0): Inline[] {
       pushText();
       out.push({ type: 'mention', userId: mention[1] });
       i += mention[0].length;
+      continue;
+    }
+    const emoji = EMOJI.exec(rest);
+    if (emoji?.[2] && emoji[3]) {
+      pushText();
+      out.push({ type: 'emoji', id: emoji[3], name: emoji[2], animated: emoji[1] === 'a' });
+      i += emoji[0].length;
       continue;
     }
     if ((char === 'h' || char === 'H') && !isWord(source[i - 1])) {

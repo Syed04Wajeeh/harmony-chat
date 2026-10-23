@@ -7,6 +7,7 @@ import {
   DEFAULT_SETTINGS,
   DEFAULT_THEME_ID,
   MAX_CUSTOM_THEMES,
+  MAX_THEMES_WITH_PERK,
   findPreset,
   mergeSettings,
   normalizeSettings,
@@ -17,6 +18,7 @@ import {
   type UserSettings,
 } from '@harmony/shared';
 import type { Database } from '../db/schema.js';
+import type { PerkService } from '../perks/service.js';
 import { AppError } from '../errors.js';
 import type { EventBus } from '../realtime/events.js';
 
@@ -47,6 +49,7 @@ export class SettingsService {
   constructor(
     private readonly db: Kysely<Database>,
     private readonly events: EventBus,
+    private readonly perks: PerkService,
   ) {}
 
   async get(userId: string): Promise<UserSettings> {
@@ -142,12 +145,11 @@ export class SettingsService {
         .select((eb) => eb.fn.countAll<string>().as('count'))
         .where('user_id', '=', userId)
         .executeTakeFirstOrThrow();
-      if (Number(count) >= MAX_CUSTOM_THEMES) {
-        throw new AppError(
-          400,
-          'theme_limit',
-          `You can keep up to ${String(MAX_CUSTOM_THEMES)} themes`,
-        );
+      const limit = (await this.perks.has(userId, 'extra_themes'))
+        ? MAX_THEMES_WITH_PERK
+        : MAX_CUSTOM_THEMES;
+      if (Number(count) >= limit) {
+        throw new AppError(400, 'theme_limit', `You can keep up to ${String(limit)} themes`);
       }
       return trx
         .insertInto('user_themes')

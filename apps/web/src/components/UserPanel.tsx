@@ -1,10 +1,21 @@
 import type { UserStatus } from '@harmony/shared';
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { changeStatus } from '../store/actions.js';
 import { useApp } from '../store/store.js';
 import { Avatar, StatusDot } from './Avatar.js';
 import { SettingsIcon } from './Icons.js';
-import { Menu, MenuContent, MenuItem, MenuTrigger } from './Menu.js';
+import { useProfiles } from '../store/profiles.js';
+import { EmojiValue } from './Emoji.js';
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from './Menu.js';
+import { StatusDialog, clearCustomStatus, setCustomStatus } from './StatusDialog.js';
+
+const QUICK_STATUSES = [
+  { emoji: '📅', text: 'In a meeting', duration: '1h' },
+  { emoji: '🚌', text: 'Commuting', duration: '30m' },
+  { emoji: '🤒', text: 'Out sick', duration: 'today' },
+  { emoji: '🌴', text: 'On vacation', duration: 'never' },
+] as const;
 
 const STATUSES: { value: UserStatus; label: string; hint?: string }[] = [
   { value: 'online', label: 'Online' },
@@ -15,7 +26,10 @@ const STATUSES: { value: UserStatus; label: string; hint?: string }[] = [
 
 export function UserPanel() {
   const me = useApp((state) => state.me);
+  const summary = useProfiles((state) => (me ? state.summaries[me.id] : undefined));
+  const [editing, setEditing] = useState(false);
   if (!me) return null;
+  const custom = summary?.statusEmoji || summary?.statusText;
   const current = STATUSES.find((status) => status.value === me.status);
 
   return (
@@ -28,7 +42,16 @@ export function UserPanel() {
           <Avatar user={me} size={36} status={me.status === 'dnd' ? 'dnd' : me.status} />
           <span className="user-panel-text">
             <span className="user-panel-name">{me.displayName}</span>
-            <span className="user-panel-status">{current?.label}</span>
+            <span className="user-panel-status">
+              {custom ? (
+                <>
+                  {summary?.statusEmoji && <EmojiValue value={summary.statusEmoji} />}{' '}
+                  {summary?.statusText}
+                </>
+              ) : (
+                current?.label
+              )}
+            </span>
           </span>
         </MenuTrigger>
         <MenuContent side="top" align="start">
@@ -41,8 +64,21 @@ export function UserPanel() {
               {status.label}
             </MenuItem>
           ))}
+          <MenuSeparator />
+          <MenuItem onSelect={() => setEditing(true)}>Set a custom status</MenuItem>
+          {QUICK_STATUSES.map((quick) => (
+            <MenuItem
+              key={quick.text}
+              icon={<span aria-hidden="true">{quick.emoji}</span>}
+              onSelect={() => void setCustomStatus(quick.emoji, quick.text, quick.duration)}
+            >
+              {quick.text}
+            </MenuItem>
+          ))}
+          {custom && <MenuItem onSelect={() => void clearCustomStatus()}>Clear status</MenuItem>}
         </MenuContent>
       </Menu>
+      {editing && <StatusDialog open={editing} onOpenChange={setEditing} />}
       <Link to="/settings/user" className="icon-button" aria-label="User settings">
         <SettingsIcon />
       </Link>

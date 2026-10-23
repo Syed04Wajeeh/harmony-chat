@@ -117,7 +117,7 @@ describe('nginx reverse proxy template', () => {
     expect(await res.text()).toContain(`secret=${SECRET};`);
   });
 
-  it('accepts bodies up to 11m only on /api/uploads and keeps 1m elsewhere', async () => {
+  it('accepts bodies up to 51m only on /api/uploads and keeps 1m elsewhere', async () => {
     const body = new Uint8Array(2_000_000);
     const upload = await fetch(url('/api/uploads'), { method: 'POST', headers: identity, body });
     expect(upload.status).toBe(200);
@@ -133,7 +133,7 @@ describe('nginx reverse proxy template', () => {
     const huge = await fetch(url('/api/uploads'), {
       method: 'POST',
       headers: identity,
-      body: new Uint8Array(12_000_000),
+      body: new Uint8Array(52_000_000),
     });
     expect(huge.status).toBe(413);
   }, 60_000);

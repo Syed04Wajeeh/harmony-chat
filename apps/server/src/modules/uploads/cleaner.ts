@@ -16,7 +16,7 @@ export interface CleanerLogger {
   warn(obj: object, msg: string): void;
 }
 
-/** Deletes uploads that never got attached to a message. */
+/** Deletes uploads that never got attached to a message or used as an icon, banner, avatar or emoji. */
 export class UploadCleaner {
   private timer: NodeJS.Timeout | undefined;
 
@@ -82,6 +82,31 @@ export class UploadCleaner {
                     .selectFrom('webhooks')
                     .select('webhooks.id')
                     .whereRef('webhooks.avatar_attachment_id', '=', 'attachments.id'),
+                ),
+              ),
+            )
+            .where((nested) =>
+              nested.not(
+                nested.exists(
+                  nested
+                    .selectFrom('user_profiles')
+                    .select('user_profiles.user_id')
+                    .where((eb) =>
+                      eb.or([
+                        eb('user_profiles.avatar_attachment_id', '=', eb.ref('attachments.id')),
+                        eb('user_profiles.banner_attachment_id', '=', eb.ref('attachments.id')),
+                      ]),
+                    ),
+                ),
+              ),
+            )
+            .where((nested) =>
+              nested.not(
+                nested.exists(
+                  nested
+                    .selectFrom('guild_emoji')
+                    .select('guild_emoji.id')
+                    .whereRef('guild_emoji.attachment_id', '=', 'attachments.id'),
                 ),
               ),
             )

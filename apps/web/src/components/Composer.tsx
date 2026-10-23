@@ -19,6 +19,9 @@ import {
   splitSlashInput,
   suggestCommands,
 } from '../lib/commands.js';
+import { findEmojiQuery, replaceEmojiQuery, suggestEmoji } from '../lib/emojiComplete.js';
+import { useProfiles } from '../store/profiles.js';
+import { CustomEmoji } from './Emoji.js';
 import { encodeMentions, findMentionQuery, insertMention, suggestUsers } from '../lib/mentions.js';
 import { formatBytes } from '../lib/time.js';
 import { invokeCommand, sendMessage } from '../store/actions.js';
@@ -127,6 +130,17 @@ export function Composer({
   const suggestions = query ? suggestUsers(candidates, query.query) : [];
   const showSuggestions = suggestions.length > 0;
 
+  const customEmoji = useProfiles((state) => state.emoji);
+  const emojiQuery =
+    active || dismissed || showCommands || showSuggestions ? null : findEmojiQuery(text, caret);
+  const emojiChoices = emojiQuery
+    ? suggestEmoji(
+        emojiQuery.query,
+        customEmoji.filter((emoji) => emoji.usable || emoji.guildId === guildId),
+      )
+    : [];
+  const showEmoji = emojiChoices.length > 0;
+
   const canSend =
     active !== null ||
     (!uploads.busy && (text.trim().length > 0 || uploads.attachments.length > 0));
@@ -191,6 +205,18 @@ export function Composer({
     });
   }
 
+  function chooseEmoji(value: string) {
+    if (!emojiQuery) return;
+    const next = replaceEmojiQuery(text, emojiQuery, value);
+    setText(next.text);
+    setActiveIndex(0);
+    requestAnimationFrame(() => {
+      field.current?.focus();
+      field.current?.setSelectionRange(next.caret, next.caret);
+      setCaret(next.caret);
+    });
+  }
+
   function chooseCommand(command: GuildCommand) {
     startCommand(command);
   }
@@ -223,6 +249,25 @@ export function Composer({
         event.preventDefault();
         const command = commandMatches[activeIndex];
         if (command) chooseCommand(command);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setDismissed(true);
+        return;
+      }
+    }
+    if (showEmoji) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        setActiveIndex((index) => (index + step + emojiChoices.length) % emojiChoices.length);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        const choice = emojiChoices[activeIndex];
+        if (choice) chooseEmoji(choice.value);
         return;
       }
       if (event.key === 'Escape') {
@@ -365,6 +410,34 @@ export function Composer({
                 <span className="command-name">/{command.name}</span>
                 <span className="command-desc">{command.description}</span>
                 <span className="command-bot">{command.botName}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {showEmoji && (
+          <ul
+            className="mention-list emoji-suggestions"
+            role="listbox"
+            aria-label="Emoji suggestions"
+          >
+            {emojiChoices.map((choice, index) => (
+              <li
+                key={choice.key}
+                role="option"
+                aria-selected={index === activeIndex}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  chooseEmoji(choice.value);
+                }}
+              >
+                <span className="emoji-suggestion-glyph">
+                  {choice.custom ? (
+                    <CustomEmoji id={choice.custom.id} name={choice.custom.name} />
+                  ) : (
+                    choice.value
+                  )}
+                </span>
+                <span>{choice.label}</span>
               </li>
             ))}
           </ul>

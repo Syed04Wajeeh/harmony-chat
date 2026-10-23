@@ -10,6 +10,7 @@ export * from './modules.js';
 export * from './modules/polls.js';
 export * from './permissions.js';
 export * from './presets.js';
+export * from './profile.js';
 export * from './protocol.js';
 export * from './settings.js';
 export * from './theme.js';

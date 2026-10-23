@@ -282,6 +282,41 @@ Treat a webhook URL like a password: anyone holding it can post to that channel 
 webhook is deleted. Failed guesses are not rate limited per source; at 256 bits that is not a
 practical attack, but it is the thing to add first if the surface ever becomes public.
 
+## Profiles, custom emoji and perks
+
+**Uploaded avatars, banners and emoji** go through the same upload path as every other file:
+the type comes from the file's own bytes (never the client's claim), dimensions come from the
+header, and downloads are served with `nosniff`, a `default-src 'none'; sandbox` policy and
+`Content-Disposition: inline` only for PNG, JPEG, GIF and WebP. They are readable by any signed-in
+user (like guild icons and banners), because they appear next to messages in servers the viewer is
+in and in invite previews. That makes their ids public inside the instance; the files are not
+secrets. The orphan sweep skips any upload referenced by `user_profiles` or `guild_emoji`.
+Animation is detected by reading headers only (GIF block walk, WebP `VP8X` flag, APNG `acTL`), and
+files are never decoded on the server. Colors are integers validated to 24 bits and reach the page
+as CSS custom properties, so a profile cannot inject CSS. Bios and statuses render through the
+message Markdown subset (no headings, images or raw HTML).
+
+**Visibility**: `GET /api/users/:id/profile` answers 404 to anyone who shares neither a guild nor a
+DM with the user, so profiles do not leak to strangers on the same instance. `user.updated` goes
+only to that audience.
+
+**Perk enforcement points** (all server-side; the UI only hides or badges controls):
+
+| Perk                   | Enforced in                                                                |
+| ---------------------- | -------------------------------------------------------------------------- |
+| `animated_avatar`      | `PATCH /api/me/profile`: animated avatar files are refused without it      |
+| `profile_banner_image` | `PATCH /api/me/profile`: a banner attachment is refused without it         |
+| `cross_server_emoji`   | message send/edit (token sanitizing) and reactions (`EmojiService.usable`) |
+| `larger_uploads`       | `POST /api/uploads`: the byte limit is chosen per user while streaming     |
+| `extra_themes`         | `POST /api/me/themes`: the count limit is 20, or 100 with the perk         |
+| `custom_status_emoji`  | `PATCH /api/me/profile`: custom emoji in the status                        |
+
+Perks are not a security boundary against other users, only a policy lever for the admin. Grants
+are admin-only endpoints with `granted_by` and `granted_at` recorded. The effective set is cached
+per user in each process and invalidated over Redis on a grant or revoke; a missed message is
+corrected within five minutes. `PERKS_DEFAULT=all` is the default because this is a friends
+server; set `PERKS_DEFAULT=none` (or a list) to restrict.
+
 ## Custom CSS
 
 Users can opt in to their own stylesheet (Settings, Appearance, Advanced). It is applied only for

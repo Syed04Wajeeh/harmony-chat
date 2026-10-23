@@ -28,6 +28,7 @@ export default defineConfig({
             'polls.spec.ts',
             'roles.spec.ts',
             'customization.spec.ts',
+            'profiles.spec.ts',
           ],
           use: { viewport: { width: 1280, height: 800 } },
         },
@@ -62,6 +63,8 @@ export default defineConfig({
             REDIS_URL: process.env['REDIS_URL'] ?? 'redis://127.0.0.1:16379',
             UPLOAD_DIR: process.env['UPLOAD_DIR'] ?? '.e2e-uploads',
             LOG_LEVEL: 'warn',
+            // Perks are granted explicitly in the tests that need them.
+            PERKS_DEFAULT: 'none',
             MESSAGE_RATE_MAX: '500',
             RATE_LIMIT_MAX: '5000',
             // The bot e2e points an admin-owned bot at a stub on localhost.

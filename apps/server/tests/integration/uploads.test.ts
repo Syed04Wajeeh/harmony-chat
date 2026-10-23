@@ -96,7 +96,7 @@ describe('uploads and attachments', () => {
     });
 
     it('rejects files over UPLOAD_MAX_BYTES with 413 and leaves nothing behind', async () => {
-      const small = await infra.startApp({ UPLOAD_MAX_BYTES: '2048' });
+      const small = await infra.startApp({ UPLOAD_MAX_BYTES: '2048', PERKS_DEFAULT: 'none' });
       const user = unique('big');
       const ok = await upload(
         user,

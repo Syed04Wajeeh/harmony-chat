@@ -4,6 +4,7 @@ import type { Kysely } from 'kysely';
 import {
   CORE_PERMISSION_KEYS,
   ChannelEvent,
+  UserEvent,
   MODULE_FRAME_TYPE,
   ModuleFrame,
 } from '@harmony/shared';
@@ -17,6 +18,8 @@ import type { PermissionService } from '../permissions/service.js';
 import { RateLimiter } from '../rate-limit.js';
 import type { EventBus } from '../realtime/events.js';
 import type { Storage } from '../uploads/storage.js';
+import type { EmojiService } from '../emoji/service.js';
+import type { PerkService } from '../perks/service.js';
 import { BuiltinCommands } from './builtin-commands.js';
 import type { DomainEvents } from './domain-events.js';
 import type { GuildModuleState } from './guild-state.js';
@@ -40,6 +43,8 @@ export interface ModuleHostDeps {
   messages: MessageService;
   channels: ChannelService;
   perms: PermissionService;
+  emoji: EmojiService;
+  perks: PerkService;
 }
 
 type Hook = () => void | Promise<void>;
@@ -102,7 +107,10 @@ export class ModuleHost {
 
     /** A module's own frames are namespaced; core frames only if the module declared them. */
     const checked = (frame: ModuleFrameOut): ModuleFrame => {
-      if (coreFrames.has(frame.type)) return ChannelEvent.parse(frame);
+      if (coreFrames.has(frame.type)) {
+        const channel = ChannelEvent.safeParse(frame);
+        return channel.success ? channel.data : UserEvent.parse(frame);
+      }
       if (!frame.type.startsWith(`${id}.`) || !MODULE_FRAME_TYPE.test(frame.type)) {
         throw new ModuleError(`Module "${id}" may not publish a "${frame.type}" frame`);
       }
@@ -182,6 +190,9 @@ export class ModuleHost {
       channels: {
         requireMember: (channelId, userId) => deps.channels.requireMember(channelId, userId),
       },
+
+      perks: deps.perks,
+      emoji: deps.emoji,
 
       commands: {
         register: (command) => this.commands.register(id, module.name, command),

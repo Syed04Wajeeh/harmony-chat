@@ -7,6 +7,8 @@ import type { Identity } from './policy.js';
 
 interface CacheEntry {
   user: DirectoryUser;
+  /** The sign-in provider's picture, which `user.avatarUrl` may differ from (uploaded avatar). */
+  providerAvatar: string | null;
   expiresAt: number;
 }
 
@@ -41,7 +43,7 @@ export class UserStore {
 
   async resolve(identity: Identity): Promise<DirectoryUser> {
     const cached = this.cache.get(identity.login);
-    if (cached && cached.expiresAt > Date.now() && matches(cached.user, identity)) {
+    if (cached && cached.expiresAt > Date.now() && matches(cached, identity)) {
       return cached.user;
     }
 
@@ -51,14 +53,24 @@ export class UserStore {
       .where('login', '=', identity.login)
       .executeTakeFirst();
     const row =
-      existing?.display_name === identity.displayName && existing.avatar_url === identity.avatarUrl
+      existing?.display_name === identity.displayName &&
+      existing.provider_avatar_url === identity.avatarUrl
         ? existing
         : await this.upsert(identity);
 
     const user = toDirectoryUser(row);
     if (this.cache.size >= MAX_CACHE_ENTRIES) this.cache.clear();
-    this.cache.set(identity.login, { user, expiresAt: Date.now() + this.ttlMs });
+    this.cache.set(identity.login, {
+      user,
+      providerAvatar: identity.avatarUrl,
+      expiresAt: Date.now() + this.ttlMs,
+    });
     return user;
+  }
+
+  /** Drops cached identities of a user whose profile changed (other instances catch up on the TTL). */
+  forget(userId: string): void {
+    for (const [login, entry] of this.cache) if (entry.user.id === userId) this.cache.delete(login);
   }
 
   async getMe(user: DirectoryUser): Promise<Me> {
@@ -106,11 +118,14 @@ export class UserStore {
     const user = await this.db.transaction().execute(async (trx) => {
       await sql`select pg_advisory_xact_lock(${NEW_USER_LOCK})`.execute(trx);
       const { rows } = await sql<Selectable<Database['users']> & { inserted: boolean }>`
-        insert into users (login, display_name, avatar_url, is_admin)
+        insert into users (login, display_name, avatar_url, provider_avatar_url, is_admin)
         values (${identity.login}, ${identity.displayName}, ${identity.avatarUrl},
-                not exists (select 1 from users))
+                ${identity.avatarUrl}, not exists (select 1 from users))
         on conflict (login) do update
-          set display_name = excluded.display_name, avatar_url = excluded.avatar_url
+          set display_name = excluded.display_name,
+              provider_avatar_url = excluded.provider_avatar_url,
+              avatar_url = case when users.avatar_overridden then users.avatar_url
+                                else excluded.avatar_url end
         returning *, (xmax = 0) as inserted
       `.execute(trx);
       const row = rows[0];
@@ -146,6 +161,8 @@ export class UserStore {
   }
 }
 
-function matches(user: DirectoryUser, identity: Identity): boolean {
-  return user.displayName === identity.displayName && user.avatarUrl === identity.avatarUrl;
+function matches(entry: CacheEntry, identity: Identity): boolean {
+  return (
+    entry.user.displayName === identity.displayName && entry.providerAvatar === identity.avatarUrl
+  );
 }

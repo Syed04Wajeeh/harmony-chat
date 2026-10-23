@@ -20,12 +20,20 @@ const RASTER_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/web
 class UploadTap extends Transform {
   readonly hash = createHash('sha256');
   size = 0;
+
+  constructor(private readonly maxBytes: number) {
+    super();
+  }
   private head: Buffer[] = [];
   private headBytes = 0;
 
   override _transform(chunk: Buffer, _encoding: BufferEncoding, done: TransformCallback): void {
     this.hash.update(chunk);
     this.size += chunk.length;
+    if (this.size > this.maxBytes) {
+      done(Object.assign(new Error('file too large'), { code: 'FST_REQ_FILE_TOO_LARGE' }));
+      return;
+    }
     if (this.headBytes < SNIFF_BYTES) {
       this.head.push(chunk);
       this.headBytes += chunk.length;
@@ -59,9 +67,10 @@ export class UploadService {
     uploader: DirectoryUser,
     rawFilename: string,
     source: Readable & { truncated?: boolean },
+    maxBytes: number,
   ): Promise<Attachment> {
     const key = randomUUID();
-    const tap = new UploadTap();
+    const tap = new UploadTap(maxBytes);
     // pipeline (unlike .pipe) forwards a size-limit error from `source` into `tap`, so the
     // write to storage fails and the partial file is removed.
     const tapped = pipeline(source, tap, () => undefined);
@@ -141,7 +150,35 @@ export class UploadService {
       .select('id')
       .where('avatar_attachment_id', '=', attachmentId)
       .executeTakeFirst();
-    return webhook !== undefined;
+    if (webhook) return true;
+    const profile = await this.db
+      .selectFrom('user_profiles')
+      .select('user_id')
+      .where((eb) =>
+        eb.or([
+          eb('avatar_attachment_id', '=', attachmentId),
+          eb('banner_attachment_id', '=', attachmentId),
+        ]),
+      )
+      .executeTakeFirst();
+    if (profile) return true;
+    const emoji = await this.db
+      .selectFrom('guild_emoji')
+      .select('id')
+      .where('attachment_id', '=', attachmentId)
+      .executeTakeFirst();
+    return emoji !== undefined;
+  }
+
+  /** Opens the image of a custom emoji. */
+  async openEmoji(user: DirectoryUser, emojiId: string): Promise<StoredFile> {
+    const emoji = await this.db
+      .selectFrom('guild_emoji')
+      .select('attachment_id')
+      .where('id', '=', emojiId)
+      .executeTakeFirst();
+    if (!emoji) throw notFound();
+    return this.open(user, emoji.attachment_id);
   }
 
   /** Opens an attachment for a user who may see it: channel members, or the uploader until attached. */

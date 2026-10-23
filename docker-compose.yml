@@ -15,6 +15,9 @@ x-app-instance-env: &app-instance-env
   ALLOWED_LOGINS: ${ALLOWED_LOGINS:-}
   OUTBOUND_PRIVATE_ALLOWLIST: ${OUTBOUND_PRIVATE_ALLOWLIST:-}
   UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
+  UPLOAD_MAX_BYTES_PERK: ${UPLOAD_MAX_BYTES_PERK:-52428800}
+  PERKS_DEFAULT: ${PERKS_DEFAULT:-all}
+  EMOJI_MAX_PER_GUILD: ${EMOJI_MAX_PER_GUILD:-50}
 
 # Images are pinned and upgraded deliberately; opt out of host-level auto-updaters.
 x-no-auto-update: &no-auto-update
