@@ -1,8 +1,10 @@
 # Performance and horizontal scaling
 
-Everything here was measured on one shared home server against an isolated copy of the stack
-(`harmony-load`). Every number is from a run whose raw output is in
-[`loadtest/results/`](../loadtest/results). Dates are 2026-10-22. Nothing is extrapolated.
+How Harmony behaves under load and with two app instances, measured on one shared home server
+against an isolated copy of the stack (`harmony-load`). Every number is from a run whose raw output
+is in [`loadtest/results/`](../loadtest/results). Runs are dated 2026-10-22, except the presence
+section (2026-10-23). Nothing is extrapolated. Architecture context:
+[README](../README.md#architecture); design decisions: [NOTES.md](../NOTES.md).
 
 ## What was tested
 
@@ -117,7 +119,7 @@ Two things were learned along the way:
 container holds the old one) while probing REST and WebSocket connects every 150 ms. Before the
 upstream used `resolve`, nginx resolved `app1` once at startup and answered 502 for it until it
 was restarted (this happened for real on the live stack). With `resolver 127.0.0.11 valid=10s` and
-`server app1:8080 resolve`, nginx was never restarted and the address changed from 172.22.0.6 to 172.22.0.8:
+`server app1:8080 resolve`, nginx was never restarted and the address changed:
 85 of 85 REST probes returned 200, 0 WebSocket connect failures, and the first connection to the
 new app1 arrived 4.3 s after it became healthy (DNS re-resolution interval plus least_conn
 bookkeeping). Raw: `2026-10-22-recreate-new-ip.json`.
@@ -219,7 +221,7 @@ of one CPU with peaks of 115 %, so handshakes and subscriptions queued behind pr
 (handshake p95 8.6 s). In practice, with real users trickling in rather than a 90 s ramp, the load
 is lower, but the quadratic shape is real and is the first thing to change if this ever has to
 hold thousands of simultaneous users: scope presence to guild members instead of everyone. This
-was measured, not fixed here; see "Phase 6" for the fix and its results.
+was measured, not fixed here; see "Scoped and batched presence" for the fix and its results.
 
 ### REST history
 
@@ -237,7 +239,7 @@ Throughput flattens at about 1,000 requests/s regardless of concurrency; a sampl
 showed Postgres at about 162 % of its 2-CPU cap and each app at 63 %, so history reads are also
 bound by Postgres, and latency beyond the knee is queueing.
 
-## Re-check after the module system (Phase 5a)
+## Re-check after the module system
 
 The module system adds nothing to the send path by construction (see [modules.md](modules.md), "Hot-path
 guarantees"), and an integration test asserts that a send issues the same 6 SQL statements with
@@ -256,7 +258,7 @@ of the same code. It is one run, on a shared host, so read a 10 ms difference as
 finding. Raw: `loadtest/results/2026-10-22-fanout-modules-two-900.k6.json`. The stack and its volumes were
 removed afterwards.
 
-## Phase 6: scoped and batched presence
+## Scoped and batched presence
 
 Date 2026-10-23. Same stack, caps, scripts and k6 runner as above. Raw files:
 `loadtest/results/2026-10-23-*`.
@@ -295,12 +297,12 @@ Date 2026-10-23. Same stack, caps, scripts and k6 runner as above. Raw files:
 
 Methodology as in "Connection capacity" above (distinct authenticated users, 100 k6 VUs, one
 channel each, ramp then 30 s hold, k6 aborts above 1 % failed attempts, two app instances behind
-nginx with 1 CPU, apps 2 CPUs each). Differences from Phase 4, all of which apply equally to the
+nginx with 1 CPU, apps 2 CPUs each). Differences from the earlier connection-capacity run, all of which apply equally to the
 BEFORE and AFTER rows:
 
 - k6 additionally counts presence frames and the user updates inside them, and fetches
   `GET /api/presence` three times during the hold as one user (the cost of a snapshot with everyone
-  online). Phase 4 did not make that request.
+  online). the earlier run did not make that request.
 - The run script's watchdog limit was raised from a host load average of 12 to 16 (`WATCHDOG_LOAD`):
   the BEFORE 5,000 run was killed twice at 12.0 and 12.4 (4,100 to 4,200 sockets up, host load,
   not memory). The "load below 6 and 2.5 GB available" check before each run is unchanged.
@@ -398,7 +400,7 @@ My first AFTER run showed p95 67 ms against 9 to 13 ms recorded in earlier phase
 like a regression. It was not reproduced as one: with the code swapped back, BEFORE on a fresh stack
 gave 17, 58 and 67 ms in three consecutive runs and AFTER gave 26, 61 and 65. In both builds the
 first run on a stack is the best and later runs have a 10 to 15 % tail; the same-day numbers are
-worse than the 10 to 13 ms of Phase 5b for both builds, and Postgres sat at 165 to 166 % of its
+worse than the 10 to 13 ms measured after the permissions fix for both builds, and Postgres sat at 165 to 166 % of its
 2-CPU cap in the BEFORE and AFTER runs alike. I attribute the drift to the host (about 25 other
 containers) and to the stack's state, but I did not find the cause. The conclusion I can support is
 only that BEFORE and AFTER are indistinguishable at 900 msg/s with three runs each (p95 17 to 67 ms
@@ -432,7 +434,7 @@ A covering index `(channel_id, id) include (author_id, deleted_at)` gave an inde
 for the same query (`results/2026-10-23-unread-explain-covering-index.txt`; 28 MB on an 81 MB
 table, 32 MB for the existing index). It was not implemented: it is a second index on `messages`,
 which every send has to maintain (the 6-statement send path and the 900 msg/s result are what the
-phase must not disturb, and Phase 5b showed small costs there matter), it still walks every
+phase must not disturb, and the permissions regression below showed small costs there matter), it still walks every
 row of a channel whose unread messages are mostly the reader's own, and it depends on the planner
 agreeing. Nothing in the unread code was changed, so there is no AFTER number for it; I did not
 re-measure the endpoints on the AFTER build.
@@ -451,18 +453,20 @@ last message id" check first (a fully read channel then costs nothing).
 One host, k6 on the same machine, Serve and TLS bypassed. One run per cell (the fan-out check has
 three), and the two BEFORE worlds show 15 % differences in connected sockets for the same code.
 BEFORE never reached 5,000 sockets at the 5,000 and 10,000 targets in any of the four attempts today
-(Phase 4 reached 4,958 at 0.82 %); I did not find the reason for the lower number, host load was 0.2
+(the first connection-capacity run reached 4,958 at 0.82 %); I did not find the reason for the lower number, host load was 0.2
 to 2 at the start of each run. Memory per socket was not re-derived. Presence latency is now up to
 one batch window (1 s default) later than before; that was not measured end to end. Direct messages
 were not part of the worlds (no DM topics were exercised under load); they are covered by the
 integration tests only. The reproduce steps are the ones above plus
 `WATCHDOG_LOAD=16 LABEL=<before|after> bash loadtest/scripts/run-conns.sh 10000 120 30`.
 
-## Phase 5b regression investigation
+## Roles and permissions: a fan-out regression
 
-**Symptom.** The first fan-out run after roles and permissions (Phase 5b) at a 900 msg/s target
+In this section and in the raw file names, `5b` is the label of the roles-and-permissions branch.
+
+**Symptom.** The first fan-out run after roles and permissions were added at a 900 msg/s target
 achieved 749.5 msg/s with p50 1,344 ms and p95 1,415 ms (`2026-10-22-fanout-perms-two-900.k6.json`).
-Before 5b the same scenario gave 899 msg/s and p95 9 to 10 ms. It was unknown whether that was real
+Before it the same scenario gave 899 msg/s and p95 9 to 10 ms. It was unknown whether that was real
 or an artifact of how the world had been seeded.
 
 **Same-day baseline.** Two images were built the same day: `main` (checked out in a temporary git
@@ -553,7 +557,7 @@ above the guard's start-of-run limit but the effect it measured, over 1,000 ms l
 runs that started at 4 to 5). The nickname is read from a cache that is dropped within a Redis
 round trip of a change, so a message sent on another instance in that gap can carry the previous
 nickname. Every message list (history, search, pins) takes nicknames from the same cache; the search module
-joins `channels` itself again, as it did before 5b.
+joins `channels` itself again, as it did before that branch.
 Lesson: a change that looks free in `EXPLAIN ANALYZE` can still cost on a hot path through
 planning; `track_planning` belongs in the profiling overlay, and any new join in the message
 query needs a send-rate run.
@@ -597,14 +601,14 @@ worker-stopped diagnostic above.
 
 ## Findings not fixed
 
-- **Unread counts scan the whole messages table** (analyzed again in Phase 6, still not fixed). For a user whose channel has few unread
+- **Unread counts scan the whole messages table** (analyzed again with the presence work, still not fixed). For a user whose channel has few unread
   messages, the `unread_count` subquery in `ChannelService.listForUser` is planned as a scan of
   `messages_pkey` filtered by channel (`id > last_read`), 568,623 buffer hits and 173 ms with 600,000
   rows in the table, and `GET /api/guilds` and `/api/channels` cost 170 to 350 ms each. `ORDER BY`
   rewrites did not change the plan, and `ANALYZE` did not either. It grows with total message
   count, not channel size. It does not affect sending or history, so it was left; the next step
   is a lateral subquery over `messages_channel_id_id_idx` or a maintained unread counter.
-- Presence broadcast is quadratic (above): fixed in Phase 6.
+- Presence broadcast is quadratic (above): fixed (see "Scoped and batched presence").
 - Stale-ID backfill ordering risk (above), not observed.
 
 ## Limitations

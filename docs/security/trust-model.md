@@ -15,7 +15,7 @@ browser ──HTTPS──► Tailscale Serve (on the host, :18470)
                       ▼
                     nginx   adds X-Harmony-Proxy-Secret
                       ▼
-                  app:8080  (no published port; docker network only)
+              app1 / app2 :8080  (no published ports; docker network only)
 ```
 
 ## What Tailscale Serve guarantees
@@ -44,13 +44,13 @@ user's identity without that user's device key.
 
 ## What the app checks on every authenticated request
 
-| Check                                                                                                      | Rejects                  | Why                                                                                                                                   |
-| ---------------------------------------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `X-Harmony-Proxy-Secret` matches (constant-time compare)                                                   | `403 proxy_required`     | Only nginx knows the secret. Another container on the Docker network that talks to `app:8080` directly cannot forge identity headers. |
-| `Tailscale-Funnel-Request` absent                                                                          | `403 funnel_not_allowed` | Defense in depth if Funnel is ever enabled on this port by mistake.                                                                   |
-| `Tailscale-User-Login` present                                                                             | `401 no_identity`        | Tagged nodes and anything else without a user identity.                                                                               |
-| Optional login allowlist                                                                                   | `403 not_allowed`        | Limits access to named people even if more users can reach the node.                                                                  |
-| `Origin` equals the configured public origin, on every state-changing request and on the WebSocket upgrade | `403 bad_origin`         | See below.                                                                                                                            |
+| Check                                                                                                      | Rejects                  | Why                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `X-Harmony-Proxy-Secret` matches (constant-time compare)                                                   | `403 proxy_required`     | Only nginx knows the secret. Another container on the Docker network that talks to `app1:8080` or `app2:8080` directly cannot forge identity headers. |
+| `Tailscale-Funnel-Request` absent                                                                          | `403 funnel_not_allowed` | Defense in depth if Funnel is ever enabled on this port by mistake.                                                                                   |
+| `Tailscale-User-Login` present                                                                             | `401 no_identity`        | Tagged nodes and anything else without a user identity.                                                                                               |
+| Optional login allowlist                                                                                   | `403 not_allowed`        | Limits access to named people even if more users can reach the node.                                                                                  |
+| `Origin` equals the configured public origin, on every state-changing request and on the WebSocket upgrade | `403 bad_origin`         | See below.                                                                                                                                            |
 
 ### Why the Origin check matters most
 

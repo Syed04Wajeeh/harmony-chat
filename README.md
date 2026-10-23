@@ -1,184 +1,215 @@
 # Harmony
 
-A self-hosted, Discord-style team chat app: servers (guilds) with public and private channels, DMs, message history with keyset pagination, replies, reactions, mentions, pins, search, file uploads, unread counts and presence, delivered live over WebSockets and Redis pub/sub. Bots and integrations have a UI too: BOT/WEBHOOK badges, embed cards, slash commands with autocomplete and typed options, ephemeral replies, and settings screens for webhooks, bots (scopes, URLs, one-time secrets) and the event delivery log. Identity comes from Tailscale Serve, so there are no passwords or sign-up. The REST and WebSocket contract is in [docs/api/protocol.md](docs/api/protocol.md).
+A self-hosted team chat with servers, channels, DMs, roles, polls and a bot API. Sign-in is your Tailscale identity, so there are no passwords, and it runs as two app instances over Redis pub/sub.
 
-## Quickstart (Docker)
+[![CI](https://github.com/Syed04Wajeeh/harmony-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/Syed04Wajeeh/harmony-chat/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![TypeScript](https://img.shields.io/badge/TypeScript-6-3178c6.svg)
+
+![Harmony on desktop: a server with channels, a reply thread, reactions, a file attachment and a member list](docs/screenshots/desktop-channel.png)
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/desktop-light-channel.png" alt="Light theme"><br><sub>Light theme</sub></td>
+    <td><img src="docs/screenshots/mobile-channel.png" alt="Mobile layout" width="200"><br><sub>Phone layout</sub></td>
+    <td><img src="docs/screenshots/desktop-theme-editor.png" alt="Theme editor with contrast checker"><br><sub>Theme editor and contrast checker</sub></td>
+    <td><img src="docs/screenshots/desktop-roles.png" alt="Role editor"><br><sub>Roles</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/desktop-poll.png" alt="A poll in a channel"><br><sub>Poll module</sub></td>
+    <td><img src="docs/screenshots/desktop-embeds-alerts.png" alt="Uptime Kuma alerts as embeds"><br><sub>Webhook embeds</sub></td>
+    <td><img src="docs/screenshots/desktop-profile-popover.png" alt="Profile card"><br><sub>Profile card</sub></td>
+    <td><img src="docs/screenshots/desktop-delivery-log.png" alt="Bot event delivery log"><br><sub>Bot delivery log</sub></td>
+  </tr>
+</table>
+
+## What it is
+
+Harmony is a chat server for a small group, such as a family, a team or a homelab. People sign in with the Tailscale identity their device already has; the app checks it behind a reverse proxy and never stores a password. It has the usual features (servers, public and private channels, DMs, replies, reactions, mentions, search, uploads, unread counts, presence) plus roles, per-user themes, a bot and webhook platform, and an optional desktop app. It was built to learn and to show the engineering around a realtime system: scaling it out, measuring it, and writing down what is trusted and why.
+
+## Highlights
+
+1. **Passwordless auth with a written trust model.** Identity comes from the headers Tailscale Serve sets. Serve's header handling was checked against its source (v1.102.3) and against a live endpoint, nginx adds a shared secret so nothing else on the Docker network can forge identity, and every state-changing request and WebSocket upgrade must carry the expected `Origin`, which stops CSRF and cross-site WebSocket hijacking. [Trust model](docs/security/trust-model.md).
+2. **Horizontal scaling over Redis pub/sub.** Two identical app instances sit behind nginx with no sticky sessions. Every delivery goes through Redis, including to sockets on the same instance. Measured on one host: 1,000 messages sent half through each instance were received by both clients with 0 lost and 0 duplicated, latency p50 3 ms and p95 5 ms. With `docker kill` on one instance mid-run (20 receivers, about 100 messages/s), clients reconnected to the other and no persisted message was missing at any receiver in the valid runs; sends in flight at the moment of the kill failed with 502 and were not persisted. [Performance](docs/performance.md).
+3. **Measured performance, and what the measurements found.**
+   - _Send path:_ profiling showed a send cost 12 Postgres statements and the outbox worker woke once per notification. Cutting that to 6 statements raised the highest tested rate with p95 under 100 ms from 500 to 900 msg/s, and the saturation ceiling from about 698 to about 1,010 to 1,023 msg/s (two instances, 10 receivers per message). At a 750 msg/s target p95 went from 1,509 ms to 6 ms.
+   - _Regression:_ adding roles dropped a 900 msg/s run to 741 to 815.6 msg/s with p50 around 1 s, with an unchanged statement count and a good `EXPLAIN ANALYZE`. A/B runs against `main` and `pg_stat_statements` with planning time on showed the extra joins in one query cost 1.361 ms of planning per send (the driver sends it unprepared). Serving nicknames from the permission cache restored 897.2 to 898.1 msg/s at p95 11 to 12 ms.
+   - _Presence:_ broadcasting presence to every socket was quadratic. Scoping it to guilds and DMs and batching it over one second took 10,000 concurrent connections from stopping at 5,151 (1.00 % failures, handshake p95 10,995 ms) to 10,000 connected with 0 failures (handshake p95 29 ms), and presence frames received from 96,328/s to 2,942/s.
+   - All of these are one host with the load generator on the same machine; conditions are in [docs/performance.md](docs/performance.md).
+4. **A bot and integration platform.** Bots are users with scoped tokens (only a hash is stored). Incoming webhooks accept Discord's payload, checked against Uptime Kuma's source ([recipe](examples/uptime-kuma.md)). Slash commands go to the bot as signed requests (HMAC with a timestamp inside the MAC). Outgoing events use a transactional outbox with at-least-once, retried delivery (exponential backoff with jitter, then `dead`). Requests to user-supplied URLs go through an SSRF guard that pins the resolved address. [API](docs/api/protocol.md), [security](docs/security/trust-model.md#bots-and-integrations), [ingress](docs/integrations.md), [echo bot](examples/echo-bot/README.md).
+5. **A module system.** Reactions, pins, search, uploads, polls, custom emoji and a coin flip are modules: a folder that registers routes, WebSocket frames, slash commands, migrations, message data and settings through a typed context, with a test that the send path costs the same with and without them. Polls are the vertical-slice example (server, tables, UI). [Modules](docs/modules.md).
+6. **Roles and permissions.** Roles with positions, per-channel overwrites, and one pure function shared by server and client tests to resolve them, with a worked example and hierarchy rules. [Permissions](docs/permissions.md).
+7. **Customization.** Themes are validated data over an allowlist of tokens, with a contrast checker and auto-fix; custom CSS is opt-in and sanitized on both server and client; plus profiles, custom emoji, server branding and admin-granted perks. [Customization](docs/customization.md), [theming](docs/theming.md).
+8. **A desktop app.** Tauri v2 shell that loads your server's own origin, so identity and Origin checks are unchanged. Its IPC capability grants exactly two commands (notify, set badge). [Desktop](apps/desktop/README.md), [bridge security](docs/security/trust-model.md#desktop-app).
+
+## Architecture
+
+```mermaid
+flowchart LR
+  client["Browser / desktop app"] -->|HTTPS| serve["Tailscale Serve<br/>(sets identity headers)"]
+  serve --> nginx["nginx, user proxy<br/>(adds proxy secret, least_conn)"]
+  nginx --> app1["app1"]
+  nginx --> app2["app2"]
+  app1 <-->|"pub/sub, presence,<br/>caches, rate limits"| redis[("Redis")]
+  app2 <--> redis
+  app1 --> pg[("Postgres")]
+  app2 --> pg
+  app1 --- uploads[/"uploads volume"/]
+  app2 --- uploads
+  scripts["Homelab services<br/>and scripts"] -->|"webhooks, bot tokens"| integ["integrations proxy<br/>(no secret, 127.0.0.1 only)"]
+  integ --> app1
+  integ --> app2
+  pg -->|"outbox rows + LISTEN/NOTIFY"| worker["worker"]
+  worker -->|"signed, retried HTTP"| bots["Bots and<br/>webhook receivers"]
+```
+
+People enter through Serve and the user proxy, which is the only holder of the proxy secret. Machines enter through a separate proxy that blanks every identity header, so a request there can only act as a bot or a webhook. Postgres and Redis publish no ports. Migrations run in a one-shot `migrate` service before the app instances start.
+
+```mermaid
+sequenceDiagram
+  participant C as Client
+  participant A as App instance
+  participant P as Postgres
+  participant R as Redis
+  participant O as Other instance
+  C->>A: message.send (nonce)
+  A->>A: validate, check permission, rate limit
+  A->>P: one transaction: insert message + outbox row
+  P-->>A: commit
+  A->>R: PUBLISH channel topic
+  R-->>A: message
+  R-->>O: message
+  A-->>C: message.created to subscribed sockets
+  O-->>C: message.created to its subscribed sockets
+  A-->>C: ack (nonce, message)
+```
+
+The sender's own socket gets both the ack and the broadcast with the same message id and the client keeps one. On reconnect a client subscribes with its last seen id: the server joins the Redis channel first and then backfills from Postgres, so a message published in between may arrive twice (live and in the backfill) but is not lost, and the client dedupes by id. Why these choices were made: [NOTES.md](NOTES.md).
+
+## Tech stack
+
+| Area      | Choice                                                   | Why                                                                                                                                            |
+| --------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Language  | TypeScript 6 on Node 24, pnpm monorepo                   | One language end to end; a shared zod package means protocol drift is a compile error ([NOTES](NOTES.md)).                                     |
+| Server    | Fastify 5, raw `ws`                                      | Small typed protocol that I wanted to own, rather than Socket.IO's rooms and framing ([NOTES](NOTES.md)).                                      |
+| Database  | Postgres 16 with Kysely                                  | Queries and migrations stay close to SQL; no generated client or engine binary. Full-text search uses a stored `tsvector` and a GIN index.     |
+| Realtime  | Redis 7 pub/sub, Lua scripts for presence                | One delivery path for local and remote sockets; atomic presence transitions decided inside Redis.                                              |
+| Web       | React, Vite, zustand, React Router, Radix, plain CSS     | One normalized store fed by REST and WebSocket frames; CSS custom properties make themes data ([NOTES](NOTES.md), [theming](docs/theming.md)). |
+| Desktop   | Tauri v2 (Rust)                                          | A thin shell using the system webview instead of bundling Chromium ([NOTES](NOTES.md)).                                                        |
+| Edge      | Tailscale Serve, nginx                                   | Serve gives TLS and identity; nginx adds the secret, balances with `least_conn` and keeps the machine ingress separate.                        |
+| Testing   | Vitest, Testing Library, Testcontainers, Playwright, k6  | Real Postgres, Redis and nginx in integration tests; k6 for the load numbers.                                                                  |
+| Packaging | Docker Compose, GitHub Actions (CI and desktop releases) | The whole stack is one compose file; images are pinned and upgraded deliberately.                                                              |
+
+## Quickstart
+
+Requires Docker, and Tailscale on the host if you want sign-in to work (see below).
 
 ```sh
-cp .env.example .env        # set POSTGRES_PASSWORD, PROXY_SHARED_SECRET, PUBLIC_ORIGIN
+cp .env.example .env     # set POSTGRES_PASSWORD, PROXY_SHARED_SECRET (openssl rand -hex 32), PUBLIC_ORIGIN
 docker compose up -d --build
 curl http://127.0.0.1:8470/healthz
 ```
 
-For later deploys use `scripts/deploy.sh`, which also restarts the proxies when their bind-mounted config changed.
-
-Request path: Tailscale Serve (HTTPS) → `127.0.0.1:8470` → nginx → app. nginx is the only published port and stamps a shared secret on every request; the app rejects requests without it. Postgres and Redis stay on the internal network, and a one-shot `migrate` service applies migrations before the app starts. Uploads live in the `harmony_uploads` volume (limit `UPLOAD_MAX_BYTES`, default 10 MiB).
-
-Point Serve at nginx and set `PUBLIC_ORIGIN` to the exact URL browsers use, for example:
+Point Tailscale Serve at nginx and set `PUBLIC_ORIGIN` to the exact URL browsers use:
 
 ```sh
 tailscale serve --bg --https=18470 http://127.0.0.1:8470
 # PUBLIC_ORIGIN=https://chat.example.ts.net:18470
 ```
 
-Bots and integrations (bot tokens, incoming webhooks, slash commands, signed outgoing events) are described in [docs/api/protocol.md](docs/api/protocol.md) and [docs/security/trust-model.md](docs/security/trust-model.md); `examples/` has a bot, an Uptime Kuma recipe and a curl script. Events are delivered by a separate `worker` service, and `127.0.0.1:8471` is a host-local ingress that only forwards bot-token requests, webhooks and interaction follow-ups. Bots owned by an instance admin can reach private hosts listed in `OUTBOUND_PRIVATE_ALLOWLIST`; everyone else's can only reach public addresses.
+`ALLOWED_LOGINS` (comma-separated) restricts access to specific tailnet users; empty allows anyone on the tailnet. The first user to sign in becomes the instance admin. To call the API without Serve, send the header it would add: `curl -H 'Tailscale-User-Login: you@example.com' http://127.0.0.1:8470/api/me`.
 
-Set `ALLOWED_LOGINS` (comma-separated) to restrict access to specific tailnet users; empty allows any user on the tailnet.
+For later updates run `scripts/deploy.sh`, which rebuilds, recreates the containers and restarts the proxies only when their bind-mounted config changed (compose does not notice that on its own). The host-local ingress for scripts is `127.0.0.1:8471`; see [docs/integrations.md](docs/integrations.md).
 
-To exercise the API without Serve, send the headers it would add:
+## Local development
 
-```sh
-curl -H 'Tailscale-User-Login: you@example.com' http://127.0.0.1:8470/api/me
-```
-
-## Development
-
-Requires Node 24, pnpm 12 (`corepack enable pnpm`) and Docker for Postgres and Redis.
+Requires Node 24, pnpm 12 (`corepack enable pnpm`) and Docker.
 
 ```sh
 pnpm install
-docker compose -f compose.dev.yml up -d --wait     # throwaway Postgres :15432, Redis :16379 (project harmony-dev)
+docker compose -f compose.dev.yml up -d --wait   # throwaway Postgres :15432, Redis :16379
 
 export DATABASE_URL=postgres://harmony:dev@127.0.0.1:15432/harmony
 export REDIS_URL=redis://127.0.0.1:16379
 export NODE_ENV=development
-export DEV_AUTH_LOGIN=you@example.com   # fake identity; only honored when NODE_ENV=development
-export DEV_AUTH_NAME=You                # optional
+export DEV_AUTH_LOGIN=you@example.com            # fake identity, honored only in development
 
 pnpm --filter @harmony/server migrate
-pnpm dev                    # server on :8080, Vite on :5173 (proxies /api including WebSockets)
+pnpm dev                                         # server on :8080, Vite on :5173
 ```
 
-Open http://localhost:5173. The Origin check applies in development too, and defaults to `http://localhost:5173`; set `PUBLIC_ORIGIN` if you use another host. The server refuses to start with `DEV_AUTH_LOGIN` set outside development. In development a `dev_login=name@example.com` cookie switches the identity per browser, which is how the e2e tests play two people (see [the trust model](docs/security/trust-model.md#development-mode)). Tear down with `docker compose -f compose.dev.yml down -v`; it never touches the production `harmony` project.
-
-To try it on a phone, run Vite with `--host` and open the machine's LAN address; set `PUBLIC_ORIGIN` to that exact origin. Add it to the home screen for the standalone app look (web manifest, no service worker).
+Open http://localhost:5173. In development a `dev_login=name@example.com` cookie switches identity per browser, which is how the e2e tests play several users; the server refuses to start with `DEV_AUTH_LOGIN` set outside development ([details](docs/security/trust-model.md#development-mode)). `docker compose -f compose.dev.yml down -v` removes the dev data. For a phone, run Vite with `--host` and set `PUBLIC_ORIGIN` to that origin.
 
 ### Tests
 
-```sh
-pnpm test:unit          # server + web (Vitest, Testing Library)
-pnpm test:integration   # Testcontainers, needs Docker
-pnpm test:e2e           # Playwright: two users, mobile drawer, long-press sheet, uploads, webhooks, bots
+| Command                 | Covers                                                                                                                                                                                            | Count                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `pnpm test:unit`        | Pure logic, permissions, theme and CSS sanitizing, SSRF rules, the web store and components (Vitest, Testing Library), desktop page                                                               | 883 (646 server, 229 web, 8 desktop)   |
+| `pnpm test:integration` | Real Postgres, Redis and nginx via Testcontainers (needs Docker): migrations, REST, the hub with two instances, webhooks, bots, the worker, modules                                               | 347                                    |
+| `pnpm test:e2e`         | Playwright against the dev stack: two users, mobile drawer and long-press sheet, uploads, polls, roles, profiles, webhooks, bots; needs `playwright install chromium`                             | specs in `apps/web/e2e`, run in CI     |
+| `pnpm load:test`        | k6 and Node scripts against an isolated two-instance stack (`pnpm load:up` first, `pnpm load:down` after); also `pnpm load:failover`. Steps: [docs/performance.md](docs/performance.md#reproduce) | see [performance](docs/performance.md) |
+
+The unit and integration counts are from running both commands on this checkout. CI also runs `pnpm lint`, `pnpm typecheck`, `pnpm build`, a link check (`node scripts/check-links.mjs`), a Docker image build, and the desktop app's `cargo fmt`, `clippy` and `cargo test`.
+
+## Project structure
+
+```
+apps/
+  server/      Fastify API, realtime hub, outbox worker, migrations, modules (src/modules)
+  web/         React client; src/modules holds the UI side of modules; e2e/ is Playwright
+  desktop/     Tauri v2 shell (Rust in src-tauri, a small setup page in src)
+packages/
+  shared/      zod schemas, WebSocket protocol, permission resolution, request signing
+deploy/
+  nginx/       user proxy and integrations proxy config
+  load/        compose files for the isolated load-test stack
+loadtest/      k6 scenarios, failover and cross-instance scripts, raw results
+examples/      echo bot, Uptime Kuma recipe, curl script for webhooks
+docs/          API, security, performance, modules, permissions, theming, screenshots
+scripts/       deploy.sh, check-links.mjs
 ```
 
-`pnpm test:e2e` needs the dev Postgres/Redis above and a Chromium (`pnpm --filter @harmony/web exec playwright install chromium`). Playwright starts the API in development mode (with `OUTBOUND_PRIVATE_ALLOWLIST=localhost,127.0.0.1`) and Vite on 127.0.0.1:18080 / :15173 itself, or reuses them if they are running. The bot test runs `examples/echo-bot` against that API; it needs the instance admin, which is the first user in an empty database, and skips itself otherwise. CI runs the same suite in its `e2e` job against Postgres and Redis service containers.
+## Documentation
 
-To run the browser inside Docker instead (useful on a headless server), start the API and Vite yourself, then:
-
-```sh
-docker run --rm --network host -e E2E_NO_WEBSERVER=1 -e E2E_BASE_URL=http://localhost:15173 \
-  -v "$PWD":/work -w /work/apps/web mcr.microsoft.com/playwright:v1.64.1-noble \
-  npx playwright test -c e2e/playwright.config.ts
-```
-
-### Screenshots
-
-`E2E_SCREENSHOTS=1 pnpm --filter @harmony/web test:e2e` seeds a fictional book club (Ada, Linus, Grace, Margaret, Alan, all `@example.com`) into an empty dev database and rewrites `docs/screenshots/`. Start from a fresh database, since the first user created is the instance admin. The integrations shots (a "Home Lab" server with Uptime Kuma and job-scan webhooks, an echo bot and its delivery log) also need the event worker running (`pnpm --filter @harmony/server exec tsx src/worker.ts` with the same `DATABASE_URL`, `OUTBOUND_PRIVATE_ALLOWLIST=localhost,127.0.0.1`) so the log has deliveries. The web client reads an optional `VITE_DOCS_BASE_URL` at build time to link the integration guides. Icons in `apps/web/public` are rasterized from `icon.svg` with `apps/web/scripts/make-icons.mjs`.
-
-| Command                 | What it does                                   |
-| ----------------------- | ---------------------------------------------- |
-| `pnpm lint`             | ESLint (typescript-eslint, type-checked rules) |
-| `pnpm typecheck`        | `tsc` across all workspaces                    |
-| `pnpm test:unit`        | Vitest unit tests (server, web, desktop)       |
-| `pnpm test:integration` | Vitest + Testcontainers (needs Docker)         |
-| `pnpm build`            | Build shared, server, web and desktop page     |
-| `pnpm format`           | Prettier                                       |
-
-## Customization
-
-Appearance is saved per user on the server, so it follows you across devices and updates live in other open sessions.
-
-- **Themes**: eight presets (Harmony Dark and Paper, Midnight, Forest, Ember, Rosé, Solarized, High Contrast), all WCAG AA. Build your own in the theme editor with a live preview and a contrast checker that warns about unreadable pairs and can auto-fix them; share a theme as a short string.
-- **Display**: density, flat or floating panels, text size, message font (Manrope, Inter, Atkinson Hyperlegible, IBM Plex Sans), reduced-motion override. **Behavior**: 12 or 24-hour clock, avatars, grouping, member list default, Enter to send, idle timeout.
-- **Custom CSS** (opt-in) with stable `data-harmony` hooks, sanitized so it cannot load remote resources. `?safe` in the address turns custom CSS and themes off if a style breaks the page.
-- **Server branding**: owners and `manage_guild` holders set an accent color, banner and description; members see the banner in the sidebar and on invite pages, and the accent while the server is open (they can turn that off).
-
-- **Profiles**: an uploaded avatar (cropped square in the browser, reset any time to your Tailscale picture), a banner color, accent color, pronouns, a Markdown bio and a custom status with an expiry. Click a name or avatar for the profile card (a bottom sheet on phones) with roles, member-since dates and a Message button.
-- **Custom emoji**: members with `manage_emoji` upload PNG, GIF or WebP emoji (256 KB, 128x128); use them with `:name` autocomplete, in the picker and as reactions. Messages made only of emoji render large.
-- **Perks**: free, admin-granted extras (animated avatars, banner images, cross-server emoji, larger uploads, more themes, status emoji). `PERKS_DEFAULT=all` gives everyone everything; set `PERKS_DEFAULT=none` to hand them out one by one in Settings > User > Perks.
-
-Details: [docs/customization.md](docs/customization.md), [docs/theming.md](docs/theming.md), [Custom CSS threat model](docs/security/trust-model.md).
-
-| Profile card                                                     | Profile editor                                                    |
-| ---------------------------------------------------------------- | ----------------------------------------------------------------- |
-| ![Profile popover](docs/screenshots/desktop-profile-popover.png) | ![Profile editor](docs/screenshots/desktop-profile-editor.png)    |
-| ![Custom emoji](docs/screenshots/desktop-custom-emoji.png)       | ![Emoji picker](docs/screenshots/desktop-emoji-picker-custom.png) |
-| ![Status menu](docs/screenshots/desktop-status-menu.png)         | ![Emoji settings](docs/screenshots/desktop-emoji-settings.png)    |
-| ![Perks admin](docs/screenshots/desktop-perks-admin.png)         | ![Profile sheet](docs/screenshots/mobile-profile-sheet.png)       |
-
-| Themes                                                             | Editor                                                        |
-| ------------------------------------------------------------------ | ------------------------------------------------------------- |
-| ![Theme gallery](docs/screenshots/desktop-themes.png)              | ![Theme editor](docs/screenshots/desktop-theme-editor.png)    |
-| ![Midnight](docs/screenshots/desktop-theme-midnight.png)           | ![Rosé](docs/screenshots/desktop-theme-rose.png)              |
-| ![High contrast](docs/screenshots/desktop-theme-high-contrast.png) | ![Server banner](docs/screenshots/desktop-guild-branding.png) |
-
-| Phone                                                   |                                                       |                                                         |
-| ------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------- |
-| ![Themes](docs/screenshots/mobile-themes.png)           | ![Editor](docs/screenshots/mobile-theme-editor.png)   | ![Contrast](docs/screenshots/mobile-theme-contrast.png) |
-| ![Midnight](docs/screenshots/mobile-theme-midnight.png) | ![Custom CSS](docs/screenshots/mobile-custom-css.png) | ![Invite](docs/screenshots/mobile-invite-banner.png)    |
+| Document                                                       | What is in it                                                                                          |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [docs/api/protocol.md](docs/api/protocol.md)                   | REST endpoints, WebSocket frames, bot and webhook API                                                  |
+| [docs/security/trust-model.md](docs/security/trust-model.md)   | Why header auth is safe here, Origin checks, bots, SSRF, custom CSS, the desktop bridge                |
+| [docs/performance.md](docs/performance.md)                     | Every measurement with its conditions, the investigations, how to reproduce                            |
+| [docs/modules.md](docs/modules.md)                             | The module contract and a guide to writing one                                                         |
+| [docs/permissions.md](docs/permissions.md)                     | Roles, overwrites, resolution order, hierarchy                                                         |
+| [docs/theming.md](docs/theming.md)                             | Design tokens, themes as data, custom CSS                                                              |
+| [docs/customization.md](docs/customization.md)                 | What users, server managers and admins can change                                                      |
+| [docs/integrations.md](docs/integrations.md)                   | The machine ingress for webhooks and bots                                                              |
+| [examples/](examples/uptime-kuma.md)                           | [Uptime Kuma](examples/uptime-kuma.md), [echo bot](examples/echo-bot/README.md), `post-from-script.sh` |
+| [apps/desktop/README.md](apps/desktop/README.md)               | Building, releasing and signing the desktop app                                                        |
+| [NOTES.md](NOTES.md)                                           | Dated design decisions with rejected alternatives, measured results, problems solved                   |
+| [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) | Contributing and reporting vulnerabilities                                                             |
 
 ## Desktop app
 
-Installers for Windows (`.exe` and `.msi`), macOS (Apple silicon `.dmg`) and Linux (`.AppImage` and `.deb`) are attached to the [GitHub releases](https://github.com/Syed04Wajeeh/harmony-chat/releases). The app is a small [Tauri](https://tauri.app) shell (about 10 MB, it uses the system webview): on first start it asks for your Harmony server URL, checks that it answers like Harmony, and then shows the server in its own window with a tray icon, launch at login, native notifications for mentions and DMs, an unread badge and auto-update.
+Installers for Windows (`.exe`, `.msi`), macOS (Apple silicon `.dmg`) and Linux (`.AppImage`, `.deb`) are on the [Releases page](https://github.com/Syed04Wajeeh/harmony-chat/releases). On first start the app asks for your Harmony server URL and shows that server in its own window, with a tray icon, launch at login, native notifications for mentions and DMs, an unread badge and auto-update. It needs Tailscale running on that machine and does not work offline.
 
-It loads the server itself instead of bundling the web client, so sign-in is still your Tailscale identity (the PC has to be connected to Tailscale), the server's origin checks pass unchanged, and the UI always matches the server version. The cost is that it does not work offline. Details, build and release steps: [apps/desktop/README.md](apps/desktop/README.md); the bridge's security model: [docs/security/trust-model.md](docs/security/trust-model.md#desktop-app).
+The installers are not code-signed. Windows SmartScreen shows "Unknown publisher" (More info, then Run anyway) and macOS Gatekeeper blocks the first launch (right-click the app, choose Open). Details: [apps/desktop/README.md](apps/desktop/README.md).
 
-Things to know:
+## Limitations
 
-- **Unsigned installers.** There are no code-signing certificates yet. Windows SmartScreen shows "Unknown publisher" (More info, then Run anyway) and macOS Gatekeeper blocks the first launch (right-click the app, choose Open). How to add signing later is in the desktop README.
-- **Private repository.** While this repository is private, the update check (`releases/latest/download/latest.json`) cannot be fetched without authentication, so auto-update does nothing and fails silently. It starts working once the repository is public or the release files are mirrored.
-- **Download link in the web app.** Build the server image with `VITE_RELEASES_URL` (for example `docker compose build --build-arg VITE_RELEASES_URL=https://github.com/Syed04Wajeeh/harmony-chat/releases/latest`) to show a "Desktop app" page with a download button in user settings. It is hidden when unset.
+- **One host.** The stack is Docker Compose on a single machine. Two app instances give failover and more connection capacity, not more write throughput: Postgres was the limit in the measurements, and two instances were no faster than one at the tested rates ([why](docs/performance.md#one-instance-versus-two)). There is no database replication or Redis persistence.
+- **Measurements are from one shared home server**, with the load generator on the same machine, TLS and Serve bypassed, and mostly one run per cell. See the limits section of [docs/performance.md](docs/performance.md#limitations).
+- **Unread counts do not scale with total messages in some data shapes.** With 599,998 messages concentrated in a few busy channels, `GET /api/guilds` took 221 ms at p50. The analysis, a rejected index and a proposed counter design are in [docs/performance.md](docs/performance.md#unread-counts-analysis-only-not-fixed); it is not fixed.
+- **Presence lags by up to one second** (the batch window, `PRESENCE_BATCH_MS`). That was not measured end to end.
+- **No end-to-end encryption.** The server can read messages. Trust in the host and in Tailscale's control plane is spelled out in the [trust model](docs/security/trust-model.md#what-we-trust-residual-risk).
+- **No voice or video.**
+- **Embed images are loaded straight from the sender's URL**, so the image host sees readers' IP addresses ([NOTES](NOTES.md)).
+- **Desktop installers are unsigned** (above).
 
-## Modules
+## Roadmap
 
-Reactions, pins, search, uploads, polls, custom emoji and a coin flip are modules, not core code: each is a folder with one object that registers routes, WebSocket frames, slash commands, message data, migrations and per-server settings through a small typed context, and an optional matching folder in the web client for the UI slots (message accessories, composer actions, header buttons, settings pages). Server owners switch optional modules on and off in Server settings, Modules, which also builds a settings form from each module's schema; operators can turn any module off for the whole instance with `MODULES_DISABLED=polls,coinflip`. Adding a module is one import line plus a folder: the walkthrough in [docs/modules.md](docs/modules.md) builds `/coinflip` in about 30 lines, and `apps/server/src/modules/polls` (with `apps/web/src/modules/polls`) is a complete example with its own tables, live updates, a composer dialog and a `/poll` command.
+- Maintained unread counters, if the measured unread cost starts to matter.
+- Measure presence for DMs and delivery to larger channels under load; neither was part of the load worlds.
+- Code-signing for the desktop installers.
+- Voice and video.
 
-Servers have roles and per-channel permission overwrites (Discord-style: a role is a set of permissions with a position, channels can allow or deny them per role or member, and the owner and instance admins can do everything). Private channels are channels @everyone cannot view. The model, the resolution order with a worked example, and the hierarchy rules are in [docs/permissions.md](docs/permissions.md).
+## License
 
-| Phone                                     |                                                           |                                                 |
-| ----------------------------------------- | --------------------------------------------------------- | ----------------------------------------------- |
-| ![Poll](docs/screenshots/mobile-poll.png) | ![Create a poll](docs/screenshots/mobile-poll-create.png) | ![Modules](docs/screenshots/mobile-modules.png) |
-
-![Poll on desktop](docs/screenshots/desktop-poll.png)
-![Create a poll on desktop](docs/screenshots/desktop-poll-create.png)
-![Modules settings on desktop](docs/screenshots/desktop-modules.png)
-
-## Scaling & performance
-
-The production compose file runs two identical app instances behind nginx (`least_conn`, no sticky sessions: all fan-out goes through Redis and all state is in Postgres and Redis). `docs/performance.md` has the measured results from an isolated copy of the stack: cross-instance delivery with 0 lost and 0 duplicated messages, failover when an instance is killed or recreated, fan-out latency, connection capacity and history throughput, each with its conditions and limits, plus how to reproduce them (`pnpm load:up`, `pnpm load:test`, `pnpm load:failover`, `pnpm load:down`). See [docs/performance.md](docs/performance.md).
-
-## Layout
-
-- `apps/server`: Fastify 5 API, Kysely migrations, `src/modules` (the module system and the modules)
-- `apps/web`: Vite + React client (`src/modules` holds the UI side of modules) (React Router, zustand, plain CSS with design tokens, PWA manifest)
-- `apps/desktop`: Tauri v2 desktop app that opens your server in its own window
-- `packages/shared`: zod schemas and the WebSocket protocol, shared by both
-- `examples`: echo bot, Uptime Kuma recipe, webhook script
-- `deploy/nginx`: reverse-proxy config template
-- `deploy/load`, `loadtest`: isolated load-test stack, k6 scenarios, failover and cross-instance scripts
-
-## Screenshots
-
-| Phone                                                           |                                               |                                                         |
-| --------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------- |
-| ![Channel](docs/screenshots/mobile-channel.png)                 | ![Drawer](docs/screenshots/mobile-drawer.png) | ![Message actions](docs/screenshots/mobile-actions.png) |
-| ![Replies and reactions](docs/screenshots/mobile-reactions.png) | ![Image](docs/screenshots/mobile-image.png)   | ![Composer](docs/screenshots/mobile-keyboard.png)       |
-
-![Desktop](docs/screenshots/desktop-channel.png)
-
-### Bots and integrations
-
-| Phone                                                                  |                                                            |                                                                       |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------- |
-| ![Uptime Kuma alerts](docs/screenshots/mobile-embeds-alerts.png)       | ![Job scan embed](docs/screenshots/mobile-embeds-jobs.png) | ![Slash autocomplete](docs/screenshots/mobile-slash-autocomplete.png) |
-| ![Ephemeral reply](docs/screenshots/mobile-ephemeral-reply.png)        | ![Bot settings](docs/screenshots/mobile-bot-settings.png)  | ![Delivery log](docs/screenshots/mobile-delivery-log.png)             |
-| ![New webhook, shown once](docs/screenshots/mobile-webhook-create.png) |                                                            |                                                                       |
-
-![Alerts on desktop](docs/screenshots/desktop-embeds-alerts.png)
-![Webhook URL, shown once](docs/screenshots/desktop-webhook-create.png)
-![Bot settings on desktop](docs/screenshots/desktop-bot-settings.png)
-![Delivery log on desktop](docs/screenshots/desktop-delivery-log.png)
-
-Appearance (theme, density, flat or floating panels) is a user setting; the design tokens behind it are documented in [docs/theming.md](docs/theming.md). Light theme, compact and flat variants, member list, search and the invite page are in [docs/screenshots](docs/screenshots) (`desktop-light-*`, `mobile-light-*`, `desktop-compact.png`, `desktop-flat.png`, `desktop-appearance.png`).
-
-Design decisions are tracked in [NOTES.md](NOTES.md).
+[MIT](LICENSE)
