@@ -219,7 +219,7 @@ of one CPU with peaks of 115 %, so handshakes and subscriptions queued behind pr
 (handshake p95 8.6 s). In practice, with real users trickling in rather than a 90 s ramp, the load
 is lower, but the quadratic shape is real and is the first thing to change if this ever has to
 hold thousands of simultaneous users: scope presence to guild members instead of everyone. This
-was measured, not fixed.
+was measured, not fixed here; see "Phase 6" for the fix and its results.
 
 ### REST history
 
@@ -255,6 +255,208 @@ resolution: p50 and p95 are within a millisecond, and the p99 difference is the 
 of the same code. It is one run, on a shared host, so read a 10 ms difference as noise rather than as a
 finding. Raw: `loadtest/results/2026-10-22-fanout-modules-two-900.k6.json`. The stack and its volumes were
 removed afterwards.
+
+## Phase 6: scoped and batched presence
+
+Date 2026-10-23. Same stack, caps, scripts and k6 runner as above. Raw files:
+`loadtest/results/2026-10-23-*`.
+
+### What changed
+
+- **Scope.** A user's presence is published to one Redis topic per guild they are in
+  (`harmony:presence:guild:<id>`) and one per DM (`harmony:presence:dm:<channelId>`, so both
+  participants share it), and every socket is subscribed to the topics of its own user's guilds and
+  DMs. Visibility is symmetric by construction. Why topics and not a per-event audience computed by
+  every instance: a transition can be detected on an instance that does not host the user (a sweep
+  after a crash, `PATCH /api/me` landing elsewhere), and a subscriber-side filter would then need
+  the membership of users it has no sockets for. With topics the publisher needs the user's topic
+  list and the subscriber needs only its own sockets' lists, and Redis does the filtering. The
+  list is loaded with one query at connect (the query that replaced the status read the old
+  announce did), then kept live from the per-user events the sockets already receive
+  (`guild.joined`, `guild.removed`, DM `channel.joined`). No database query happens per presence event.
+  Exceptions, both rare: a user whose sockets are not on the publishing instance (status change via
+  REST on another instance, expiry after a crash) costs one membership query.
+- **Shown status** moved from "read `users.status` at every announce" to a Redis hash
+  (`harmony:presence:status`) changed in the same Lua step as the online set. Snapshots read it with
+  `HMGET`, so `GET /api/presence` and the guild member list make no query for statuses.
+- **Snapshots are scoped.** `GET /api/presence` lists the caller, the members of the caller's guilds
+  (from the permission cache) and DM partners.
+- **Batching.** Each instance coalesces presence per topic over `PRESENCE_BATCH_MS` (default 1000):
+  last write wins per user, a user whose final state equals what the topic last sent is dropped
+  (a flap sends nothing), and each socket in the topic gets one `presence.batch` frame with the
+  serialized string shared by all sockets. State is per topic, not per socket, so a 10,000-member
+  guild keeps one map, not 10,000. The `presence.updated` socket frame is gone (it stays as the
+  internal Redis event).
+- **Snapshot correctness.** `hello` is sent only after the socket joined its presence topics. The
+  client fetches `GET /api/presence` after `hello`; batch updates that arrive while the fetch is in
+  flight win over the fetched value. Joining or leaving a guild, or a new DM, triggers a refetch.
+
+### Measurement
+
+Methodology as in "Connection capacity" above (distinct authenticated users, 100 k6 VUs, one
+channel each, ramp then 30 s hold, k6 aborts above 1 % failed attempts, two app instances behind
+nginx with 1 CPU, apps 2 CPUs each). Differences from Phase 4, all of which apply equally to the
+BEFORE and AFTER rows:
+
+- k6 additionally counts presence frames and the user updates inside them, and fetches
+  `GET /api/presence` three times during the hold as one user (the cost of a snapshot with everyone
+  online). Phase 4 did not make that request.
+- The run script's watchdog limit was raised from a host load average of 12 to 16 (`WATCHDOG_LOAD`):
+  the BEFORE 5,000 run was killed twice at 12.0 and 12.4 (4,100 to 4,200 sockets up, host load,
+  not memory). The "load below 6 and 2.5 GB available" check before each run is unchanged.
+- BEFORE is `main` at 96f15fe built in a temporary worktree; AFTER is this branch. Both images were
+  built the same day with the same Dockerfile; each ran on a freshly created stack (volumes removed
+  in between).
+
+**World shapes.** Users are created through the REST API as before. Every new user is auto-joined
+to the instance's default guild, which would make every world a single shared guild. Two shapes were
+therefore measured:
+
+- **Scoped world** (`loadtest/scripts/detach-default-guild.sql`): the 10,000 users removed from the
+  default guild after setup, so each user is only in their own guild: 100 guilds of 100 members,
+  nobody shares anything with anybody outside their guild. Apps restarted afterwards (guild
+  membership is cached).
+- **Giant-guild world** (nothing removed): all N connecting users are in one shared guild
+  (the default one, up to 10,000 members) and also in their own 100-member guild. Scoping removes
+  nothing here: everyone is a member of the same guild, so this is the worst case for scoping and
+  isolates what batching alone does.
+
+BEFORE on the giant-guild world and on the scoped world is the same code; it ignores guilds, so
+differences between those two BEFORE sets are run-to-run variation (a measure of how much to trust
+single runs).
+
+Connected = k6 `conns_ready`. Failure rate = failed attempts / attempts. Handshake = WebSocket
+open. CPU = `docker stats`, % of one core (nginx cap 100, apps cap 200), mean and max over the
+ramp+hold. Presence frames/s and updates/s are totals divided by ramp+hold seconds, summed over all
+sockets (what the clients received).
+
+#### Scoped world (100 guilds of 100)
+
+| Target | Build  | Connected          | Failed | Handshake p95 | Presence frames/s | Updates/s | nginx CPU avg/max | App CPU avg/max (each) | App RSS idle to peak |
+| ------ | ------ | ------------------ | ------ | ------------- | ----------------- | --------- | ----------------- | ---------------------- | -------------------- |
+| 2,000  | BEFORE | 2,000              | 0 %    | 107 ms        | 22,239            | 22,239    | 47 / 103          | 25 / 70                | 140 to 183 MiB       |
+| 2,000  | AFTER  | 2,000              | 0 %    | 3 ms          | 579               | 1,138     | 4 / 23            | 7 / 45                 | 140 to 181 MiB       |
+| 5,000  | BEFORE | 4,872              | 0.31 % | 6,698 ms      | 124,184           | 124,184   | 96 / 109          | 70 / 106               | 183 to 209 MiB       |
+| 5,000  | AFTER  | 5,000              | 0 %    | 4 ms          | 1,460             | 2,118     | 9 / 54            | 10 / 82                | 181 to 197 MiB       |
+| 10,000 | BEFORE | 5,151 (k6 aborted) | 1.00 % | 10,995 ms     | 96,328            | 96,328    | 97 / 107          | 73 / 103               | 112 to 200 MiB       |
+| 10,000 | AFTER  | 10,000             | 0 %    | 29 ms         | 2,942             | 3,375     | 14 / 81           | 14 / 82                | 192 to 237 MiB       |
+
+BEFORE at the 5,000 target ended with 4,887 of 5,000 attempts made and 15 failed (0.31 % overall); the
+run stops early on the running failure rate and I did not check which instant tripped it. Peak established
+sockets at nginx: BEFORE 4,592 (5,000) and 5,209 (10,000), AFTER 5,001 and 10,001. Subscribe
+confirmed p95: BEFORE 21 s and 32 s, AFTER 9 ms and 34 ms. Updates/s is lower than frames/s x
+batch size would suggest at low load because most windows carry few updates.
+
+AFTER's app RSS grew 40 to 45 MiB per instance over 5,000 sockets each at 10,000 (192 to 232 MiB, 197 to 237 MiB).
+
+Cost of one `GET /api/presence` with everyone online (user 0, mean of three requests during the
+hold): BEFORE 30 ms and 71 KB at 2,000, 1,534 ms and 158 KB at about 4,500 online; AFTER 18 ms and
+3.5 KB at 2,000 and 7 ms and 3.5 KB at 5,000 and 10,000 (it lists only the caller's 100 guild mates).
+BEFORE's cost is the database `id in (...)` read of every online user.
+
+#### Giant-guild world (honest worst case for scoping)
+
+| Target | Build  | Connected          | Failed | Handshake p95 | Presence frames/s | Updates/s | MB received (ramp+hold) | nginx CPU avg/max | App CPU avg/max (each) |
+| ------ | ------ | ------------------ | ------ | ------------- | ----------------- | --------- | ----------------------- | ----------------- | ---------------------- |
+| 2,000  | BEFORE | 2,000              | 0 %    | 98 ms         | 22,239            | 22,239    | 121                     | 47 / 106          | 25 / 76                |
+| 2,000  | AFTER  | 2,000              | 0 %    | 6 ms          | 1,248             | 23,753    | 80                      | 6 / 21            | 7 / 32                 |
+| 5,000  | BEFORE | 4,176 (k6 aborted) | 1.09 % | 6,220 ms      | 85,087            | 85,086    | 622                     | 94 / 106          | 70 / 102               |
+| 5,000  | AFTER  | 5,000              | 0 %    | 41 ms         | 3,188             | 107,529   | 476                     | 13 / 53           | 13 / 75                |
+| 10,000 | BEFORE | 4,815 (k6 aborted) | 1.65 % | 9,011 ms      | 85,116            | 85,116    | 778                     | 98 / 109          | 76 / 104               |
+| 10,000 | AFTER  | 10,000             | 0 %    | 225 ms        | 6,389             | 339,839   | 1,866                   | 21 / 97           | 19 / 120               |
+
+Here the delivered work is the same or larger (every socket still needs everyone's presence: the
+AFTER updates/s at 10,000 is 340,000 against BEFORE's 85,000, because AFTER got all 10,000 sockets
+online and BEFORE only 4,800), but it arrives in 6,400 frames/s instead of 85,000, and that is what
+nginx and the apps were spending their CPU on. Connection capacity went from about 4,200 to 5,000
+to 10,000 with 0 failures even though nothing was scoped. The total bytes are higher at 10,000
+(1.9 GB over 150 s) because the full 10,000-member state has to reach 10,000 sockets once
+(about 50 million user updates); batching cannot reduce that, only the framing around it.
+Cost of `GET /api/presence` here (everyone online): 35 ms and 359 KB at 10,000 sockets, AFTER.
+
+The giant-guild BEFORE runs happened earlier the same day on the same code as the scoped-world
+BEFORE runs: the 5,000 target connected 4,176 against 4,872, the 10,000 target 4,815 against
+5,151. That is the run-to-run spread on this host; both fail the same way.
+
+### Fan-out check (900 msg/s, two instances, 20 guilds x 11 users, 200 receivers, 30 s)
+
+Zero send errors and zero missing deliveries in every run below (sent 26,900 to 26,960 messages, all
+269,000+ deliveries arrived). Achieved 896.8 to 898.8 msg/s.
+
+| Run                                                 | p50 ms | p90 ms  | p95 ms  | p99 ms   | Max ms    |
+| --------------------------------------------------- | ------ | ------- | ------- | -------- | --------- |
+| BEFORE, fresh stack, run 1                          | 5      | 8       | 17      | 59       | 217       |
+| BEFORE, fresh stack, run 2                          | 4      | 29      | 58      | 108      | 178       |
+| BEFORE, fresh stack, run 3                          | 4      | 35      | 67      | 99       | 151       |
+| AFTER, fresh stack, run 1                           | 5      | 10      | 26      | 69       | 241       |
+| AFTER, fresh stack, run 2                           | 4      | 34      | 61      | 93       | 144       |
+| AFTER, fresh stack, run 3                           | 4      | 24      | 65      | 103      | 177       |
+| BEFORE, after the 10k connection runs, runs 1 and 2 | 5 / 5  | 8 / 7   | 19 / 12 | 65 / 47  | 251 / 121 |
+| AFTER, after the 10k connection runs, runs 1 and 2  | 5 / 4  | 44 / 10 | 67 / 65 | 104 / 97 | 174 / 134 |
+
+My first AFTER run showed p95 67 ms against 9 to 13 ms recorded in earlier phases, which looked
+like a regression. It was not reproduced as one: with the code swapped back, BEFORE on a fresh stack
+gave 17, 58 and 67 ms in three consecutive runs and AFTER gave 26, 61 and 65. In both builds the
+first run on a stack is the best and later runs have a 10 to 15 % tail; the same-day numbers are
+worse than the 10 to 13 ms of Phase 5b for both builds, and Postgres sat at 165 to 166 % of its
+2-CPU cap in the BEFORE and AFTER runs alike. I attribute the drift to the host (about 25 other
+containers) and to the stack's state, but I did not find the cause. The conclusion I can support is
+only that BEFORE and AFTER are indistinguishable at 900 msg/s with three runs each (p95 17 to 67 ms
+against 26 to 65 ms); this phase does not touch the send path and the 6-statement send test passes.
+
+### Unread counts: analysis only, not fixed
+
+Measured in the BEFORE stack with 599,998 messages (`loadtest/scripts/seed-unread.sql`: the user's
+channel has 1,000 early messages with the last 5 unread, and the other 598,998 messages are in
+three busy channels, so every id after the user's read marker belongs to a different channel).
+
+| Endpoint (user in 2 guilds, sequential, 40 requests after 5 warm-up) | p50    | p95    |
+| -------------------------------------------------------------------- | ------ | ------ |
+| `GET /api/guilds`                                                    | 221 ms | 227 ms |
+| `GET /api/channels`                                                  | 217 ms | 220 ms |
+
+With the same 600,000 rows spread over 99 channels the planner chose a bitmap scan on
+`messages_channel_id_id_idx` and the endpoints took 16 and 8 ms, so the problem depends on the data
+shape, not only on the row count: it needs a few dense channels (the planner's estimate for
+`channel_id = c.id` is then a large fraction of the table and the primary key walk looks cheaper).
+
+`EXPLAIN (ANALYZE, BUFFERS)` of the existing query: `Index Scan using messages_pkey` filtered by
+channel, 23,908 buffer hits, 159.6 ms (`results/2026-10-23-unread-explain-old.txt`). Variants tried
+on the same data, none changed the plan: the suggested `LATERAL` subquery with `ORDER BY m.id LIMIT
+101` (159.4 ms), `ORDER BY m.channel_id DESC, m.id` (159.6 ms), `ORDER BY m.id` (165 ms) and
+`ORDER BY m.id + 0` (a sort over the same primary-key scan, 162 ms). The planner keeps the primary key
+range because the existing index is `(channel_id, id desc)` and fetching heap rows through it looks
+random and expensive next to the correlated primary key.
+
+A covering index `(channel_id, id) include (author_id, deleted_at)` gave an index-only scan and 22 ms
+for the same query (`results/2026-10-23-unread-explain-covering-index.txt`; 28 MB on an 81 MB
+table, 32 MB for the existing index). It was not implemented: it is a second index on `messages`,
+which every send has to maintain (the 6-statement send path and the 900 msg/s result are what the
+phase must not disturb, and Phase 5b showed small costs there matter), it still walks every
+row of a channel whose unread messages are mostly the reader's own, and it depends on the planner
+agreeing. Nothing in the unread code was changed, so there is no AFTER number for it; I did not
+re-measure the endpoints on the AFTER build.
+
+Proposed design (not implemented, needs a migration): keep `channels.last_message_id` (updated in the
+send statement that already exists) and add `channel_members.unread_count` plus
+`mention_count`, incremented for every member in the send transaction's fan-out insert and reset by
+`read`. Reads become `select` of two integers per channel with no scan; the cost moves to the send
+path (an `update channel_members ... where channel_id = $1 and user_id <> $author` per message,
+which is O(members) writes) and has to be measured against the 900 msg/s result, with the
+decision that fan-out to a channel of thousands of members should use a lazy "last read vs
+last message id" check first (a fully read channel then costs nothing).
+
+### Limits of these results
+
+One host, k6 on the same machine, Serve and TLS bypassed. One run per cell (the fan-out check has
+three), and the two BEFORE worlds show 15 % differences in connected sockets for the same code.
+BEFORE never reached 5,000 sockets at the 5,000 and 10,000 targets in any of the four attempts today
+(Phase 4 reached 4,958 at 0.82 %); I did not find the reason for the lower number, host load was 0.2
+to 2 at the start of each run. Memory per socket was not re-derived. Presence latency is now up to
+one batch window (1 s default) later than before; that was not measured end to end. Direct messages
+were not part of the worlds (no DM topics were exercised under load); they are covered by the
+integration tests only. The reproduce steps are the ones above plus
+`WATCHDOG_LOAD=16 LABEL=<before|after> bash loadtest/scripts/run-conns.sh 10000 120 30`.
 
 ## Phase 5b regression investigation
 
@@ -395,14 +597,14 @@ worker-stopped diagnostic above.
 
 ## Findings not fixed
 
-- **Unread counts scan the whole messages table.** For a user whose channel has few unread
+- **Unread counts scan the whole messages table** (analyzed again in Phase 6, still not fixed). For a user whose channel has few unread
   messages, the `unread_count` subquery in `ChannelService.listForUser` is planned as a scan of
   `messages_pkey` filtered by channel (`id > last_read`), 568,623 buffer hits and 173 ms with 600,000
   rows in the table, and `GET /api/guilds` and `/api/channels` cost 170 to 350 ms each. `ORDER BY`
   rewrites did not change the plan, and `ANALYZE` did not either. It grows with total message
   count, not channel size. It does not affect sending or history, so it was left; the next step
   is a lateral subquery over `messages_channel_id_id_idx` or a maintained unread counter.
-- Presence broadcast is quadratic (above).
+- Presence broadcast is quadratic (above): fixed in Phase 6.
 - Stale-ID backfill ordering risk (above), not observed.
 
 ## Limitations

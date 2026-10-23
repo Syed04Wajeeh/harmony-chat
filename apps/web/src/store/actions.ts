@@ -32,17 +32,35 @@ export async function attempt<T>(work: Promise<T>, fallback?: string): Promise<T
   }
 }
 
-export async function fetchSnapshot(signal?: AbortSignal) {
+export async function fetchSnapshot(signal?: AbortSignal, options: { presence?: boolean } = {}) {
   const [me, guilds, channels, presence, directory] = await Promise.all([
     api.me(signal),
     api.guilds(signal),
     api.channels(signal),
-    api.presence(signal),
+    options.presence === false ? Promise.resolve(undefined) : api.presence(signal),
     api.users(signal),
   ]);
   useProfiles.getState().ingestSummaries(directory.profiles, true);
   void useProfiles.getState().refresh();
-  return { me, snapshot: { guilds, channels, presence, users: directory.users } };
+  return {
+    me,
+    snapshot: { guilds, channels, ...(presence && { presence }), users: directory.users },
+  };
+}
+
+/**
+ * Fetches who is online (only people who share a guild or DM with the user) and applies it
+ * without undoing newer `presence.batch` updates that arrive while the request is in flight.
+ * Call it once the socket is live (after `hello`) and whenever the set of visible people changes.
+ */
+export async function refreshPresence(): Promise<void> {
+  const store = appStore.getState();
+  store.beginPresenceRefresh();
+  try {
+    store.finishPresenceRefresh(await api.presence());
+  } catch {
+    store.finishPresenceRefresh(null);
+  }
 }
 
 export async function bootstrap(signal?: AbortSignal): Promise<void> {

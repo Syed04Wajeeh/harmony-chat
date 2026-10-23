@@ -62,7 +62,8 @@ export interface OutboxItem {
 export interface Snapshot {
   guilds: readonly GuildSummary[];
   channels: readonly ChannelSummary[];
-  presence: readonly PresenceEntry[];
+  /** Left out on a reconnect: the presence refresh after `hello` is the authority there. */
+  presence?: readonly PresenceEntry[];
   users?: readonly User[];
 }
 
@@ -103,6 +104,13 @@ export interface AppState {
 
   setConnection(status: ConnectionStatus): void;
   loadSnapshot(snapshot: Snapshot, me?: Me): void;
+  /**
+   * A presence fetch is in flight: live `presence.batch` updates that arrive until
+   * `finishPresenceRefresh` win over the fetched snapshot, which may be older than they are.
+   */
+  beginPresenceRefresh(): number;
+  /** Replaces the presence map with the snapshot (null if the fetch failed), keeping newer live updates. */
+  finishPresenceRefresh(entries: readonly PresenceEntry[] | null): void;
   ingestUsers(users: readonly User[]): void;
   setMe(me: Me): void;
   setActiveChannel(channelId: string | null): void;
@@ -166,6 +174,12 @@ function mergeUsers(known: Record<string, User>, incoming: readonly User[]): Rec
 
 export function createAppStore(): StoreApi<AppState> {
   return createStore<AppState>()((set, get) => {
+    // Bookkeeping for presence fetches that overlap live updates; only used while one is in flight.
+    let liveSeq = 0;
+    let refreshesInFlight = 0;
+    const refreshStarts: number[] = [];
+    const liveMarks = new Map<string, number>();
+
     /** Applies a message to the cached history and the unread state of its channel. */
     const receive = (message: Message, nonce: string | undefined): void => {
       set((state) => {
@@ -268,11 +282,38 @@ export function createAppStore(): StoreApi<AppState> {
             channels,
             history,
             users,
-            presence: Object.fromEntries(
-              snapshot.presence.map((entry) => [entry.userId, entry.status]),
-            ),
+            ...(snapshot.presence && {
+              presence: Object.fromEntries(
+                snapshot.presence.map((entry) => [entry.userId, entry.status]),
+              ),
+            }),
           };
         }),
+
+      beginPresenceRefresh: () => {
+        refreshesInFlight++;
+        refreshStarts.push(liveSeq);
+        return liveSeq;
+      },
+
+      finishPresenceRefresh: (entries) => {
+        const since = refreshStarts.shift() ?? liveSeq;
+        refreshesInFlight = Math.max(0, refreshesInFlight - 1);
+        if (entries) {
+          set((state) => {
+            const next: Record<string, PresenceStatus> = {};
+            for (const entry of entries) next[entry.userId] = entry.status;
+            for (const [userId, seq] of liveMarks) {
+              if (seq <= since) continue;
+              const live = state.presence[userId];
+              if (live) next[userId] = live;
+              else delete next[userId];
+            }
+            return { presence: next };
+          });
+        }
+        if (refreshesInFlight === 0) liveMarks.clear();
+      },
 
       ingestUsers: (users) => set((state) => ({ users: mergeUsers(state.users, users) })),
       setMe: (me) => set((state) => ({ me, users: mergeUsers(state.users, [me]) })),
@@ -570,13 +611,17 @@ export function createAppStore(): StoreApi<AppState> {
               },
             }));
             break;
-          case 'presence.updated':
-            set((state) => ({
-              presence:
-                frame.status === 'offline'
-                  ? omit(state.presence, frame.userId)
-                  : { ...state.presence, [frame.userId]: frame.status },
-            }));
+          case 'presence.batch':
+            set((state) => {
+              const presence = { ...state.presence };
+              // Updates are in order; the last one for a user wins.
+              for (const update of frame.updates) {
+                if (refreshesInFlight > 0) liveMarks.set(update.userId, ++liveSeq);
+                if (update.status === 'offline') delete presence[update.userId];
+                else presence[update.userId] = update.status;
+              }
+              return { presence };
+            });
             break;
           case 'read.updated':
             get().applyReadState(frame);

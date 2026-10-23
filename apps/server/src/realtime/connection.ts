@@ -149,12 +149,22 @@ export function handleConnection(
   // The queue starts with the greeting, so nothing is processed before the user topic is live.
   let queue = (async () => {
     await client.ready;
-    await presence.touch(user.id, connectionId).catch((err: unknown) => {
-      connLog.warn({ err }, 'presence update failed');
-    });
+    // Join the presence topics of the user's guilds and DMs before anything is announced or
+    // answered, so a client that fetches the presence snapshot after `hello` misses nothing.
+    const [me] = await Promise.all([
+      users.getMe(user),
+      hub.loadPresenceTopics(client, () => presence.topicsOf(user.id)),
+    ]);
+    await presence
+      .touch(user.id, connectionId, { status: me.status, topics: [...client.presenceTopics] })
+      .catch((err: unknown) => {
+        connLog.warn({ err }, 'presence update failed');
+      });
     // The socket may have closed while we were setting up; don't leave a ghost connection.
-    if (socket.readyState !== socket.OPEN) await presence.disconnect(user.id, connectionId);
-    send({ type: 'hello', user: await users.getMe(user), instanceId });
+    if (socket.readyState !== socket.OPEN) {
+      await presence.disconnect(user.id, connectionId, [...client.presenceTopics]);
+    }
+    send({ type: 'hello', user: me, instanceId });
   })().catch((err: unknown) => {
     connLog.error({ err }, 'websocket setup failed');
     socket.close(1011, 'setup failed');
@@ -178,8 +188,9 @@ export function handleConnection(
 
   socket.on('close', (code) => {
     clearInterval(heartbeat);
+    const topics = [...client.presenceTopics];
     hub.remove(client);
-    presence.disconnect(user.id, connectionId).catch((err: unknown) => {
+    presence.disconnect(user.id, connectionId, topics).catch((err: unknown) => {
       connLog.warn({ err }, 'presence disconnect failed');
     });
     connLog.info({ code }, 'websocket disconnected');

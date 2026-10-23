@@ -42,8 +42,9 @@ export const userRoutes: FastifyPluginCallbackZod<UserRoutesOptions> = (
   app.get(
     '/presence',
     { config: { scope: 'channels.read' }, schema: { response: { 200: PresenceResponse } } },
-    async () => ({
-      presence: await presence.snapshot(),
+    async (request) => ({
+      // Only people who share a guild or a DM with the caller.
+      presence: await presence.snapshotFor(request.user.id),
     }),
   );
   done();

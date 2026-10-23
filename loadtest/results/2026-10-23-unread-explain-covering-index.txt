@@ -1,0 +1,29 @@
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=9.14..42.25 rows=2 width=12) (actual time=21.992..22.024 rows=2 loops=1)
+   Buffers: shared hit=13 read=1210 written=24
+   ->  Index Scan using channel_members_user_id_idx on channel_members cm  (cost=0.29..8.44 rows=2 width=16) (actual time=0.032..0.043 rows=2 loops=1)
+         Index Cond: (user_id = 2)
+         Buffers: shared hit=8
+   ->  Nested Loop  (cost=8.86..16.90 rows=1 width=12) (actual time=10.987..10.988 rows=1 loops=2)
+         Buffers: shared hit=5 read=1210 written=24
+         ->  Index Scan using channels_pkey on channels c  (cost=0.14..8.16 rows=1 width=8) (actual time=0.005..0.006 rows=1 loops=2)
+               Index Cond: (id = cm.channel_id)
+               Filter: (archived_at IS NULL)
+               Buffers: shared hit=4
+         ->  Aggregate  (cost=8.71..8.73 rows=1 width=4) (actual time=10.980..10.980 rows=1 loops=2)
+               Buffers: shared hit=1 read=1210 written=24
+               ->  Limit  (cost=0.42..7.45 rows=101 width=12) (actual time=10.976..10.978 rows=2 loops=2)
+                     Buffers: shared hit=1 read=1210 written=24
+                     ->  Index Only Scan using tmp_unread_idx on messages m  (cost=0.42..2337.43 rows=33590 width=12) (actual time=10.975..10.976 rows=2 loops=2)
+                           Index Cond: ((channel_id = c.id) AND (id > COALESCE(cm.last_read_message_id, '0'::bigint)))
+                           Filter: ((deleted_at IS NULL) AND (author_id <> 2))
+                           Rows Removed by Filter: 99833
+                           Heap Fetches: 0
+                           Buffers: shared hit=1 read=1210 written=24
+ Planning:
+   Buffers: shared hit=319
+ Planning Time: 2.175 ms
+ Execution Time: 22.127 ms
+(25 rows)
+

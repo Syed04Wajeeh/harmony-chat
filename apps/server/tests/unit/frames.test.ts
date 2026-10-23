@@ -88,7 +88,7 @@ describe('new client frames', () => {
 describe('ServerFrame', () => {
   it('parses presence and typing frames', () => {
     for (const frame of [
-      { type: 'presence.updated', userId: '1', status: 'dnd' },
+      { type: 'presence.batch', updates: [{ userId: '1', status: 'dnd' }] },
       { type: 'typing', channelId: '1', userId: '2' },
       { type: 'guild.removed', guildId: '3' },
       { type: 'message.deleted', channelId: '1', messageId: '2' },

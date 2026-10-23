@@ -344,7 +344,7 @@ export class GuildService {
 
   async members(actor: Actor, guildId: string): Promise<GuildMember[]> {
     await this.requireMember(guildId, actor.id);
-    const [rows, online, access] = await Promise.all([
+    const [rows, access] = await Promise.all([
       this.db
         .selectFrom('guild_members')
         .innerJoin('users', 'users.id', 'guild_members.user_id')
@@ -353,9 +353,9 @@ export class GuildService {
         .where('guild_members.guild_id', '=', guildId)
         .orderBy('users.display_name')
         .execute(),
-      this.presence.snapshot(),
       this.perms.requireAccess(guildId),
     ]);
+    const online = await this.presence.statusesOf(rows.map((row) => row.id));
     const status = new Map(online.map((entry) => [entry.userId, entry.status]));
     return rows.map((row) => {
       const roles = rolesOf(access, row.id);

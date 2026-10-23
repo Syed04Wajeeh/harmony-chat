@@ -11,6 +11,7 @@ import {
   Id,
   Me,
   Message,
+  PresenceEntry,
   PresenceStatus,
   ReadState,
   SendMessageFields,
@@ -136,10 +137,17 @@ const userEvents = [
   }),
 ] as const;
 
+/** One user's presence on the internal bus (Redis); sockets get these inside `presence.batch`. */
 const presenceEvent = z.object({
   type: z.literal('presence.updated'),
   userId: Id,
   status: PresenceStatus,
+});
+
+/** The frame sockets receive: presence changes coalesced over a short window (last write wins). */
+const presenceBatchFrame = z.object({
+  type: z.literal('presence.batch'),
+  updates: z.array(PresenceEntry).min(1),
 });
 
 /** Published to `harmony:channel:<id>`; delivered to sockets subscribed to that channel. */
@@ -150,7 +158,10 @@ export type ChannelEvent = z.infer<typeof ChannelEvent>;
 export const UserEvent = z.discriminatedUnion('type', [...userEvents]);
 export type UserEvent = z.infer<typeof UserEvent>;
 
-/** Published to `harmony:presence`; delivered to every connected socket. */
+/**
+ * Published to `harmony:presence:guild:<id>` and `harmony:presence:dm:<channelId>`; the hub turns
+ * these into `presence.batch` frames for the sockets whose user is in that guild or DM.
+ */
 export const PresenceEvent = presenceEvent;
 export type PresenceEvent = z.infer<typeof PresenceEvent>;
 
@@ -173,7 +184,7 @@ export const ServerFrame = z.discriminatedUnion('type', [
     messages: z.array(Message),
     hasMore: z.boolean(),
   }),
-  presenceEvent,
+  presenceBatchFrame,
   ...channelEvents,
   ...userEvents,
 ]);
@@ -181,7 +192,12 @@ export type ServerFrame = z.infer<typeof ServerFrame>;
 
 export const CHANNEL_TOPIC_PREFIX = 'harmony:channel:';
 export const USER_TOPIC_PREFIX = 'harmony:user:';
-export const PRESENCE_TOPIC = 'harmony:presence';
+export const PRESENCE_TOPIC_PREFIX = 'harmony:presence:';
 
 export const channelTopic = (channelId: string): string => `${CHANNEL_TOPIC_PREFIX}${channelId}`;
 export const userTopic = (userId: string): string => `${USER_TOPIC_PREFIX}${userId}`;
+export const presenceGuildTopic = (guildId: string): string =>
+  `${PRESENCE_TOPIC_PREFIX}guild:${guildId}`;
+/** A DM is addressed by its channel id, so both participants share one topic. */
+export const presenceDmTopic = (channelId: string): string =>
+  `${PRESENCE_TOPIC_PREFIX}dm:${channelId}`;

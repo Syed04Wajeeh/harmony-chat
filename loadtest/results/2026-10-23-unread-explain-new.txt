@@ -1,0 +1,28 @@
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=32.68..89.32 rows=2 width=12) (actual time=84.153..159.337 rows=2 loops=1)
+   Buffers: shared hit=23920
+   ->  Index Scan using channel_members_user_id_idx on channel_members cm  (cost=0.29..8.44 rows=2 width=16) (actual time=0.038..0.052 rows=2 loops=1)
+         Index Cond: (user_id = 2)
+         Buffers: shared hit=8
+   ->  Nested Loop  (cost=32.39..40.43 rows=1 width=12) (actual time=79.637..79.639 rows=1 loops=2)
+         Buffers: shared hit=23912
+         ->  Index Scan using channels_pkey on channels c  (cost=0.14..8.16 rows=1 width=8) (actual time=0.007..0.007 rows=1 loops=2)
+               Index Cond: (id = cm.channel_id)
+               Filter: (archived_at IS NULL)
+               Buffers: shared hit=4
+         ->  Aggregate  (cost=32.25..32.26 rows=1 width=4) (actual time=79.628..79.628 rows=1 loops=2)
+               Buffers: shared hit=23908
+               ->  Limit  (cost=0.42..30.98 rows=101 width=12) (actual time=42.052..79.624 rows=2 loops=2)
+                     Buffers: shared hit=23908
+                     ->  Index Scan using messages_pkey on messages m  (cost=0.42..10144.40 rows=33528 width=12) (actual time=42.051..79.622 rows=2 loops=2)
+                           Index Cond: (id > COALESCE(cm.last_read_message_id, '0'::bigint))
+                           Filter: ((deleted_at IS NULL) AND (author_id <> 2) AND (channel_id = c.id))
+                           Rows Removed by Filter: 599498
+                           Buffers: shared hit=23908
+ Planning:
+   Buffers: shared hit=293
+ Planning Time: 2.023 ms
+ Execution Time: 159.433 ms
+(24 rows)
+

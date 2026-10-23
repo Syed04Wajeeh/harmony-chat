@@ -1,6 +1,5 @@
 import type { Redis } from 'ioredis';
 import {
-  PRESENCE_TOPIC,
   channelTopic,
   userTopic,
   type ChannelEvent,
@@ -30,7 +29,14 @@ export class EventBus {
     return this.redis.publish(userTopic(userId), JSON.stringify(frame));
   }
 
-  toEveryone(event: PresenceEvent): Promise<unknown> {
-    return this.redis.publish(PRESENCE_TOPIC, JSON.stringify(event));
+  /** One round trip however many topics: presence goes to every guild and DM the user is in. */
+  toPresenceTopics(topics: readonly string[], event: PresenceEvent): Promise<unknown> {
+    const payload = JSON.stringify(event);
+    if (topics.length === 1 && topics[0] !== undefined) {
+      return this.redis.publish(topics[0], payload);
+    }
+    const pipeline = this.redis.pipeline();
+    for (const topic of topics) pipeline.publish(topic, payload);
+    return pipeline.exec();
   }
 }

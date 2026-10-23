@@ -138,7 +138,12 @@ export async function buildApp({
   if (webRoot) await app.register(fastifyStatic, { root: webRoot });
 
   const subscriber = redis.duplicate({ enableOfflineQueue: true, maxRetriesPerRequest: null });
-  const hub = new Hub(subscriber, app.log, config.WS_HEARTBEAT_INTERVAL_MS);
+  const hub = new Hub(
+    subscriber,
+    app.log,
+    config.WS_HEARTBEAT_INTERVAL_MS,
+    config.PRESENCE_BATCH_MS,
+  );
   app.addHook('onClose', () => {
     subscriber.disconnect();
   });
@@ -197,7 +202,10 @@ export async function buildApp({
     events,
     { ttlMs: config.PRESENCE_TTL_MS, sweepMs: config.PRESENCE_SWEEP_MS },
     app.log,
+    perms,
   );
+  presence.useLocalTopics((userId) => hub.presenceTopicsOf(userId));
+  hub.onPresenceTopicsJoined = (userId, topics) => presence.announceTo(userId, topics);
   const guilds = new GuildService(db, events, channels, presence, files, domain, perms);
   const roles = new RoleService(db, events, perms, channels, guilds);
   const typing = new TypingService(redis, events, channels, perms);
