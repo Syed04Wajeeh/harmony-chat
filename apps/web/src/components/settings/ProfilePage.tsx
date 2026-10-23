@@ -20,6 +20,20 @@ import { SettingsCard, SettingsPage } from './SettingsLayout.js';
 
 const isAnimatedType = (file: File) => file.type === 'image/gif' || file.type === 'image/webp';
 
+interface ProfileFields {
+  bio: string;
+  pronouns: string;
+  accent: string;
+  bannerColor: string;
+}
+
+const fieldsOf = ({ profile }: UserProfileResponse): ProfileFields => ({
+  bio: profile.bio ?? '',
+  pronouns: profile.pronouns ?? '',
+  accent: profile.accentColor === null ? '' : numberToHex(profile.accentColor),
+  bannerColor: profile.bannerColor === null ? '' : numberToHex(profile.bannerColor),
+});
+
 export function ProfilePage() {
   const me = useApp((state) => state.me);
   const perks = useProfiles((state) => state.perks);
@@ -31,20 +45,32 @@ export function ProfilePage() {
   const [bannerColor, setBannerColor] = useState('');
   const [cropping, setCropping] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const loadedFields = useRef<ProfileFields | null>(null);
   const avatarInput = useRef<HTMLInputElement>(null);
   const bannerInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!me) return;
+    let stale = false;
     void api.profile(me.id).then((loaded) => {
+      if (stale) return;
       setData(loaded);
-      setBio(loaded.profile.bio ?? '');
-      setPronouns(loaded.profile.pronouns ?? '');
-      setAccent(loaded.profile.accentColor === null ? '' : numberToHex(loaded.profile.accentColor));
-      setBannerColor(
-        loaded.profile.bannerColor === null ? '' : numberToHex(loaded.profile.bannerColor),
-      );
+      const next = fieldsOf(loaded);
+      const previous = loadedFields.current;
+      loadedFields.current = next;
+      // Saving a field announces the change to this very page, which refetches. Replace only the
+      // fields the person has not edited since the last load, or the refetch eats what they are
+      // typing.
+      const reseed = (current: string, was: string | undefined, now: string) =>
+        previous === null || current === was ? now : current;
+      setBio((current) => reseed(current, previous?.bio, next.bio));
+      setPronouns((current) => reseed(current, previous?.pronouns, next.pronouns));
+      setAccent((current) => reseed(current, previous?.accent, next.accent));
+      setBannerColor((current) => reseed(current, previous?.bannerColor, next.bannerColor));
     });
+    return () => {
+      stale = true;
+    };
   }, [me, version]);
   if (!me || !data)
     return (

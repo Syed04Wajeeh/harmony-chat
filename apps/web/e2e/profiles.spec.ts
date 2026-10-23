@@ -26,14 +26,17 @@ async function instanceAdmin(): Promise<DevApi | null> {
 }
 
 test('editing a profile updates another user’s open popover live', async ({ browser }) => {
-  const [alice, a] = await sign(browser, unique('alice'));
+  // Every spec shares #general, so find this run's Alice by her unique name, not the first one.
+  const aliceLogin = unique('alice');
+  const aliceName = aliceLogin.split('@')[0] ?? aliceLogin;
+  const [alice, a] = await sign(browser, aliceLogin);
   const [bob, b] = await sign(browser, unique('bob'));
   await a.goto('/');
   await b.goto('/');
   await expect(a.getByRole('textbox', { name: /^Message #/ })).toBeVisible();
   await a.getByRole('textbox', { name: /^Message #/ }).fill('hello from alice');
   await a.keyboard.press('Enter');
-  await b.locator('.message-author', { hasText: 'alice' }).first().click();
+  await b.locator('.message-author', { hasText: new RegExp(`^${aliceName}$`, 'i') }).click();
   const card = b.locator('[data-harmony="profile-card"]');
   await expect(card).toBeVisible();
   await expect(card.getByText('About me')).toHaveCount(0);
