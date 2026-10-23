@@ -173,6 +173,8 @@ scripts/       deploy.sh, check-links.mjs
 
 | Document                                                       | What is in it                                                                                          |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [docs/codebase-map.md](docs/codebase-map.md)                   | Maintainer's index: where everything lives, recipes for common changes, invariants, testing map        |
+| [CLAUDE.md](CLAUDE.md)                                         | Short brief for AI coding assistants: commands, invariants, conventions, safety                        |
 | [docs/api/protocol.md](docs/api/protocol.md)                   | REST endpoints, WebSocket frames, bot and webhook API                                                  |
 | [docs/security/trust-model.md](docs/security/trust-model.md)   | Why header auth is safe here, Origin checks, bots, SSRF, custom CSS, the desktop bridge                |
 | [docs/performance.md](docs/performance.md)                     | Every measurement with its conditions, the investigations, how to reproduce                            |

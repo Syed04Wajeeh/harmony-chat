@@ -3,6 +3,13 @@
 Harmony is a personal project, but issues and pull requests are welcome. This page covers how to
 get a working checkout and what a change should include.
 
+## Start here
+
+[docs/codebase-map.md](docs/codebase-map.md) is the maintainer's index: where each part of the code lives,
+step-by-step recipes for the usual changes (endpoint, migration, setting, theme token, module and so
+on) and the invariants a change must keep. AI coding assistants should also read
+[CLAUDE.md](CLAUDE.md).
+
 ## Setup
 
 Node 24, pnpm 12 and Docker are required. The step-by-step dev setup (throwaway Postgres and
