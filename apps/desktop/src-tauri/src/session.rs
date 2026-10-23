@@ -8,7 +8,16 @@ use url::Url;
 use crate::server_url::{capability_pattern, same_origin};
 
 /// Commands the remote page may call; they must match `build.rs`.
-const REMOTE_PERMISSIONS: [&str; 2] = ["allow-notify", "allow-set-badge"];
+const REMOTE_PERMISSIONS: [&str; 8] = [
+    "allow-disconnect-server",
+    "allow-notify",
+    "allow-set-badge",
+    "allow-window-close",
+    "allow-window-is-maximized",
+    "allow-window-minimize",
+    "allow-window-start-dragging",
+    "allow-window-toggle-maximize",
+];
 
 /// The server this window is connected to, or none while the setup page is showing.
 ///
@@ -47,7 +56,7 @@ impl Session {
     }
 }
 
-/// Lets pages served from exactly `origin` call the notification and badge commands.
+/// Lets pages served from exactly `origin` call the notification, badge and title bar commands.
 pub fn grant_remote_access<R: Runtime>(app: &AppHandle<R>, origin: &Url) -> tauri::Result<()> {
     let Some(pattern) = capability_pattern(origin) else {
         return Ok(());
@@ -81,6 +90,49 @@ mod tests {
         "connected"
     }
 
+    macro_rules! title_bar_stubs {
+        ($($name:ident),*) => {
+            $(
+                #[tauri::command]
+                fn $name() {}
+            )*
+        };
+    }
+
+    title_bar_stubs!(
+        window_close,
+        window_is_maximized,
+        window_minimize,
+        window_start_dragging,
+        window_toggle_maximize
+    );
+
+    title_bar_stubs!(
+        disconnect_server,
+        discover_servers,
+        forget_server,
+        known_servers,
+        tailscale_status,
+        tailscale_switch
+    );
+
+    /// Reachable from the bundled setup page only.
+    const SETUP_ONLY_COMMANDS: [&str; 5] = [
+        "discover_servers",
+        "forget_server",
+        "known_servers",
+        "tailscale_status",
+        "tailscale_switch",
+    ];
+
+    const TITLE_BAR_COMMANDS: [&str; 5] = [
+        "window_close",
+        "window_is_maximized",
+        "window_minimize",
+        "window_start_dragging",
+        "window_toggle_maximize",
+    ];
+
     #[test]
     fn only_the_current_origin_is_the_server() {
         let a = Url::parse("https://a.example.ts.net/").unwrap();
@@ -103,7 +155,21 @@ mod tests {
     fn remote_capability_covers_only_the_configured_origin_and_only_its_commands() {
         let origin = Url::parse("https://chat.example.ts.net:18470/").unwrap();
         let app = mock_builder()
-            .invoke_handler(tauri::generate_handler![notify, connect_server])
+            .invoke_handler(tauri::generate_handler![
+                notify,
+                connect_server,
+                window_close,
+                window_is_maximized,
+                window_minimize,
+                window_start_dragging,
+                window_toggle_maximize,
+                disconnect_server,
+                discover_servers,
+                forget_server,
+                known_servers,
+                tailscale_status,
+                tailscale_switch
+            ])
             .build(tauri::generate_context!())
             .unwrap();
         app.manage(Session::new(Some(origin.clone())));
@@ -155,5 +221,46 @@ mod tests {
             call("notify", "tauri://localhost/").is_err(),
             "setup page has no bridge"
         );
+
+        for command in TITLE_BAR_COMMANDS {
+            assert!(
+                call(command, "https://chat.example.ts.net:18470/channels/1").is_ok(),
+                "{command} from the server"
+            );
+            assert!(
+                call(command, "tauri://localhost/").is_ok(),
+                "{command} from the setup page"
+            );
+            for url in [
+                "https://other.example.ts.net:18470/",
+                "https://chat.example.ts.net/",
+                "http://chat.example.ts.net:18470/",
+                "https://chat.example.ts.net.evil.test:18470/",
+            ] {
+                assert!(call(command, url).is_err(), "{command} from {url}");
+            }
+        }
+
+        for command in SETUP_ONLY_COMMANDS {
+            assert!(
+                call(command, "tauri://localhost/").is_ok(),
+                "{command} from the setup page"
+            );
+            for url in [
+                "https://chat.example.ts.net:18470/",
+                "https://chat.example.ts.net:18470/channels/1",
+                "https://other.example.ts.net:18470/",
+                "http://chat.example.ts.net:18470/",
+            ] {
+                assert!(call(command, url).is_err(), "{command} from {url}");
+            }
+        }
+
+        assert!(
+            call("disconnect_server", "https://chat.example.ts.net:18470/").is_ok(),
+            "the server can send the user back to the setup page"
+        );
+        assert!(call("disconnect_server", "https://other.example.ts.net:18470/").is_err());
+        assert!(call("disconnect_server", "tauri://localhost/").is_err());
     }
 }

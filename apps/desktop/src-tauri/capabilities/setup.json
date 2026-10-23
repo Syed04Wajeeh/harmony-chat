@@ -3,5 +3,17 @@
   "identifier": "setup",
   "description": "The bundled setup page. No remote URL is listed, so a server page cannot use these commands.",
   "windows": ["main"],
-  "permissions": ["allow-connect-server", "allow-get-server-url"]
+  "permissions": [
+    "allow-connect-server",
+    "allow-discover-servers",
+    "allow-forget-server",
+    "allow-known-servers",
+    "allow-tailscale-status",
+    "allow-tailscale-switch",
+    "allow-window-close",
+    "allow-window-is-maximized",
+    "allow-window-minimize",
+    "allow-window-start-dragging",
+    "allow-window-toggle-maximize"
+  ]
 }

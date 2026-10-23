@@ -392,11 +392,15 @@ malicious server would otherwise gain code on the user's PC. The rules:
    It is built from the stored URL at startup and again when the setup page connects. The URL
    is first reduced to its origin (https, or http for `localhost` / `127.0.0.1` only), and the
    host is checked against `[A-Za-z0-9._-]` before it is put into the pattern.
-2. **Two commands.** The capability lists `allow-notify` and `allow-set-badge`. There are no
-   shell, filesystem, http, opener, updater or core-plugin permissions for the remote page.
-   `build.rs` declares every app command, so Tauri denies any command that no capability grants.
-3. **Setup commands are local only.** `connect_server` and `get_server_url` sit in a separate
-   capability with no remote URL, so only the bundled setup page can call them.
+2. **Eight commands.** The capability lists `allow-notify`, `allow-set-badge`, the five title bar
+   commands (`window_minimize`, `window_toggle_maximize`, `window_is_maximized`, `window_close`,
+   `window_start_dragging`) and `allow-disconnect-server`. There are no shell, filesystem, http,
+   opener, updater or core-plugin permissions for the remote page, and none of the core `window`
+   or `event` permissions. `build.rs` declares every app command, so Tauri denies any command that
+   no capability grants.
+3. **Setup commands are local only.** `connect_server`, `known_servers`, `forget_server`,
+   `tailscale_status`, `discover_servers` and `tailscale_switch` sit in a separate capability with
+   no remote URL, so only the bundled setup page can call them.
 4. **Validated arguments.** `notify(title, body, route)` accepts a title of 1 to 100 characters
    and a body of up to 300, neither with control characters (a body may contain newlines), and
    a `route` that is an absolute in-app path (`/...`, not `//...`) of at most 256 characters
@@ -405,8 +409,8 @@ malicious server would otherwise gain code on the user's PC. The rules:
    to navigate, and the route reaches the page as a JSON-encoded string.
 5. **The old origin loses access.** Tauri 2.12 can add capabilities while running but cannot
    remove them, so each command also compares the calling webview's current URL with the
-   session's origin and returns `forbidden` when they differ. "Change server…" clears the
-   session before showing the setup page; connecting sets it to the new origin. After a restart
+   session's origin and returns `forbidden` when they differ. "Disconnect" (formerly
+   "Change server…") clears the session before showing the setup page; connecting sets it to the new origin. After a restart
    only the stored origin has a capability at all.
 6. **Navigation is confined.** The webview may show the bundled setup page and the configured
    origin. Any other navigation is cancelled and, for http, https and mailto, opened in the
@@ -414,15 +418,65 @@ malicious server would otherwise gain code on the user's PC. The rules:
    are not followed when the setup page probes the server.
 
 Verified by a Rust test that sends real IPC requests through Tauri's access control with the
-shipped capabilities: the configured origin can call `notify`, a different port, scheme, host or
-look-alike suffix cannot, no remote page can call the setup commands, and the bundled page cannot
-call `notify`.
+shipped capabilities: the configured origin can call `notify` and the title bar commands, a
+different port, scheme, host or look-alike suffix cannot call any of them, no remote page can call
+the setup commands (including the Tailscale ones), and the bundled page cannot call `notify` or
+`disconnect_server`. The status JSON parser, the ownership classification, the account table
+parser and the scan (against local fake servers) have unit tests with made-up names.
+
+### The title bar commands
+
+On Windows the window has no native title bar, so the page draws one and needs to move, minimize,
+maximize and close its own window. These are five commands without arguments that act on the
+calling `main` window only (no window label, no other window, no size or position values), and
+each one checks the caller's URL against the session like `notify`. They are harmless in the hands
+of a hostile server for the same reason `notify` is: the server could already make its own page
+cover the window, and a minimized, maximized or hidden window is one click to undo. `window_close`
+takes the same path as the native close button, so it hides to the tray and never quits the app.
+`disconnect_server` only shows the bundled setup page and forgets the stored address; a malicious
+server could use it to send the user to the setup page, which is also what a redirect would do.
+Core `core:window:allow-*` permissions were not used because they accept a window label and are
+scoped by window, not by what the caller may ask for.
+
+### Finding servers on the tailnet
+
+The setup page (never a remote page) can read the local tailnet and offer the Harmony servers it
+finds. `tailscale status --json` and `tailscale switch --list` are run directly (no shell) with
+fixed arguments and a time limit; `tailscale switch <id>` is only run with an `id` that appears in
+a fresh listing from the same tool, so page input never becomes a free-form argument. Devices are
+probed with `GET /healthz` over TLS with certificate verification, no redirects, at most 16 at a
+time, 1.5 s each, and an answer counts only if it is `{"service":"harmony","status":"ok"}`.
+
+The threat is a device on the tailnet (a shared-in node, another member's machine, a tagged
+machine, a compromised peer) that answers like a Harmony server and tricks the user into signing
+in or typing into it. It can show a page, but it still cannot call native commands unless it is
+the configured origin, and the user never connects to it by accident. Mitigations:
+
+- **No auto-connect.** Even a single result is only listed. Connecting takes a click on its
+  button.
+- **The owner is shown.** Each result says "Your device", "Shared by <login>" or "Tagged", taken
+  from `tailscale status` (the user a node belongs to, its tags and whether it was shared in from
+  another tailnet). Everything that is not provably the user's own device gets a "Not your
+  device" badge and the button reads "Connect anyway".
+- **Same validation as manual entry.** The chosen address goes through the same normalization,
+  https requirement and probe as a typed one, and the same per-origin capability is created only
+  for the origin the user connects to.
+- **Text only.** Host names and logins come from other devices and are inserted as text, never
+  as markup.
+
+Disconnecting and forgetting servers never clear cookies or local storage, so another server
+cannot inherit another's data and the user keeps their own; the stored per-origin data stays tied
+to its origin by the webview.
 
 ### Residual risk
 
-- The configured server is trusted with `notify` and `set_badge`. A compromised server can show
-  notifications with text of its choosing and set the badge. It cannot run code, read files or
+- The configured server is trusted with `notify`, `set_badge`, the window title bar commands and
+  `disconnect_server`. A compromised server can show notifications with text of its choosing, set
+  the badge and minimize, maximize, hide or close the window. It cannot run code, read files or
   navigate the app to another site.
+- The "Not your device" warning depends on what Tailscale reports. A device the user does not
+  control but that belongs to their own login (a shared computer, a malware-infected laptop) is
+  shown as "Your device".
 - WebView2, WebKit and WebKitGTK are updated by the operating system. The app inherits their
   vulnerabilities and their sandbox.
 - Installers are not code-signed yet (no Authenticode or Apple certificate), so a user cannot

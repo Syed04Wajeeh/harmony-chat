@@ -9,7 +9,13 @@ pub const ID: &str = "main";
 
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let toggle = MenuItem::with_id(app, "toggle", "Show / Hide", true, None::<&str>)?;
-    let change = MenuItem::with_id(app, "change-server", "Change server…", true, None::<&str>)?;
+    let disconnect = MenuItem::with_id(
+        app,
+        "disconnect",
+        "Disconnect / switch server…",
+        true,
+        None::<&str>,
+    )?;
     let launch = CheckMenuItem::with_id(
         app,
         "launch-at-login",
@@ -31,7 +37,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         &[
             &toggle,
             &PredefinedMenuItem::separator(app)?,
-            &change,
+            &disconnect,
             &launch,
             &update,
             &PredefinedMenuItem::separator(app)?,
@@ -46,7 +52,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "toggle" => window::toggle(app),
-            "change-server" => window::show_setup(app),
+            "disconnect" => window::disconnect(app),
             "launch-at-login" => {
                 let autolaunch = app.autolaunch();
                 let result = if autolaunch.is_enabled().unwrap_or(false) {

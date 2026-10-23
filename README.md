@@ -40,7 +40,7 @@ Harmony is a chat server for a small group, such as a family, a team or a homela
 5. **A module system.** Reactions, pins, search, uploads, polls, custom emoji and a coin flip are modules: a folder that registers routes, WebSocket frames, slash commands, migrations, message data and settings through a typed context, with a test that the send path costs the same with and without them. Polls are the vertical-slice example (server, tables, UI). [Modules](docs/modules.md).
 6. **Roles and permissions.** Roles with positions, per-channel overwrites, and one pure function shared by server and client tests to resolve them, with a worked example and hierarchy rules. [Permissions](docs/permissions.md).
 7. **Customization.** Themes are validated data over an allowlist of tokens, with a contrast checker and auto-fix; custom CSS is opt-in and sanitized on both server and client; plus profiles, custom emoji, server branding and admin-granted perks. [Customization](docs/customization.md), [theming](docs/theming.md).
-8. **A desktop app.** Tauri v2 shell that loads your server's own origin, so identity and Origin checks are unchanged. Its IPC capability grants exactly two commands (notify, set badge). [Desktop](apps/desktop/README.md), [bridge security](docs/security/trust-model.md#desktop-app).
+8. **A desktop app.** Tauri v2 shell that loads your server's own origin, so identity and Origin checks are unchanged. Its IPC capability for your server is a short, fixed list (notify, set badge, window controls for the custom Windows title bar, disconnect). [Desktop](apps/desktop/README.md), [bridge security](docs/security/trust-model.md#desktop-app).
 
 ## Architecture
 

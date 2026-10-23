@@ -25,9 +25,14 @@ struct Health {
 ///
 /// Redirects are not followed: the configured origin must serve the app itself.
 pub async fn probe(origin: &Url) -> Result<(), ProbeError> {
+    probe_within(origin, TIMEOUT).await
+}
+
+/// `probe` with a caller-chosen time limit, for scanning many addresses quickly.
+pub async fn probe_within(origin: &Url, timeout: Duration) -> Result<(), ProbeError> {
     let client = reqwest::Client::builder()
         .redirect(Policy::none())
-        .timeout(TIMEOUT)
+        .timeout(timeout)
         .build()
         .map_err(|_| ProbeError::Unreachable)?;
     let url = origin

@@ -1,13 +1,19 @@
 :root {
   color-scheme: dark;
-  --bg: #1c1b19;
+  --bg: #141413;
   --surface: #262522;
+  --raised: #302f2b;
   --border: #3a3834;
   --text: #ece9e2;
   --muted: #a39f95;
   --accent: #5fb89a;
   --accent-text: #11201a;
   --danger: #f0897d;
+  --danger-text: #1d0f0d;
+  --warn: #e8b86a;
+  --warn-text: #241a08;
+  --hover: rgb(236 233 226 / 8%);
+  --titlebar-height: 0px;
   font-family:
     system-ui,
     -apple-system,
@@ -15,21 +21,28 @@
     sans-serif;
 }
 
+:root[data-titlebar] {
+  --titlebar-height: 32px;
+}
+
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
   display: grid;
-  place-items: center;
+  place-items: start center;
+  padding: calc(var(--titlebar-height) + 1.5rem) 1rem 1.5rem;
   background: var(--bg);
   color: var(--text);
 }
 
 .card {
-  width: min(26rem, calc(100vw - 2rem));
+  width: min(34rem, 100%);
   padding: 2rem;
   border: 1px solid var(--border);
   border-radius: 1rem;
@@ -46,10 +59,21 @@ h1 {
   font-size: 1.5rem;
 }
 
+h2 {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
 .lead,
-.hint {
+.hint,
+.note {
   margin: 0;
   color: var(--muted);
+}
+
+.note {
+  font-size: 0.8125rem;
+  text-align: left;
 }
 
 .hint {
@@ -57,8 +81,108 @@ h1 {
   font-size: 0.8125rem;
 }
 
+.panel {
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 0.5rem;
+  text-align: left;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.servers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.server {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--raised);
+}
+
+.server[data-warn] {
+  border-color: var(--warn);
+}
+
+.server-text {
+  min-width: 0;
+  display: grid;
+}
+
+.server-text > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-url,
+.owner {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--warn);
+  color: var(--warn-text);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.row {
+  flex: none;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.inline input {
+  width: 7rem;
+  padding: 0.35rem 0.6rem;
+}
+
+.confirm {
+  padding: 0.75rem;
+  border: 1px solid var(--warn);
+  border-radius: 0.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.confirm[hidden] {
+  display: none;
+}
+
+.confirm p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
 form {
-  margin-top: 1.5rem;
   display: grid;
   gap: 0.5rem;
   text-align: left;
@@ -89,12 +213,17 @@ button:focus-visible {
 }
 
 button {
-  margin-top: 0.5rem;
   border: 0;
   background: var(--accent);
   color: var(--accent-text);
   font-weight: 600;
   cursor: pointer;
+}
+
+button.quiet {
+  background: transparent;
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 button:disabled {
@@ -103,7 +232,67 @@ button:disabled {
 }
 
 .error {
-  margin: 0;
+  margin: 0.5rem 0 0;
   color: var(--danger);
   font-size: 0.875rem;
+  text-align: left;
+}
+
+.error[hidden] {
+  display: none;
+}
+
+/* Windows: the native title bar is off, so the page draws one on the canvas color. */
+.titlebar {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 10;
+  height: var(--titlebar-height);
+  display: flex;
+  background: var(--bg);
+  color: var(--muted);
+  user-select: none;
+}
+
+.titlebar-drag {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-left: 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.titlebar-drag > * {
+  pointer-events: none;
+}
+
+.titlebar-controls {
+  display: flex;
+}
+
+.titlebar-controls button {
+  width: 46px;
+  height: var(--titlebar-height);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-weight: normal;
+}
+
+.titlebar-controls button:hover {
+  background: var(--hover);
+}
+
+.titlebar-controls .titlebar-close:hover {
+  background: var(--danger);
+  color: var(--danger-text);
+}
+
+.titlebar-controls button:focus-visible {
+  outline-offset: -3px;
 }

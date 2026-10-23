@@ -54,20 +54,19 @@ export function describeError(error: unknown): string {
 
 export type ConnectResult = { ok: true } | { ok: false; message: string };
 
-/** Asks the native side to validate, probe and store the address, then open the server. */
-export async function connect(url: string, call: Call = invoke): Promise<ConnectResult> {
+/**
+ * Asks the native side to validate, probe and store the address, then open the server.
+ * `ownerLabel` is the owner shown in the list the address was picked from, kept for the recent list.
+ */
+export async function connect(
+  url: string,
+  call: Call = invoke,
+  ownerLabel?: string,
+): Promise<ConnectResult> {
   try {
-    await call('connect_server', { url });
+    await call('connect_server', { url, ...(ownerLabel && { ownerLabel }) });
     return { ok: true };
   } catch (error) {
     return { ok: false, message: describeError(error) };
-  }
-}
-
-export async function storedServerUrl(call: Call = invoke): Promise<string> {
-  try {
-    return (await call<string | null>('get_server_url')) ?? '';
-  } catch {
-    return '';
   }
 }
