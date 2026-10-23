@@ -132,6 +132,11 @@ export class SettingsService {
   }
 
   async createTheme(userId: string, input: ThemeInput): Promise<CustomTheme> {
+    // Resolved before the transaction: a perk lookup inside it would need a second pooled
+    // connection while concurrent creates hold the rest waiting on the row lock below.
+    const limit = (await this.perks.has(userId, 'extra_themes'))
+      ? MAX_THEMES_WITH_PERK
+      : MAX_CUSTOM_THEMES;
     const row = await this.db.transaction().execute(async (trx) => {
       // Serializes concurrent creates for one user so the limit holds.
       await trx
@@ -145,9 +150,6 @@ export class SettingsService {
         .select((eb) => eb.fn.countAll<string>().as('count'))
         .where('user_id', '=', userId)
         .executeTakeFirstOrThrow();
-      const limit = (await this.perks.has(userId, 'extra_themes'))
-        ? MAX_THEMES_WITH_PERK
-        : MAX_CUSTOM_THEMES;
       if (Number(count) >= limit) {
         throw new AppError(400, 'theme_limit', `You can keep up to ${String(limit)} themes`);
       }

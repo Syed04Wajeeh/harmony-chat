@@ -10,6 +10,8 @@ export interface CleanerOptions {
   orphanTtlMs: number;
   intervalMs: number;
   instanceId: string;
+  /** Instances sharing a key take turns; tests use their own key to run in parallel. */
+  lockKey?: string;
 }
 
 export interface CleanerLogger {
@@ -46,7 +48,8 @@ export class UploadCleaner {
    */
   async runOnce(): Promise<number | null> {
     const lockMs = Math.max(1000, Math.floor(this.options.intervalMs / 2));
-    const acquired = await this.redis.set(LOCK_KEY, this.options.instanceId, 'PX', lockMs, 'NX');
+    const lockKey = this.options.lockKey ?? LOCK_KEY;
+    const acquired = await this.redis.set(lockKey, this.options.instanceId, 'PX', lockMs, 'NX');
     if (acquired !== 'OK') return null;
 
     let total = 0;

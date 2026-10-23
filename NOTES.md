@@ -190,3 +190,6 @@ Only numbers actually measured, with conditions.
 - A preset chosen and then reloaded within 300 ms was lost, because settings are saved after a debounce. Pending changes are now sent with `keepalive` when the page hides.
 - `outline-width` computes to `3px` even when `outline-style` is `none`, so the safe-mode e2e check asserts the style instead.
 - Screenshots that took an appearance through localStorage leaked between contexts once appearance moved to the server (the same user in the next context inherited it); the screenshot spec now sets appearance through the API before every visit.
+- After 5c-2 the full integration suite hung (120 s hook timeouts across unrelated files) while each file passed alone. `createTheme` checked the `extra_themes` perk inside a transaction holding a `FOR UPDATE` row lock: concurrent creates for one user filled the 10-connection pool waiting on that lock while the lock holder waited for an 11th connection for the perk lookup. Same class of bug as the Phase 5b nickname deadlock; the rule now is to resolve anything that needs the pool before opening a transaction. The suite went from hanging to ~15 s.
+- The orphan-cleanup tests in two files raced for the same global Redis lock key once a second file started running a cleaner. `UploadCleaner` takes an optional `lockKey`; each test file uses its own.
+

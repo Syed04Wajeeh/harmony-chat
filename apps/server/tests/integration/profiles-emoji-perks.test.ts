@@ -432,7 +432,12 @@ describe('profiles, custom emoji and perks', () => {
         infra.db,
         infra.redis,
         new LocalDiskStorage(target.config.UPLOAD_DIR),
-        { orphanTtlMs: 1, intervalMs: 60_000, instanceId: 'test' },
+        {
+          orphanTtlMs: 1,
+          intervalMs: 60_000,
+          instanceId: 'test',
+          lockKey: 'test:lock:upload-cleanup:profiles',
+        },
         { warn: () => undefined },
       );
       await cleaner.runOnce();

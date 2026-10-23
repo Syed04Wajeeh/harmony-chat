@@ -301,12 +301,18 @@ describe('uploads and attachments', () => {
   });
 
   describe('orphan cleanup', () => {
+    const LOCK_KEY = 'test:lock:upload-cleanup:uploads';
     const cleaner = (instanceId: string) =>
       new UploadCleaner(
         infra.db,
         infra.redis,
         new LocalDiskStorage(target.config.UPLOAD_DIR),
-        { orphanTtlMs: 24 * 60 * 60 * 1000, intervalMs: 60_000, instanceId },
+        {
+          orphanTtlMs: 24 * 60 * 60 * 1000,
+          intervalMs: 60_000,
+          instanceId,
+          lockKey: LOCK_KEY,
+        },
         { warn: () => undefined },
       );
     const age = (id: string, hours: number) =>
@@ -358,7 +364,7 @@ describe('uploads and attachments', () => {
     });
 
     it('lets only one instance run at a time via the Redis lock', async () => {
-      await infra.redis.del('harmony:lock:upload-cleanup');
+      await infra.redis.del(LOCK_KEY);
       const results = await Promise.all([
         cleaner('one').runOnce(),
         cleaner('two').runOnce(),
@@ -366,7 +372,7 @@ describe('uploads and attachments', () => {
       ]);
       expect(results.filter((r) => r === null)).toHaveLength(2);
       expect(results.filter((r) => r !== null)).toHaveLength(1);
-      await infra.redis.del('harmony:lock:upload-cleanup');
+      await infra.redis.del(LOCK_KEY);
     });
   });
 });
