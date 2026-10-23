@@ -84,6 +84,10 @@
   --z-banner: 30;
   --z-overlay: 50;
   --z-toast: 70;
+  --z-titlebar: 90;
+
+  /* The Windows desktop app sets data-titlebar on the root and gets a bar of this height. */
+  --titlebar-height: 0px;
 }
 
 /* ---- Dark (default) ---- */

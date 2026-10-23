@@ -2,7 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { channel, message, user } from '../test/factories.js';
 import {
   NAVIGATE_EVENT,
+  closeWindow,
+  disconnectServer,
+  hasCustomTitleBar,
   isDesktopApp,
+  isWindowMaximized,
+  minimizeWindow,
+  startWindowDrag,
+  toggleMaximizeWindow,
   notificationFor,
   notifyDesktop,
   onDesktopNavigate,
@@ -142,5 +149,52 @@ describe('releasesUrl', () => {
     expect(releasesUrl('')).toBeNull();
     expect(releasesUrl('javascript:alert(1)')).toBeNull();
     expect(releasesUrl('https://example.com/releases')).toBe('https://example.com/releases');
+  });
+});
+
+describe('window controls', () => {
+  it('are no-ops without the shell', async () => {
+    expect(hasCustomTitleBar()).toBe(false);
+    expect(() => {
+      minimizeWindow();
+      toggleMaximizeWindow();
+      closeWindow();
+      startWindowDrag();
+    }).not.toThrow();
+    expect(await isWindowMaximized()).toBe(false);
+  });
+
+  it('call their commands with no arguments', () => {
+    const invoke = vi.fn().mockResolvedValue(undefined);
+    window.__TAURI_INTERNALS__ = { invoke };
+    minimizeWindow();
+    toggleMaximizeWindow();
+    closeWindow();
+    startWindowDrag();
+    disconnectServer();
+    expect(invoke.mock.calls).toEqual([
+      ['window_minimize', {}],
+      ['window_toggle_maximize', {}],
+      ['window_close', {}],
+      ['window_start_dragging', {}],
+      ['disconnect_server', {}],
+    ]);
+  });
+
+  it('reports the maximized state, and false when the call is refused', async () => {
+    window.__TAURI_INTERNALS__ = { invoke: vi.fn().mockResolvedValue(true) };
+    expect(await isWindowMaximized()).toBe(true);
+    window.__TAURI_INTERNALS__ = { invoke: vi.fn().mockRejectedValue({ code: 'forbidden' }) };
+    expect(await isWindowMaximized()).toBe(false);
+  });
+
+  it('shows the custom title bar only in the desktop app on Windows', () => {
+    const agent = vi.spyOn(navigator, 'userAgent', 'get');
+    window.__TAURI_INTERNALS__ = { invoke: vi.fn() };
+    agent.mockReturnValue('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+    expect(hasCustomTitleBar()).toBe(true);
+    agent.mockReturnValue('Mozilla/5.0 (X11; Linux x86_64)');
+    expect(hasCustomTitleBar()).toBe(false);
+    agent.mockRestore();
   });
 });

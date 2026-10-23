@@ -181,3 +181,27 @@ export const ModulesIcon = (p: P) => (
     <path d="M10 3H4v6h6V3ZM20 3h-6v6h6V3ZM10 15H4v6h6v-6ZM17 13v8M13 17h8" />
   </Icon>
 );
+
+/** Window control glyphs: hairline strokes on a 10px grid, like the Windows caption buttons. */
+const caption = { width: 10, height: 10, viewBox: '0 0 10 10', strokeWidth: 1 } as const;
+export const MinimizeIcon = (p: P) => (
+  <Icon {...caption} {...p}>
+    <path d="M0 5.5h10" />
+  </Icon>
+);
+export const MaximizeIcon = (p: P) => (
+  <Icon {...caption} {...p}>
+    <rect x="0.5" y="0.5" width="9" height="9" rx="1" />
+  </Icon>
+);
+export const RestoreIcon = (p: P) => (
+  <Icon {...caption} {...p}>
+    <rect x="0.5" y="2.5" width="7" height="7" rx="1" />
+    <path d="M2.5 2.5v-1a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1" />
+  </Icon>
+);
+export const CaptionCloseIcon = (p: P) => (
+  <Icon {...caption} {...p}>
+    <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" />
+  </Icon>
+);
