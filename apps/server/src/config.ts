@@ -60,6 +60,8 @@ const ConfigSchema = z
     PRESENCE_TTL_MS: z.coerce.number().int().min(100).default(90_000),
     PRESENCE_HEARTBEAT_MS: z.coerce.number().int().min(10).default(30_000),
     PRESENCE_SWEEP_MS: z.coerce.number().int().min(10).default(30_000),
+    /** Presence changes are coalesced per guild/DM and sent as one `presence.batch` per window. 0 sends at once. */
+    PRESENCE_BATCH_MS: z.coerce.number().int().min(0).default(1000),
 
     /** Perks everyone has: a comma list of perk keys, `all` or `none` (see docs/customization.md). */
     PERKS_DEFAULT: z.string().default('all'),

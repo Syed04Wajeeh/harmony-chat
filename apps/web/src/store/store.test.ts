@@ -175,12 +175,57 @@ describe('read state and unread counts', () => {
 });
 
 describe('presence', () => {
-  it('tracks online users and removes offline ones', () => {
-    state().applyFrame({ type: 'presence.updated', userId: '2', status: 'online' });
-    state().applyFrame({ type: 'presence.updated', userId: '3', status: 'dnd' });
-    expect(state().presence).toEqual({ '2': 'online', '3': 'dnd' });
-    state().applyFrame({ type: 'presence.updated', userId: '2', status: 'offline' });
+  it('applies a batch in order: last update wins and offline removes the user', () => {
+    state().applyFrame({
+      type: 'presence.batch',
+      updates: [
+        { userId: '2', status: 'online' },
+        { userId: '3', status: 'dnd' },
+        { userId: '2', status: 'idle' },
+      ],
+    });
+    expect(state().presence).toEqual({ '2': 'idle', '3': 'dnd' });
+    state().applyFrame({
+      type: 'presence.batch',
+      updates: [{ userId: '2', status: 'offline' }],
+    });
     expect(state().presence).toEqual({ '3': 'dnd' });
+  });
+
+  it('a fetched snapshot replaces the map, but not what arrived live while it was in flight', () => {
+    state().applyFrame({
+      type: 'presence.batch',
+      updates: [
+        { userId: '2', status: 'online' },
+        { userId: '9', status: 'online' },
+      ],
+    });
+    state().beginPresenceRefresh();
+    // Arrives after the snapshot was read on the server, before the response came back.
+    state().applyFrame({
+      type: 'presence.batch',
+      updates: [
+        { userId: '3', status: 'dnd' },
+        { userId: '2', status: 'offline' },
+      ],
+    });
+    state().finishPresenceRefresh([
+      { userId: '2', status: 'online' },
+      { userId: '4', status: 'idle' },
+    ]);
+    // 9 left the audience (not in the snapshot), 4 is new, 2 and 3 keep their newer live state.
+    expect(state().presence).toEqual({ '3': 'dnd', '4': 'idle' });
+    // Nothing is protected once no fetch is in flight.
+    state().beginPresenceRefresh();
+    state().finishPresenceRefresh([{ userId: '2', status: 'online' }]);
+    expect(state().presence).toEqual({ '2': 'online' });
+  });
+
+  it('leaves the map alone when the fetch fails', () => {
+    state().applyFrame({ type: 'presence.batch', updates: [{ userId: '2', status: 'online' }] });
+    state().beginPresenceRefresh();
+    state().finishPresenceRefresh(null);
+    expect(state().presence).toEqual({ '2': 'online' });
   });
 });
 

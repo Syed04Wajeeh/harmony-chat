@@ -5,6 +5,7 @@ import {
   loadGuildModules,
   loadLatest,
   refreshPermissions,
+  refreshPresence,
   reportError,
 } from './actions.js';
 import { routeModuleFrame } from '../modules/registry.js';
@@ -27,6 +28,8 @@ const PERMISSION_FRAMES = new Set<string>([
 /** Subscribing to every channel is a burst of frames; stay under the socket's token bucket. */
 const SUBSCRIBE_BURST = 15;
 const SUBSCRIBE_INTERVAL_MS = 400;
+/** Several membership frames in a row (leaving a guild removes each of its channels) refetch once. */
+const PRESENCE_REFRESH_DEBOUNCE_MS = 300;
 
 const hasOutboxItem = (nonce: string): boolean =>
   Object.values(appStore.getState().outbox).some((items) =>
@@ -43,6 +46,11 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
   let timer: ReturnType<typeof setTimeout> | undefined;
   let sentInBurst = 0;
   let hasConnected = false;
+  let presenceTimer: ReturnType<typeof setTimeout> | undefined;
+  const schedulePresenceRefresh = (delay = PRESENCE_REFRESH_DEBOUNCE_MS) => {
+    clearTimeout(presenceTimer);
+    presenceTimer = setTimeout(() => void refreshPresence(), delay);
+  };
 
   const subscribeFrame = (channelId: string) => {
     const state = appStore.getState();
@@ -81,7 +89,7 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
 
   const resync = async () => {
     try {
-      const { me, snapshot } = await fetchSnapshot();
+      const { me, snapshot } = await fetchSnapshot(undefined, { presence: false });
       const { activeChannelId, history } = appStore.getState();
       // Edits and deletes while offline are not in a backfill: forget idle caches.
       for (const id of Object.keys(history))
@@ -124,6 +132,18 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
       useProfiles.getState().emojiUpdated(frame.guildId, frame.emoji);
     }
     appStore.getState().applyFrame(frame);
+    // The server joined this socket to the user's presence topics before `hello`, so a snapshot
+    // fetched now plus the batches that follow cannot miss a change. Who can see whom also changes
+    // with guild and DM membership, and when someone leaves a guild the user is in.
+    if (frame.type === 'hello') void refreshPresence();
+    else if (
+      frame.type === 'guild.joined' ||
+      frame.type === 'guild.removed' ||
+      frame.type === 'guild.member_left' ||
+      (frame.type === 'channel.joined' && frame.channel.kind === 'dm')
+    ) {
+      schedulePresenceRefresh();
+    }
     if (frame.type === 'error') {
       // A nonce no queued message owns belongs to a rejected slash command.
       const rejectedCommand = frame.nonce !== undefined && !hasOutboxItem(frame.nonce);
@@ -152,6 +172,7 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
     offStore();
     clearInterval(refill);
     clearTimeout(timer);
+    clearTimeout(presenceTimer);
     realtime.stop();
   };
 }

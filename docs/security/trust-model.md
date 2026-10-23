@@ -90,6 +90,18 @@ controls only as a convenience and every request is checked again.
   owner can transfer a server.
 - **Bots** are ordinary members under the same rules, plus their token scopes, and cannot use the
   role, overwrite, nickname, kick or transfer endpoints.
+- **Presence is scoped.** Whether someone is online, idle or on do-not-disturb is delivered only to
+  people who share a guild or a DM with them, and `GET /api/presence` lists only those people.
+  Before this, every connected socket received every user's presence and `GET /api/presence` listed
+  everybody online, so any member of the instance could learn whether a stranger (someone in no
+  guild or DM with them) was online and when they came and went. That small leak is closed. What
+  stays visible: people you share a guild with see your presence, and a DM keeps showing it even
+  after you both leave the guild you met in (a DM is a standing relationship; leaving the DM is not
+  possible today). Users invisible to a viewer are not distinguishable from offline ones.
+  Bounds: presence follows membership as the server knows it, and a socket's presence topics are
+  updated from the same events that update its other subscriptions, so a removed member stops
+  receiving presence with the `guild.removed` event. A member kicked on one instance can keep
+  receiving presence until that event reaches the instance their socket is on (one Redis hop).
 - **Residual risk.** Permission data is cached in each app process and invalidated over Redis,
   with a five-minute reload as a safety net. If Redis loses an invalidation message, an instance
   can keep applying an old role set for up to five minutes, so a permission that was just revoked

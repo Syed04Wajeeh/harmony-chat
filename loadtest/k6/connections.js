@@ -10,7 +10,8 @@
 import { WebSocket } from 'k6/experimental/websockets';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import exec from 'k6/execution';
-import { authHeaders, loginFor, readWorld, wsUrl } from './lib.js';
+import http from 'k6/http';
+import { BASE, authHeaders, loginFor, readWorld, wsUrl } from './lib.js';
 
 const world = readWorld();
 const TARGET = Number(__ENV.TARGET || 2000);
@@ -28,7 +29,13 @@ const dropped = new Counter('conns_dropped_while_held');
 const failedRate = new Rate('conn_failed');
 const onApp1 = new Counter('conns_on_app_1');
 const onApp2 = new Counter('conns_on_app_2');
+// Frames of either kind (`presence.updated` before the presence phase, `presence.batch` after) and
+// the user updates inside them. Before, one frame carried one update.
 const presenceFrames = new Counter('presence_frames_received');
+const presenceUpdates = new Counter('presence_updates_received');
+const presenceBytes = new Counter('presence_bytes_received');
+const snapshotTime = new Trend('presence_snapshot_ms', true);
+const snapshotBytes = new Trend('presence_snapshot_bytes');
 
 export const options = {
   discardResponseBodies: true,
@@ -72,6 +79,12 @@ function openOne(userIndex, deadline) {
     if (typeof data !== 'string') return;
     if (data.startsWith('{"type":"presence.updated"')) {
       presenceFrames.add(1);
+      presenceUpdates.add(1);
+      presenceBytes.add(data.length);
+    } else if (data.startsWith('{"type":"presence.batch"')) {
+      presenceFrames.add(1);
+      presenceUpdates.add(data.split('"userId"').length - 1);
+      presenceBytes.add(data.length);
     } else if (data.startsWith('{"type":"hello"')) {
       helloTime.add(Date.now() - t0);
       if (data.indexOf('"instanceId":"app-1"') >= 0) onApp1.add(1);
@@ -102,6 +115,24 @@ function openOne(userIndex, deadline) {
 export default function () {
   const vu = exec.scenario.iterationInTest; // 0..VUS-1, one iteration per VU
   const start = Date.now();
+  if (vu === 0) {
+    // One user fetches the presence snapshot (what a client does after `hello`) three times during
+    // the hold, once the ramp is over, to see what the snapshot costs with everyone online.
+    for (const fraction of [0.25, 0.5, 0.75]) {
+      setTimeout(
+        () => {
+          const t0 = Date.now();
+          const res = http.get(`${BASE}/api/presence`, {
+            headers: authHeaders(loginFor(world.prefix, 0)),
+            responseType: 'text',
+          });
+          snapshotTime.add(Date.now() - t0);
+          snapshotBytes.add(res.body ? res.body.length : 0);
+        },
+        (RAMP_SECONDS + HOLD_SECONDS * fraction) * 1000,
+      );
+    }
+  }
   const deadline = start + (RAMP_SECONDS + HOLD_SECONDS) * 1000;
   for (let s = 0; s < PER_VU; s++) {
     const userIndex = vu * PER_VU + s;

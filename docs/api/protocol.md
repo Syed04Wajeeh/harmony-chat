@@ -150,8 +150,13 @@ perks). Use for mention autocomplete and starting DMs.
 ### `GET /api/presence`
 
 Response `200` `{ "presence": [ { "userId": "8", "status": "online" | "idle" | "dnd" } ] }`.
-Users that are not listed are offline (this includes invisible users). Fetch once after each
-(re)connect, then apply `presence.updated` frames.
+Users that are not listed are offline (this includes invisible users). **Scoped**: only you and
+people who share at least one guild or DM with you are ever listed, so you cannot look up whether
+a stranger is online. Fetch it after each `hello` (the socket is already receiving presence for
+your guilds and DMs by then, so nothing falls between the snapshot and the frames that follow),
+then apply `presence.batch` frames. Where a batch update and the snapshot disagree, the batch
+update is newer if it arrived after the request was sent. Fetch it again when you join or leave a
+guild or get a DM.
 
 ## Settings and themes
 
@@ -729,9 +734,9 @@ Frames are JSON text, at most 16 KiB. On a malformed frame the server replies
 `{"type":"error","code":"invalid_frame",...}` and keeps the socket open.
 
 Order of events after connecting: the server sends `hello`; the socket is then live for your
-per-user events (`channel.*`, `guild.*`, `read.updated`, `mention`) and for `presence.updated`
-about everyone. Channel events (messages, reactions, typing) arrive only for channels you have
-subscribed to. After a reconnect: re-fetch `GET /api/presence`, `GET /api/guilds` and
+per-user events (`channel.*`, `guild.*`, `read.updated`, `mention`) and for `presence.batch`
+about people who share a guild or DM with you. Channel events (messages, reactions, typing) arrive only for channels you have
+subscribed to. After a reconnect: re-fetch `GET /api/presence` (after `hello`), `GET /api/guilds` and
 `GET /api/channels`, and re-`subscribe` with `lastSeenId`.
 
 **Flood protection**: each socket has a token bucket of 30 frames, refilled at 3 per second.
@@ -857,16 +862,32 @@ long disconnect if that matters.
 - `mention` means someone mentioned you in a message or edit (never your own). Combine with
   `read.updated` counts for badges.
 
-**Presence** (broadcast to every connected client)
+**Presence** (only about users who share a guild or a DM with you)
 
 ```json
-{ "type": "presence.updated", "userId": "8", "status": "online" }
+{
+  "type": "presence.batch",
+  "updates": [
+    { "userId": "8", "status": "online" },
+    { "userId": "9", "status": "offline" }
+  ]
+}
 ```
 
 `status` is `online`, `idle`, `dnd` or `offline`. An `invisible` user is reported as `offline`.
-It is sent when a user's first connection opens, their last one closes or times out (up to
-about 2 minutes after a crash), or they change their status. Presence is not scoped per guild
-at this size; filter by the users you display.
+Changes are coalesced per guild or DM over a window (`PRESENCE_BATCH_MS`, default 1000 ms) and
+sent as one frame: within the window the last state per user wins, updates are in the order of
+their last change, and a user whose final state equals what the topic last sent is left out, so a
+quick disconnect and reconnect sends nothing. A frame has at most 500 updates; a burst larger
+than that arrives as several frames in the same tick. A change is therefore seen up to one
+window late. It is produced when a user's first connection opens, their last one closes or
+times out (up to about 2 minutes after a crash), or they change their status.
+
+Who can see whom follows membership live: joining a guild or getting a DM starts delivery (and
+the others learn how you are doing), leaving, being kicked or deleting stops it, all without
+reconnecting. The server does not push a snapshot when that happens; fetch `GET /api/presence`
+on `guild.joined`, `guild.removed`, `guild.member_left` and a `channel.joined` for a DM. The old
+`presence.updated` frame, which went to every connected socket, no longer exists.
 
 ## Bots and integrations
 
