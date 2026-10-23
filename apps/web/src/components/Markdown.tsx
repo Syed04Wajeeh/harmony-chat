@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from 'react';
+import { CustomEmoji } from './Emoji.js';
 import { parseMarkdown, type Inline } from '../lib/markdown.js';
 
 interface MarkdownProps {
@@ -77,6 +78,8 @@ function InlineNode({
           {node.label}
         </a>
       );
+    case 'emoji':
+      return <CustomEmoji id={node.id} name={node.name} />;
     case 'mention':
       return (
         <span className={node.userId === meId ? 'mention mention-me' : 'mention'}>

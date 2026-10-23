@@ -93,7 +93,18 @@ Appearance is saved per user on the server, so it follows you across devices and
 - **Custom CSS** (opt-in) with stable `data-harmony` hooks, sanitized so it cannot load remote resources. `?safe` in the address turns custom CSS and themes off if a style breaks the page.
 - **Server branding**: owners and `manage_guild` holders set an accent color, banner and description; members see the banner in the sidebar and on invite pages, and the accent while the server is open (they can turn that off).
 
-Details: [docs/theming.md](docs/theming.md), [Custom CSS threat model](docs/security/trust-model.md).
+- **Profiles**: an uploaded avatar (cropped square in the browser, reset any time to your Tailscale picture), a banner color, accent color, pronouns, a Markdown bio and a custom status with an expiry. Click a name or avatar for the profile card (a bottom sheet on phones) with roles, member-since dates and a Message button.
+- **Custom emoji**: members with `manage_emoji` upload PNG, GIF or WebP emoji (256 KB, 128x128); use them with `:name` autocomplete, in the picker and as reactions. Messages made only of emoji render large.
+- **Perks**: free, admin-granted extras (animated avatars, banner images, cross-server emoji, larger uploads, more themes, status emoji). `PERKS_DEFAULT=all` gives everyone everything; set `PERKS_DEFAULT=none` to hand them out one by one in Settings > User > Perks.
+
+Details: [docs/customization.md](docs/customization.md), [docs/theming.md](docs/theming.md), [Custom CSS threat model](docs/security/trust-model.md).
+
+| Profile card                                                     | Profile editor                                                    |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------- |
+| ![Profile popover](docs/screenshots/desktop-profile-popover.png) | ![Profile editor](docs/screenshots/desktop-profile-editor.png)    |
+| ![Custom emoji](docs/screenshots/desktop-custom-emoji.png)       | ![Emoji picker](docs/screenshots/desktop-emoji-picker-custom.png) |
+| ![Status menu](docs/screenshots/desktop-status-menu.png)         | ![Emoji settings](docs/screenshots/desktop-emoji-settings.png)    |
+| ![Perks admin](docs/screenshots/desktop-perks-admin.png)         | ![Profile sheet](docs/screenshots/mobile-profile-sheet.png)       |
 
 | Themes                                                             | Editor                                                        |
 | ------------------------------------------------------------------ | ------------------------------------------------------------- |
@@ -120,7 +131,7 @@ Things to know:
 
 ## Modules
 
-Reactions, pins, search, uploads, polls and a coin flip are modules, not core code: each is a folder with one object that registers routes, WebSocket frames, slash commands, message data, migrations and per-server settings through a small typed context, and an optional matching folder in the web client for the UI slots (message accessories, composer actions, header buttons, settings pages). Server owners switch optional modules on and off in Server settings, Modules, which also builds a settings form from each module's schema; operators can turn any module off for the whole instance with `MODULES_DISABLED=polls,coinflip`. Adding a module is one import line plus a folder: the walkthrough in [docs/modules.md](docs/modules.md) builds `/coinflip` in about 30 lines, and `apps/server/src/modules/polls` (with `apps/web/src/modules/polls`) is a complete example with its own tables, live updates, a composer dialog and a `/poll` command.
+Reactions, pins, search, uploads, polls, custom emoji and a coin flip are modules, not core code: each is a folder with one object that registers routes, WebSocket frames, slash commands, message data, migrations and per-server settings through a small typed context, and an optional matching folder in the web client for the UI slots (message accessories, composer actions, header buttons, settings pages). Server owners switch optional modules on and off in Server settings, Modules, which also builds a settings form from each module's schema; operators can turn any module off for the whole instance with `MODULES_DISABLED=polls,coinflip`. Adding a module is one import line plus a folder: the walkthrough in [docs/modules.md](docs/modules.md) builds `/coinflip` in about 30 lines, and `apps/server/src/modules/polls` (with `apps/web/src/modules/polls`) is a complete example with its own tables, live updates, a composer dialog and a `/poll` command.
 
 Servers have roles and per-channel permission overwrites (Discord-style: a role is a set of permissions with a position, channels can allow or deny them per role or member, and the owner and instance admins can do everything). Private channels are channels @everyone cannot view. The model, the resolution order with a worked example, and the hierarchy rules are in [docs/permissions.md](docs/permissions.md).
 

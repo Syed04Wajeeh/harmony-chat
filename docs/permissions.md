@@ -56,7 +56,7 @@ others only make sense server-wide, and an overwrite naming them is rejected wit
 | `manage_channels`  | yes     | Edit and archive any channel, and remove others from a private channel.                                  |
 | `manage_roles`     | yes     | Create, edit, reorder and delete roles below your own, assign them, and set channel overwrites.          |
 | `manage_guild`     | no      | Rename the server and change its icon; manage modules, bots and webhooks.                                |
-| `manage_emoji`     | no      | Reserved: custom emoji do not exist yet.                                                                 |
+| `manage_emoji`     | no      | Upload, rename and delete the server's custom emoji (`custom-emoji` module).                             |
 | `create_invites`   | no      | Create invites.                                                                                          |
 | `kick_members`     | no      | Remove members who rank below you.                                                                       |
 | `manage_nicknames` | no      | Change other members' nicknames (they must rank below you).                                              |
@@ -220,7 +220,8 @@ always can, and `pins.pin` lets a server open pinning to everyone (as it was) or
 | `create_invites`                      | `POST /api/guilds/:id/invites`                                                                                                                                  |
 | `kick_members`                        | `DELETE /api/guilds/:id/members/:userId`                                                                                                                        |
 | `change_nickname`, `manage_nicknames` | `PATCH /api/guilds/:id/members/:userId`                                                                                                                         |
-| `mention_everyone`, `manage_emoji`    | nothing yet (the features do not exist)                                                                                                                         |
+| `manage_emoji`                        | `POST/PATCH/DELETE /api/guilds/:id/emoji…` (custom emoji module)                                                                                                |
+| `mention_everyone`                    | nothing yet (the feature does not exist)                                                                                                                        |
 
 Messages from incoming webhooks skip the membership and permission checks, as before: the webhook
 token is the authorization, and creating a webhook needs `manage_guild`.

@@ -123,6 +123,11 @@ describe('migrations', () => {
   it('can be undone: down() removes what up() added', async () => {
     const db = await freshDb();
     await migrateAll(db, modules);
+    const profiles = await createMigrator(db).migrateDown();
+    expect(profiles.error).toBeUndefined();
+    expect(await tables(db)).not.toEqual(
+      expect.arrayContaining(['user_profiles', 'guild_emoji', 'user_perks']),
+    );
     const customization = await createMigrator(db).migrateDown();
     expect(customization.error).toBeUndefined();
     expect(await tables(db)).not.toEqual(expect.arrayContaining(['user_settings', 'user_themes']));

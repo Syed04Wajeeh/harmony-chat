@@ -43,7 +43,7 @@ describe('user settings and themes', () => {
 
   beforeAll(async () => {
     infra = createInfra();
-    target = await infra.startApp({ RATE_LIMIT_MAX: '10000' });
+    target = await infra.startApp({ RATE_LIMIT_MAX: '10000', PERKS_DEFAULT: 'none' });
   });
 
   afterAll(async () => {

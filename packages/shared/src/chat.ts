@@ -293,9 +293,6 @@ export const EditMessageBody = z.object({ content: MessageContent });
 
 export const UpdateMeBody = z.object({ status: UserStatus });
 
-export const ListUsersResponse = z.object({ users: z.array(DirectoryUser) });
-export type ListUsersResponse = z.infer<typeof ListUsersResponse>;
-
 export const CreateDmBody = z.object({ userId: Id });
 
 export const PresenceEntry = z.object({ userId: Id, status: PresenceStatus });

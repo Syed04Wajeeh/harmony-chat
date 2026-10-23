@@ -4,7 +4,13 @@ import { useApp } from '../../store/store.js';
 import { SettingsLayout } from './SettingsLayout.js';
 
 /** Permissions that make the server settings worth opening. */
-const SETTINGS_KEYS = ['manage_guild', 'manage_roles', 'kick_members', 'manage_nicknames'];
+const SETTINGS_KEYS = [
+  'manage_guild',
+  'manage_roles',
+  'kick_members',
+  'manage_nicknames',
+  'manage_emoji',
+];
 
 /** Whether this person has anything to do in a server's settings. */
 export function useCanManage(guildId: string): boolean {
@@ -31,6 +37,7 @@ export function ServerSettingsLayout() {
         ...(access.has('manage_guild') ? [{ to: `${base}/overview`, label: 'Overview' }] : []),
         ...(access.has('manage_roles') ? [{ to: `${base}/roles`, label: 'Roles' }] : []),
         { to: `${base}/members`, label: 'Members' },
+        ...(access.has('manage_emoji') ? [{ to: `${base}/emoji`, label: 'Emoji' }] : []),
         ...(access.has('manage_guild')
           ? [
               { to: `${base}/modules`, label: 'Modules' },

@@ -1,5 +1,6 @@
-import type { Message } from '@harmony/shared';
+import { parseCustomEmoji, type Message } from '@harmony/shared';
 import { useState } from 'react';
+import { EmojiValue } from '../../components/Emoji.js';
 import { EmojiGrid, EmojiPickerButton } from '../../components/EmojiPicker.js';
 import { SmileIcon } from '../../components/Icons.js';
 import { useMessageHandlers } from '../../components/chat-context.js';
@@ -32,11 +33,13 @@ export function Reactions({ message }: { message: Message }) {
             className="reaction"
             data-mine={mine || undefined}
             aria-pressed={mine}
-            aria-label={`${reaction.emoji} ${String(reaction.count)}${mine ? ', you reacted' : ''}`}
+            aria-label={`${parseCustomEmoji(reaction.emoji) ? `:${parseCustomEmoji(reaction.emoji)?.name ?? ''}:` : reaction.emoji} ${String(reaction.count)}${mine ? ', you reacted' : ''}`}
             title={names}
             onClick={() => onReact(message, reaction.emoji)}
           >
-            <span className="reaction-emoji">{reaction.emoji}</span>
+            <span className="reaction-emoji">
+              <EmojiValue value={reaction.emoji} />
+            </span>
             <span className="reaction-count">{reaction.count}</span>
           </button>
         );

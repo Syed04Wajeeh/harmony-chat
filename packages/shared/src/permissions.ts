@@ -72,7 +72,7 @@ export const CORE_PERMISSIONS: readonly CorePermission[] = [
     key: 'manage_emoji',
     category: 'management',
     channel: false,
-    description: 'Manage custom emoji (reserved: custom emoji do not exist yet)',
+    description: 'Upload, rename and delete the custom emoji of the server',
   },
   { key: 'create_invites', category: 'management', channel: false, description: 'Create invites' },
   {

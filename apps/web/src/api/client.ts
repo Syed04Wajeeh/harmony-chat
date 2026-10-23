@@ -26,6 +26,12 @@ import {
   ListGuildsResponse,
   ListMessagesResponse,
   ListUsersResponse,
+  ListEmojiResponse,
+  GuildEmoji,
+  MyEmojiResponse,
+  MyPerksResponse,
+  PerksOverview,
+  UserProfileResponse,
   ListWebhooksResponse,
   Me,
   MembersResponse,
@@ -48,6 +54,8 @@ import {
   type UpdateGuildModuleBody,
   type SettingsPatch,
   type ThemeInput,
+  type UpdateProfileBody,
+  type Perk,
   type UserStatus,
 } from '@harmony/shared';
 
@@ -118,8 +126,38 @@ export const api = {
   updateTheme: (id: string, body: ThemeInput) =>
     request(`/api/me/themes/${id}`, { method: 'PUT', body, schema: CustomTheme }),
   deleteTheme: (id: string) => request(`/api/me/themes/${id}`, { method: 'DELETE' }),
-  users: async (signal?: AbortSignal) =>
-    (await request('/api/users', { schema: ListUsersResponse, signal })).users,
+  users: (signal?: AbortSignal) => request('/api/users', { schema: ListUsersResponse, signal }),
+  profile: (userId: string, guildId?: string, signal?: AbortSignal) =>
+    request(`/api/users/${userId}/profile${guildId ? `?guildId=${guildId}` : ''}`, {
+      schema: UserProfileResponse,
+      signal,
+    }),
+  updateProfile: (body: UpdateProfileBody) => request('/api/me/profile', { method: 'PATCH', body }),
+  myEmoji: async (signal?: AbortSignal) =>
+    (await request('/api/me/emoji', { schema: MyEmojiResponse, signal })).emoji,
+  guildEmoji: async (guildId: string, signal?: AbortSignal) =>
+    (await request(`/api/guilds/${guildId}/emoji`, { schema: ListEmojiResponse, signal })).emoji,
+  createEmoji: (guildId: string, name: string, attachmentId: string) =>
+    request(`/api/guilds/${guildId}/emoji`, {
+      method: 'POST',
+      body: { name, attachmentId },
+      schema: GuildEmoji,
+    }),
+  renameEmoji: (guildId: string, emojiId: string, name: string) =>
+    request(`/api/guilds/${guildId}/emoji/${emojiId}`, {
+      method: 'PATCH',
+      body: { name },
+      schema: GuildEmoji,
+    }),
+  deleteEmoji: (guildId: string, emojiId: string) =>
+    request(`/api/guilds/${guildId}/emoji/${emojiId}`, { method: 'DELETE' }),
+  myPerks: (signal?: AbortSignal) => request('/api/me/perks', { schema: MyPerksResponse, signal }),
+  perksOverview: (signal?: AbortSignal) =>
+    request('/api/admin/perks', { schema: PerksOverview, signal }),
+  grantPerk: (userId: string, perk: Perk) =>
+    request(`/api/admin/users/${userId}/perks`, { method: 'PUT', body: { perk } }),
+  revokePerk: (userId: string, perk: Perk) =>
+    request(`/api/admin/users/${userId}/perks/${perk}`, { method: 'DELETE' }),
   presence: async (signal?: AbortSignal) =>
     (await request('/api/presence', { schema: PresenceResponse, signal })).presence,
 

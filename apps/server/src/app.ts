@@ -12,7 +12,7 @@ import {
 } from 'fastify-type-provider-zod';
 import { sql, type Kysely } from 'kysely';
 import type { Redis } from 'ioredis';
-import { MAX_FRAME_BYTES, type HealthResponse } from '@harmony/shared';
+import { MAX_FRAME_BYTES, parsePerkList, type HealthResponse } from '@harmony/shared';
 import { authPlugin } from './auth/plugin.js';
 import { BotAuthenticator } from './bots/auth.js';
 import { botRoutes } from './bots/routes.js';
@@ -45,6 +45,11 @@ import { TypingService } from './realtime/typing.js';
 import { LocalDiskStorage, type Storage } from './uploads/storage.js';
 import { roleRoutes } from './roles/routes.js';
 import { RoleService } from './roles/service.js';
+import { EMOJI_INVALIDATE_TOPIC, EmojiService } from './emoji/service.js';
+import { PERKS_INVALIDATE_TOPIC, PerkService } from './perks/service.js';
+import { perkRoutes } from './perks/routes.js';
+import { ProfileService } from './profiles/service.js';
+import { profileRoutes } from './profiles/routes.js';
 import { SettingsService } from './settings/service.js';
 import { settingsRoutes } from './settings/routes.js';
 import { userRoutes } from './users/routes.js';
@@ -155,6 +160,14 @@ export async function buildApp({
   // Joining and leaving change who is in the guild, which the permission cache also holds.
   domain.on('member.joined', ({ guildId }) => perms.changed(guildId));
   domain.on('member.left', ({ guildId }) => perms.changed(guildId));
+  const perks = new PerkService(db, redis, parsePerkList(config.PERKS_DEFAULT));
+  hub
+    .listen(PERKS_INVALIDATE_TOPIC, (userId) => perks.invalidate(userId))
+    .catch((err: unknown) => app.log.warn({ err }, 'perk invalidation subscribe failed'));
+  const emoji = new EmojiService(db, redis, moduleState, perks);
+  hub
+    .listen(EMOJI_INVALIDATE_TOPIC, (guildId) => emoji.invalidate(guildId))
+    .catch((err: unknown) => app.log.warn({ err }, 'emoji invalidation subscribe failed'));
   const channels = new ChannelService(db, events, domain, perms);
   const messages = new MessageService(
     db,
@@ -164,8 +177,20 @@ export async function buildApp({
     domain,
     decorators,
     perms,
+    emoji,
   );
   const users = new UserStore(db, undefined, domain);
+  const files = storage ?? new LocalDiskStorage(config.UPLOAD_DIR);
+  const profiles = new ProfileService(
+    db,
+    redis,
+    files,
+    perks,
+    emoji,
+    users,
+    { sweepMs: config.STATUS_SWEEP_MS, instanceId: config.INSTANCE_ID },
+    app.log,
+  );
   const presence = new PresenceService(
     redis,
     db,
@@ -173,7 +198,6 @@ export async function buildApp({
     { ttlMs: config.PRESENCE_TTL_MS, sweepMs: config.PRESENCE_SWEEP_MS },
     app.log,
   );
-  const files = storage ?? new LocalDiskStorage(config.UPLOAD_DIR);
   const guilds = new GuildService(db, events, channels, presence, files, domain, perms);
   const roles = new RoleService(db, events, perms, channels, guilds);
   const typing = new TypingService(redis, events, channels, perms);
@@ -201,6 +225,8 @@ export async function buildApp({
     messages,
     channels,
     perms,
+    emoji,
+    perks,
   });
 
   const commandRegistry = new CommandRegistry(db, host.commands, moduleState);
@@ -225,10 +251,12 @@ export async function buildApp({
   );
   app.addHook('onReady', async () => {
     presence.start();
+    profiles.start();
     await host.start();
   });
   app.addHook('onClose', async () => {
     presence.stop();
+    profiles.stop();
     await host.stop();
     await interactions.drain();
   });
@@ -256,8 +284,10 @@ export async function buildApp({
         skipOnError: true,
         errorResponseBuilder: () => new AppError(429, 'rate_limited', 'Too many requests'),
       });
-      await api.register(userRoutes, { users, presence });
-      await api.register(settingsRoutes, { settings: new SettingsService(db, events) });
+      await api.register(userRoutes, { users, presence, profiles });
+      await api.register(profileRoutes, { profiles, emoji });
+      await api.register(perkRoutes, { perks });
+      await api.register(settingsRoutes, { settings: new SettingsService(db, events, perks) });
       await api.register(guildRoutes, { guilds, channels });
       await api.register(roleRoutes, { roles, guilds, perms });
       await api.register(channelRoutes, { channels });

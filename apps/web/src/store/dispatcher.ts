@@ -9,6 +9,7 @@ import {
 } from './actions.js';
 import { routeModuleFrame } from '../modules/registry.js';
 import { getRealtime } from './connection.js';
+import { useProfiles } from './profiles.js';
 import { loadSettings, useSettings } from './settings.js';
 import { appStore } from './store.js';
 import { useUi } from './ui.js';
@@ -88,6 +89,7 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
       appStore.getState().loadSnapshot(snapshot, me);
       // Another device may have changed settings while the socket was down.
       void loadSettings().catch(() => undefined);
+      void useProfiles.getState().refresh();
       if (activeChannelId) void loadLatest(activeChannelId);
       // Module switches may have changed while the socket was down.
       for (const guildId of Object.keys(appStore.getState().guildModules)) {
@@ -115,6 +117,12 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
   const offFrame = realtime.onFrame((frame) => {
     if (frame.type === 'settings.updated') useSettings.getState().receive(frame.settings);
     else if (frame.type === 'themes.updated') useSettings.getState().setThemes(frame.themes);
+    if (frame.type === 'user.updated') {
+      appStore.getState().ingestUsers([frame.user]);
+      useProfiles.getState().userUpdated(frame.user.id, frame.profile);
+    } else if (frame.type === 'guild.emoji_updated') {
+      useProfiles.getState().emojiUpdated(frame.guildId, frame.emoji);
+    }
     appStore.getState().applyFrame(frame);
     if (frame.type === 'error') {
       // A nonce no queued message owns belongs to a rejected slash command.

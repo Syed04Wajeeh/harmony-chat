@@ -18,6 +18,9 @@ import { IntegrationsPage } from './components/settings/IntegrationsPage.js';
 import { ModulesPage } from './components/settings/ModulesPage.js';
 import { MembersPage } from './components/settings/MembersPage.js';
 import { OverviewPage } from './components/settings/OverviewPage.js';
+import { EmojiPage } from './components/settings/EmojiPage.js';
+import { PerksPage } from './components/settings/PerksPage.js';
+import { ProfilePage } from './components/settings/ProfilePage.js';
 import { RolesPage } from './components/settings/RolesPage.js';
 import { ServerSettingsLayout } from './components/settings/ServerSettings.js';
 import { UserModulePage } from './components/settings/UserModulePage.js';
@@ -83,6 +86,8 @@ export function App() {
         <Routes>
           <Route path="/invite/:code" element={<InvitePage />} />
           <Route path="/settings/user" element={<UserSettingsLayout />}>
+            <Route path="profile" element={<ProfilePage />} />
+            <Route path="perks" element={<PerksPage />} />
             <Route path="appearance" element={<AppearancePage />} />
             <Route path="themes" element={<ThemesPage />} />
             <Route path="themes/:ref" element={<ThemeEditorPage />} />
@@ -97,6 +102,7 @@ export function App() {
             <Route path="overview" element={<OverviewPage />} />
             <Route path="roles" element={<RolesPage />} />
             <Route path="members" element={<MembersPage />} />
+            <Route path="emoji" element={<EmojiPage />} />
             <Route path="modules" element={<ModulesPage />} />
             <Route path="integrations" element={<IntegrationsPage />} />
             <Route path="bots" element={<GuildBotsPage />} />

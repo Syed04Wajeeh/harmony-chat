@@ -3,6 +3,7 @@ import {
   MAX_REACTIONS_PER_MESSAGE,
   ReactionParams,
   isValidEmoji,
+  parseCustomEmoji,
   type DirectoryUser,
 } from '@harmony/shared';
 import { AppError } from '../../errors.js';
@@ -41,6 +42,12 @@ export const reactions = defineModule({
       await ctx.requireEnabled(found.guild_id);
       if (adding) {
         await ctx.permissions.require(user, found.guild_id, 'add_reactions', found.channel_id);
+        if (
+          parseCustomEmoji(emoji) &&
+          (await ctx.emoji.resolveToken(userId, found.guild_id, emoji)) !== emoji
+        ) {
+          throw new AppError(400, 'emoji_unavailable', 'You cannot use that emoji here');
+        }
       }
       if (!(await limiter.consume(userId))) {
         throw new AppError(429, 'rate_limited', 'You are reacting too quickly');

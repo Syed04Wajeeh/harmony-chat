@@ -10,6 +10,11 @@ const Config = z.object({
     .int()
     .min(1)
     .default(10 * 1024 * 1024),
+  UPLOAD_MAX_BYTES_PERK: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .default(50 * 1024 * 1024),
   UPLOAD_RATE_MAX: z.coerce.number().int().min(1).default(20),
   UPLOAD_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(60),
   UPLOAD_ORPHAN_TTL_MS: z.coerce
@@ -51,6 +56,8 @@ export const uploads = defineModule({
           ctx.permissions.requireInChannel(user, channelId, 'attach_files'),
         limiter,
         maxBytes: config.UPLOAD_MAX_BYTES,
+        maxBytesPerk: config.UPLOAD_MAX_BYTES_PERK,
+        hasPerk: (user, perk) => ctx.perks.has(user.id, perk),
       });
     });
 

@@ -61,6 +61,10 @@ const ConfigSchema = z
     PRESENCE_HEARTBEAT_MS: z.coerce.number().int().min(10).default(30_000),
     PRESENCE_SWEEP_MS: z.coerce.number().int().min(10).default(30_000),
 
+    /** Perks everyone has: a comma list of perk keys, `all` or `none` (see docs/customization.md). */
+    PERKS_DEFAULT: z.string().default('all'),
+    STATUS_SWEEP_MS: z.coerce.number().int().min(10).default(30_000),
+
     UPLOAD_DIR: z.string().min(1).default('/data/uploads'),
   })
   .transform((raw, ctx) => {

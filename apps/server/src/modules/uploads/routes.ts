@@ -1,7 +1,8 @@
 import multipart from '@fastify/multipart';
+import type { FastifyReply } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { AttachmentParams, Id, UploadResponse } from '@harmony/shared';
+import { AttachmentParams, EmojiImageParams, Id, UploadResponse, type Perk } from '@harmony/shared';
 import type { DirectoryUser } from '@harmony/shared';
 import { AppError } from '../../errors.js';
 import type { RateLimiter } from '../../rate-limit.js';
@@ -13,6 +14,9 @@ export interface UploadRoutesOptions {
   canAttach: (user: DirectoryUser, channelId: string) => Promise<void>;
   limiter: RateLimiter;
   maxBytes: number;
+  /** The limit for users with the `larger_uploads` perk. */
+  maxBytesPerk: number;
+  hasPerk: (user: DirectoryUser, perk: Perk) => Promise<boolean>;
 }
 
 /** Only raster formats browsers cannot be tricked into executing are shown inline. */
@@ -20,9 +24,11 @@ const INLINE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/web
 
 export const uploadRoutes: FastifyPluginAsyncZod<UploadRoutesOptions> = async (
   app,
-  { uploads, canAttach, limiter, maxBytes },
+  { uploads, canAttach, limiter, maxBytes, maxBytesPerk, hasPerk },
 ) => {
-  await app.register(multipart, { limits: { fileSize: maxBytes, files: 1, fields: 5 } });
+  await app.register(multipart, {
+    limits: { fileSize: Math.max(maxBytes, maxBytesPerk), files: 1, fields: 5 },
+  });
   app.post(
     '/uploads',
     {
@@ -42,29 +48,42 @@ export const uploadRoutes: FastifyPluginAsyncZod<UploadRoutesOptions> = async (
       }
       const file = await request.file();
       if (!file) throw new AppError(400, 'no_file', 'No file was uploaded');
-      const attachment = await uploads.store(request.user, file.filename, file.file);
+      const limit = (await hasPerk(request.user, 'larger_uploads')) ? maxBytesPerk : maxBytes;
+      const attachment = await uploads.store(request.user, file.filename, file.file, limit);
       return reply.code(201).send(attachment);
     },
   );
 
+  const sendFile = async (
+    reply: FastifyReply,
+    { row, stream }: Awaited<ReturnType<UploadService['open']>>,
+  ) => {
+    const disposition = INLINE_TYPES.has(row.content_type) ? 'inline' : 'attachment';
+    const ascii = row.filename.replace(/[^\x20-\x7e]/g, '_').replaceAll('"', '_');
+    return reply
+      .header('Content-Type', row.content_type)
+      .header('Content-Length', row.size_bytes)
+      .header('X-Content-Type-Options', 'nosniff')
+      .header(
+        'Content-Disposition',
+        `${disposition}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(row.filename)}`,
+      )
+      .header('Content-Security-Policy', "default-src 'none'; sandbox")
+      .header('Cache-Control', 'private, max-age=31536000, immutable')
+      .send(stream);
+  };
+
   app.get(
     '/attachments/:id/:filename',
     { config: { scope: 'messages.read' }, schema: { params: AttachmentParams } },
-    async (request, reply) => {
-      const { row, stream } = await uploads.open(request.user, request.params.id);
-      const disposition = INLINE_TYPES.has(row.content_type) ? 'inline' : 'attachment';
-      const ascii = row.filename.replace(/[^\x20-\x7e]/g, '_').replaceAll('"', '_');
-      return reply
-        .header('Content-Type', row.content_type)
-        .header('Content-Length', row.size_bytes)
-        .header('X-Content-Type-Options', 'nosniff')
-        .header(
-          'Content-Disposition',
-          `${disposition}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(row.filename)}`,
-        )
-        .header('Content-Security-Policy', "default-src 'none'; sandbox")
-        .header('Cache-Control', 'private, max-age=31536000, immutable')
-        .send(stream);
-    },
+    async (request, reply) => sendFile(reply, await uploads.open(request.user, request.params.id)),
+  );
+
+  /** Custom emoji images are public to signed-in users: messages in any server may show them. */
+  app.get(
+    '/emoji/:emojiId/:filename',
+    { config: { scope: 'messages.read' }, schema: { params: EmojiImageParams } },
+    async (request, reply) =>
+      sendFile(reply, await uploads.openEmoji(request.user, request.params.emojiId)),
   );
 };

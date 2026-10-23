@@ -1,4 +1,4 @@
-import { MAX_MESSAGE_LENGTH, type Message } from '@harmony/shared';
+import { MAX_MESSAGE_LENGTH, isJumbo, type Message } from '@harmony/shared';
 import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useCoarsePointer } from '../hooks/useMediaQuery.js';
 import { memberColor, useCanDelete } from '../hooks/usePermission.js';
@@ -271,7 +271,11 @@ export const MessageItem = memo(function MessageItem({
             <InlineEditor message={message} />
           ) : (
             message.content && (
-              <div className="message-content" data-harmony="message-content">
+              <div
+                className="message-content"
+                data-harmony="message-content"
+                data-jumbo={isJumbo(message.content) || undefined}
+              >
                 <Markdown
                   content={message.content}
                   nameOf={nameOf}

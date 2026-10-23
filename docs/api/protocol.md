@@ -142,8 +142,10 @@ response of whichever tab changed it.
 
 ### `GET /api/users`
 
-Response `200` `{ "users": DirectoryUser[] }`: you plus everyone who shares at least one guild
-with you, ordered by display name. Use for mention autocomplete and starting DMs.
+Response `200` `{ "users": DirectoryUser[], "profiles": { "<userId>": ProfileSummary } }`: you plus
+everyone who shares at least one guild with you, ordered by display name. `profiles` holds a
+summary only for users who have something to show (an accent color, a custom status or explicit
+perks). Use for mention autocomplete and starting DMs.
 
 ### `GET /api/presence`
 
@@ -505,6 +507,83 @@ Needs `manage_messages` or `pins.pin` in the channel (@everyone has `pins.pin` b
 Members only. Response `200` `{ "messages": Message[] }`, newest pin first, at most 50.
 Pinning is provided by the `pins` module: `404 module_disabled` in guilds that switched it off.
 
+## Profiles, custom emoji and perks
+
+```ts
+ProfileSummary = { accentColor: int|null, statusEmoji: string|null, statusText: string|null,
+                   statusExpiresAt: iso|null, hasPerks: boolean }
+Profile        = ProfileSummary & { userId, avatarUrl, providerAvatarUrl, avatarOverridden,
+                   bannerUrl, bannerColor: int|null, bio: string|null, pronouns: string|null,
+                   perks: Perk[] }   // perks = explicit grants only
+Perk           = "animated_avatar" | "profile_banner_image" | "cross_server_emoji"
+               | "larger_uploads" | "extra_themes" | "custom_status_emoji"
+GuildEmoji     = { id, guildId, name, animated, url, createdBy, createdByName, createdAt }
+```
+
+### `GET /api/users/:id/profile?guildId=<id>`
+
+Response `200` `{ profile: Profile, displayName, login, createdAt, member: { nickname, joinedAt,
+roleIds } | null }`. `member` is filled when `guildId` is given and both of you are in it.
+`404 user_not_found` unless you are that user or share a guild or a DM with them. An expired
+status is cleared on read.
+
+### `PATCH /api/me/profile`
+
+Humans only. Body (every field optional, `null` clears): `avatarAttachmentId`,
+`bannerAttachmentId`, `bannerColor` and `accentColor` (0..16777215), `bio` (at most 190
+characters, rendered with the message Markdown subset), `pronouns` (at most 40), and
+`status: { emoji, text (at most 128), duration: "30m"|"1h"|"4h"|"today"|"never", tzOffsetMinutes? } | null`.
+Attachments must be your own unattached uploads. Response `204`.
+
+- A `null` `avatarAttachmentId` removes the override and restores the Tailscale picture.
+- `403 perk_required` for an animated avatar without `animated_avatar`, a banner image without
+  `profile_banner_image`, or a custom emoji in the status without `custom_status_emoji` (and
+  membership of the emoji's server).
+- `400 avatar_too_large` over 8 MB.
+
+### `GET /api/me/emoji`
+
+`{ emoji: (GuildEmoji & { usable })[] }`: the emoji of every server you are in. `usable` says
+whether you may use it outside its own server (the cross-server perk).
+
+### `GET /api/guilds/:id/emoji`, `POST`, `PATCH /api/guilds/:id/emoji/:emojiId`, `DELETE`
+
+Module `custom-emoji` (404 `module_disabled` when switched off). `GET` needs membership; the
+others need `manage_emoji`. `POST` takes `{ name, attachmentId }` with `name` matching
+`^[a-z0-9_]{2,32}$`, unique per server. The upload (via `POST /api/uploads`) must be a PNG, GIF
+or WebP of at most 256 KB and 128x128 pixels, else `400 invalid_emoji_image | emoji_too_large |
+emoji_dimensions`. `409 emoji_name_taken`, `409 emoji_limit` (`EMOJI_MAX_PER_GUILD`, default 50).
+`animated` is true for GIFs with more than one frame and for animated WebP.
+
+### `GET /api/emoji/:emojiId/:filename`
+
+The image, readable by any signed-in user (a message in any server may show it). Same safe
+headers as attachments.
+
+### Message tokens
+
+`<:name:id>` and `<a:name:id>` (animated) in message content. On send and edit the server
+resolves each token with an in-process cache (no query per message): unknown ids, emoji of a
+server with the module off, and emoji the sender may not use become plain `:name:` text, and a
+stale `name` is replaced by the real one. An emoji is usable when it belongs to the message's
+server, or the sender has `cross_server_emoji` and is a member of the emoji's server. Reactions
+take the same token as the `:emoji` path segment (URL-encoded); an unusable one is
+`400 emoji_unavailable`. Unicode and legacy `:shortcode:` reactions are unchanged.
+
+### Perks
+
+Free, admin-granted entitlements. Everyone has the `PERKS_DEFAULT` set (`all` by default;
+`none` or a comma list restricts it) plus their explicit grants.
+
+- `GET /api/me/perks` -> `{ perks: Perk[], explicit: Perk[] }`.
+- `GET /api/admin/perks` -> `{ defaults, all, users: [{ id, login, displayName, grants: [{ perk, grantedBy, grantedByName, grantedAt }] }] }`.
+- `PUT /api/admin/users/:userId/perks` with `{ perk }`, `DELETE /api/admin/users/:userId/perks/:perk`: `204`.
+
+The admin endpoints answer `403` to anyone who is not an instance admin. Enforcement: avatar
+and banner (`PATCH /api/me/profile`), uploads (`POST /api/uploads` limit `UPLOAD_MAX_BYTES`, or
+`UPLOAD_MAX_BYTES_PERK` with `larger_uploads`, default 50 MiB), the custom theme limit (20, or
+100 with `extra_themes`), cross-server emoji in messages and reactions, and status emoji.
+
 ## Search
 
 ### `GET /api/search?q=<text>&channelId=<id>&before=<id>&limit=<1..100, default 50>`
@@ -746,11 +825,19 @@ long disconnect if that matters.
 { "type": "guild.member_updated", "guildId": "3", "userId": "8", "roleIds": ["21"], "nickname": "Ada L." }
 { "type": "channel.overwrites_updated", "channelId": "11", "overwrites": [ { "...ChannelOverwrite": "..." } ] }
 { "type": "guild.modules_updated", "guildId": "3", "moduleId": "polls", "enabled": false, "settings": { "allowMultipleChoice": true } }
+{ "type": "user.updated", "user": { "...DirectoryUser": "..." }, "profile": { "...ProfileSummary": "..." } }
+{ "type": "guild.emoji_updated", "guildId": "3", "emoji": [ { "...GuildEmoji": "..." } ] }
 { "type": "interaction.ephemeral", "interactionId": "5", "channelId": "11", "command": "echo", "botId": "9", "content": "only you", "nonce": "abc" }
 { "type": "interaction.pending", "interactionId": "5", "channelId": "11", "command": "roll", "botId": "9", "expiresAt": "2026-10-22T09:30:00.000Z", "nonce": "abc" }
 { "type": "interaction.failed", "interactionId": "5", "channelId": "11", "command": "roll", "botId": "9", "reason": "timeout", "nonce": "abc" }
 ```
 
+- `user.updated` goes to the user and everyone who shares a guild or a DM with them, after a
+  change to their avatar, accent color or custom status (and when a status expires). One query finds
+  the audience and the publishes are pipelined in batches of 500, so the cost is a few Redis round
+  trips, not one per recipient. It carries only the summary; clients fetch the full profile on demand
+  when a profile card opens. `guild.emoji_updated` carries the server's whole emoji list and goes to
+  every member.
 - `channel.joined` is sent when a channel appears for you: you were added to a private channel,
   a public channel was created in one of your guilds, a DM was opened with you, a channel was
   unarchived. `channel.removed` is the reverse (removed, left, archived, guild left or deleted).

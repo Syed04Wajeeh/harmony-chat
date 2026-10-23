@@ -1,5 +1,6 @@
 import type { HarmonyModule } from './types.js';
 import { coinflip } from './coinflip/index.js';
+import { customEmoji } from './custom-emoji/index.js';
 import { pins } from './pins/index.js';
 import { polls } from './polls/index.js';
 import { reactions } from './reactions/index.js';
@@ -14,4 +15,5 @@ export const modules: readonly HarmonyModule[] = [
   search,
   polls,
   coinflip,
+  customEmoji,
 ];

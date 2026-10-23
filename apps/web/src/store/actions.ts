@@ -6,6 +6,7 @@ import { appStore, type OutboxItem } from './store.js';
 import { useUi } from './ui.js';
 import { getRealtime } from './connection.js';
 import { loadSettings } from './settings.js';
+import { useProfiles } from './profiles.js';
 
 const PAGE_SIZE = 50;
 const MAX_JUMP_PAGES = 20;
@@ -32,14 +33,16 @@ export async function attempt<T>(work: Promise<T>, fallback?: string): Promise<T
 }
 
 export async function fetchSnapshot(signal?: AbortSignal) {
-  const [me, guilds, channels, presence, users] = await Promise.all([
+  const [me, guilds, channels, presence, directory] = await Promise.all([
     api.me(signal),
     api.guilds(signal),
     api.channels(signal),
     api.presence(signal),
     api.users(signal),
   ]);
-  return { me, snapshot: { guilds, channels, presence, users } };
+  useProfiles.getState().ingestSummaries(directory.profiles, true);
+  void useProfiles.getState().refresh();
+  return { me, snapshot: { guilds, channels, presence, users: directory.users } };
 }
 
 export async function bootstrap(signal?: AbortSignal): Promise<void> {

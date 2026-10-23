@@ -7,6 +7,8 @@ export interface UsersTable {
   login: string;
   display_name: string;
   avatar_url: string | null;
+  provider_avatar_url: Generated<string | null>;
+  avatar_overridden: Generated<boolean>;
   is_admin: Generated<boolean>;
   status: Generated<string>;
   kind: Generated<'human' | 'bot'>;
@@ -231,7 +233,41 @@ export interface UserThemesTable {
   updated_at: Generated<Date>;
 }
 
+export interface UserProfilesTable {
+  user_id: string;
+  avatar_attachment_id: string | null;
+  banner_attachment_id: string | null;
+  banner_color: number | null;
+  accent_color: number | null;
+  bio: string | null;
+  pronouns: string | null;
+  status_emoji: string | null;
+  status_text: string | null;
+  status_expires_at: Date | null;
+  updated_at: Generated<Date>;
+}
+
+export interface GuildEmojiTable {
+  id: Generated<string>;
+  guild_id: string;
+  name: string;
+  attachment_id: string;
+  animated: boolean;
+  created_by: string | null;
+  created_at: Timestamp;
+}
+
+export interface UserPerksTable {
+  user_id: string;
+  perk: string;
+  granted_by: string | null;
+  granted_at: Generated<Date>;
+}
+
 export interface Database {
+  user_profiles: UserProfilesTable;
+  guild_emoji: GuildEmojiTable;
+  user_perks: UserPerksTable;
   users: UsersTable;
   guilds: GuildsTable;
   guild_members: GuildMembersTable;

@@ -10,6 +10,7 @@ import type { ChannelService } from '../channels/service.js';
 import type { Database } from '../db/schema.js';
 import { enqueueEvent } from '../events/outbox.js';
 import { AppError } from '../errors.js';
+import type { EmojiService } from '../emoji/service.js';
 import type { DomainEvents } from '../modules/domain-events.js';
 import type { MessageTarget } from '../modules/types.js';
 import type { PermissionService } from '../permissions/service.js';
@@ -53,6 +54,7 @@ export class MessageService {
     private readonly domain: DomainEvents,
     private readonly decorators: MessageDecorators,
     private readonly perms: PermissionService,
+    private readonly emoji: EmojiService,
   ) {
     this.reader = new MessageReader(db, (authors) => perms.nicknames(authors), decorators);
   }
@@ -63,7 +65,7 @@ export class MessageService {
    * already authenticated with the webhook's own token and limiter.
    */
   async send(input: SendMessageInput): Promise<Message> {
-    const { author, channelId, content, nonce, replyToId, source } = input;
+    const { author, channelId, nonce, replyToId, source } = input;
     let channel;
     if (source) {
       channel = await this.db
@@ -86,6 +88,7 @@ export class MessageService {
     }
     if (channel.archived_at) throw new AppError(409, 'channel_archived', 'Channel is archived');
 
+    const content = await this.emoji.sanitize(input.content, author.id, channel.guild_id);
     const attachmentIds = [...new Set(input.attachmentIds ?? [])];
     await this.perms.warm(channelId);
     const { message, notify } = await this.db.transaction().execute(async (trx) => {
@@ -176,7 +179,7 @@ export class MessageService {
     );
   }
 
-  async edit(actor: Actor, messageId: string, content: string): Promise<Message> {
+  async edit(actor: Actor, messageId: string, rawContent: string): Promise<Message> {
     const target = await this.find(messageId, actor.id);
     if (!target.isMember) throw forbidden();
     if (target.deleted_at) throw notFound();
@@ -185,6 +188,7 @@ export class MessageService {
     }
 
     await this.perms.warm(target.channel_id);
+    const content = await this.emoji.sanitize(rawContent, actor.id, target.guild_id);
     const { message, notify } = await this.db.transaction().execute(async (trx) => {
       await trx
         .updateTable('messages')
