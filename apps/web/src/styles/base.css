@@ -101,8 +101,8 @@ button:disabled {
   position: fixed;
   left: 0;
   right: 0;
-  top: var(--app-top, 0px);
-  height: var(--app-height, 100dvh);
+  top: calc(var(--app-top, 0px) + var(--titlebar-height));
+  height: calc(var(--app-height, 100dvh) - var(--titlebar-height));
   display: flex;
   flex-direction: column;
   background: var(--color-bg-canvas);
@@ -111,7 +111,7 @@ button:disabled {
 }
 
 .splash {
-  min-height: 100dvh;
+  min-height: calc(100dvh - var(--titlebar-height));
   display: grid;
   place-content: center;
   justify-items: center;
@@ -402,4 +402,42 @@ button:disabled {
   animation: none;
   border-top-color: var(--color-border-strong);
   border-right-color: var(--color-accent);
+}
+
+:root[data-titlebar] {
+  --titlebar-height: 32px;
+}
+
+/* Thin scrollbars in the theme's colors. Chromium and Firefox take the standard properties;
+   engines without them (older WebKit) get the pseudo-elements. */
+:root {
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+* {
+  scrollbar-width: thin;
+}
+
+@supports not (scrollbar-width: thin) {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: var(--radius-pill);
+    background: var(--color-border-strong);
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-faint);
+    background-clip: padding-box;
+  }
 }

@@ -22,8 +22,26 @@ declare global {
 
 export const isDesktopApp = (): boolean => window.__TAURI_INTERNALS__ !== undefined;
 
-function call(command: string, args: Record<string, unknown>): void {
+function call(command: string, args: Record<string, unknown> = {}): void {
   window.__TAURI_INTERNALS__?.invoke(command, args).catch(() => undefined);
+}
+
+/** The desktop shell draws no title bar of its own on Windows, so the page supplies one. */
+export const hasCustomTitleBar = (): boolean =>
+  isDesktopApp() && /Windows/.test(navigator.userAgent);
+
+export const minimizeWindow = (): void => call('window_minimize');
+export const toggleMaximizeWindow = (): void => call('window_toggle_maximize');
+export const closeWindow = (): void => call('window_close');
+export const disconnectServer = (): void => call('disconnect_server');
+export const startWindowDrag = (): void => call('window_start_dragging');
+
+export async function isWindowMaximized(): Promise<boolean> {
+  try {
+    return (await window.__TAURI_INTERNALS__?.invoke('window_is_maximized')) === true;
+  } catch {
+    return false;
+  }
 }
 
 export interface DesktopNotification {

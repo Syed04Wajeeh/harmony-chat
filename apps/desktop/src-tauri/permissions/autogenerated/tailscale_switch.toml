@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-tailscale-switch"
+description = "Enables the tailscale_switch command without any pre-configured scope."
+commands.allow = ["tailscale_switch"]
+
+[[permission]]
+identifier = "deny-tailscale-switch"
+description = "Denies the tailscale_switch command without any pre-configured scope."
+commands.deny = ["tailscale_switch"]

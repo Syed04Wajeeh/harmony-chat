@@ -1,18 +1,20 @@
 # Harmony desktop
 
-A [Tauri v2](https://v2.tauri.app) shell around a Harmony server. It opens your server in its own window and adds a tray icon, launch at login, single instance, window-state memory, native notifications for mentions and DMs, an unread badge, and auto-update. The web client is not bundled: the window loads the server's own origin, so the Tailscale identity, the `Origin` checks and the UI version are exactly what the browser gets. There is no offline mode.
+A [Tauri v2](https://v2.tauri.app) shell around a Harmony server. It opens your server in its own window and adds a custom title bar on Windows, a tray icon, launch at login, single instance, window-state memory, native notifications for mentions and DMs, an unread badge, and auto-update. The web client is not bundled: the window loads the server's own origin, so the Tailscale identity, the `Origin` checks and the UI version are exactly what the browser gets. There is no offline mode.
+
+![Harmony on Windows with the themed title bar (simulated bridge in a browser)](../../docs/screenshots/desktop-app-titlebar-dark.png)
 
 The security model of the bridge between the page and the app is in [docs/security/trust-model.md](../../docs/security/trust-model.md#desktop-app).
 
 ## Layout
 
-| Path                        | What                                                                                                                   |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `index.html`, `src/`        | The setup page (TypeScript, no framework): validates nothing itself, asks the native `connect_server` and shows errors |
-| `src-tauri/src`             | Rust: URL validation, server probe, config file, session and capabilities, commands, tray, updater, window handling    |
-| `src-tauri/capabilities`    | The static capability for the setup page; the server's capability is created at runtime                                |
-| `src-tauri/tauri.conf.json` | Product name, bundle targets, updater endpoint and public key                                                          |
-| `scripts/sync-version.mjs`  | Keeps `Cargo.toml` and `Cargo.lock` on the version in `package.json`                                                   |
+| Path                        | What                                                                                                                                                                              |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.html`, `src/`        | The setup page (TypeScript, no framework): Tailscale discovery, recent servers, account switch, manual entry, and its own copy of the Windows title bar; validates nothing itself |
+| `src-tauri/src`             | Rust: URL validation, server probe, config file, session and capabilities, commands, tray, updater, window handling                                                               |
+| `src-tauri/capabilities`    | The static capability for the setup page; the server's capability is created at runtime                                                                                           |
+| `src-tauri/tauri.conf.json` | Product name, bundle targets, updater endpoint and public key                                                                                                                     |
+| `scripts/sync-version.mjs`  | Keeps `Cargo.toml` and `Cargo.lock` on the version in `package.json`                                                                                                              |
 
 ## Develop
 
@@ -65,6 +67,9 @@ To add signing later: for Windows, buy an Authenticode (or EV) certificate or us
 
 ## Platform notes
 
+- **Title bar (Windows)**: the native bar is off (`decorations(false)`, shadow kept, so Windows 11 still rounds the corners) because it is drawn in the Windows accent color. The web client's `TitleBar` and the setup page draw a 32 px bar instead, with minimize, maximize/restore and close. macOS and Linux keep native decorations. Known tradeoff: the Windows 11 snap-layouts flyout on the maximize button is not available (Win+Z and edge snapping still work). On Windows 11 an undecorated window with a shadow gets a thin system border.
+- **Finding a server**: the setup page runs `tailscale status --json` and lists online devices that answer `/healthz` as Harmony (ports 18470 and 443, plus one you type). It never connects on its own; the owner of each device is shown and devices that are not yours carry a warning. Without Tailscale, or when it is off or signed out, the page says so and manual entry still works. If `tailscale switch --list` works, the signed-in accounts are listed with a Switch button (confirmation first); if it fails the page shows the error and suggests the tray menu. The CLI is looked up in the default install folder first, then on `PATH`; there is no "Open Tailscale" button because the page may not launch programs.
+- **Disconnect / switch server**: the tray's "Disconnect / switch server…" and the menu next to the name in the title bar return to the setup page. The stored address is cleared (the next start also shows the setup page) but the recent list, cookies and local storage are kept, so reconnecting restores everything. "Forget" on a recent server only removes the list entry. Clearing one server's local data is not offered: Tauri can only clear data for all origins.
 - **Close** hides the window to the tray (Windows and macOS, and Linux when a tray exists); "Quit" in the tray menu exits.
 - **Badge**: the unread count (mentions plus unread DMs) is on the tray tooltip everywhere, as a dock/launcher badge on macOS and Linux desktops that support it, and as a red dot overlay on the Windows taskbar button (Windows overlays are images, so the dot does not show the number).
 - **Notifications** appear only while the window is not in front. On Windows, a click is only reported while the toast is still on screen, not after it moved to the Action Center.

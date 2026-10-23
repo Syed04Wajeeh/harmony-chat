@@ -574,7 +574,7 @@ button.sidebar-header:hover {
 
 /* Invite landing */
 .invite-page {
-  min-height: 100dvh;
+  min-height: calc(100dvh - var(--titlebar-height));
   display: grid;
   place-items: center;
   padding: var(--space-4);

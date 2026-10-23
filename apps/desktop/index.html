@@ -7,26 +7,81 @@
     <link rel="icon" href="/icon.svg" />
   </head>
   <body>
+    <div id="titlebar-slot"></div>
     <main class="card">
       <img class="logo" src="/icon.svg" alt="" width="64" height="64" />
       <h1>Connect to Harmony</h1>
-      <p class="lead">Enter your Harmony server URL.</p>
-      <form id="setup" novalidate>
-        <label for="server-url">Server URL</label>
-        <input
-          id="server-url"
-          name="url"
-          type="text"
-          inputmode="url"
-          placeholder="https://chat.example.ts.net"
-          autocomplete="off"
-          autocapitalize="off"
-          spellcheck="false"
-          autofocus
-        />
-        <p id="error" class="error" role="alert" hidden></p>
-        <button id="submit" type="submit">Connect</button>
-      </form>
+      <p class="lead">Pick a server found on your tailnet, or enter its address.</p>
+
+      <p id="error" class="error" role="alert" hidden></p>
+
+      <section class="panel" aria-labelledby="tailnet-heading">
+        <div class="panel-head">
+          <h2 id="tailnet-heading">Found on your tailnet</h2>
+          <button id="rescan" type="button" class="quiet">Rescan</button>
+        </div>
+        <p id="tailnet-status" class="note" role="status"></p>
+        <ul id="found" class="servers"></ul>
+        <label class="inline" for="extra-port">
+          Also look on port
+          <input
+            id="extra-port"
+            type="text"
+            inputmode="numeric"
+            placeholder="optional"
+            autocomplete="off"
+            maxlength="5"
+          />
+        </label>
+        <p id="port-error" class="error" hidden>Enter a port from 1 to 65535.</p>
+        <p class="note">
+          Only connect to servers run by people you trust. A device that is not yours can answer as
+          a Harmony server.
+        </p>
+      </section>
+
+      <section id="recent-panel" class="panel" aria-labelledby="recent-heading" hidden>
+        <h2 id="recent-heading">Recent servers</h2>
+        <ul id="recent" class="servers"></ul>
+      </section>
+
+      <section class="panel" aria-labelledby="manual-heading">
+        <h2 id="manual-heading">Enter an address</h2>
+        <form id="setup" novalidate>
+          <label for="server-url">Server URL</label>
+          <input
+            id="server-url"
+            name="url"
+            type="text"
+            inputmode="url"
+            placeholder="https://chat.example.ts.net"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+          />
+          <button id="submit" type="submit">Connect</button>
+        </form>
+      </section>
+
+      <section id="accounts-panel" class="panel" aria-labelledby="accounts-heading" hidden>
+        <h2 id="accounts-heading">Tailscale accounts</h2>
+        <ul id="accounts" class="servers"></ul>
+        <div
+          id="switch-confirm"
+          class="confirm"
+          role="alertdialog"
+          aria-labelledby="switch-text"
+          hidden
+        >
+          <p id="switch-text"></p>
+          <div class="row">
+            <button id="switch-yes" type="button">Switch</button>
+            <button id="switch-no" type="button" class="quiet">Cancel</button>
+          </div>
+        </div>
+        <p id="switch-error" class="error" hidden></p>
+      </section>
+
       <p class="hint">This device needs to be signed in to Tailscale.</p>
     </main>
     <script type="module" src="/src/main.ts"></script>

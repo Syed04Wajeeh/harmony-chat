@@ -1,12 +1,17 @@
-use tauri::webview::NewWindowResponse;
+use tauri::webview::{Color, NewWindowResponse};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
+use crate::config::ConfigStore;
 use crate::server_url::same_origin;
 use crate::session::Session;
 
 pub const MAIN: &str = "main";
+
+/// Canvas color of the default theme, shown before the page paints (no white flash).
+const CANVAS: Color = Color(0x14, 0x14, 0x13, 0xff);
+const MIN_SIZE: (f64, f64) = (400.0, 500.0);
 
 /// Fired in the page when the user clicks a notification; the web client navigates to `detail`.
 const NAVIGATE_EVENT: &str = "harmony-desktop:navigate";
@@ -21,7 +26,11 @@ pub fn create_main(app: &AppHandle, hidden: bool) -> tauri::Result<WebviewWindow
     WebviewWindowBuilder::new(app, MAIN, start)
         .title("Harmony")
         .inner_size(1200.0, 800.0)
-        .min_inner_size(400.0, 500.0)
+        .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
+        .background_color(CANVAS)
+        // Windows draws its own title bar in the accent color; the web client brings its own.
+        .decorations(!cfg!(windows))
+        .shadow(true)
         .visible(!hidden)
         .on_navigation(move |url| {
             let allowed =
@@ -79,13 +88,22 @@ fn local_origin(app: &AppHandle) -> Url {
     Url::parse(origin).expect("constant URL")
 }
 
-fn is_local(app: &AppHandle, url: &Url) -> bool {
+pub fn is_local(app: &AppHandle, url: &Url) -> bool {
     same_origin(&local_origin(app), url)
 }
 
 /// Drops the connection and shows the setup page again.
-pub fn show_setup(app: &AppHandle) {
+///
+/// The stored address is cleared so the next start shows the setup page too, but the recent list
+/// stays and no browsing data (cookies, local storage) is touched: reconnecting restores it.
+pub fn disconnect(app: &AppHandle) {
     app.state::<Session>().set(None);
+    let store = app.state::<ConfigStore>();
+    let mut config = store.load();
+    config.disconnect();
+    if store.save(&config).is_err() {
+        eprintln!("could not save settings");
+    }
     if let Some(window) = main_window(app) {
         let _ = window.navigate(local_origin(app));
     }

@@ -25,6 +25,7 @@ import { RolesPage } from './components/settings/RolesPage.js';
 import { ServerSettingsLayout } from './components/settings/ServerSettings.js';
 import { UserModulePage } from './components/settings/UserModulePage.js';
 import { UserSettingsLayout } from './components/settings/UserSettings.js';
+import { TitleBar } from './components/TitleBar.js';
 import { Shell } from './routes/Shell.js';
 
 type Boot = { status: 'loading' } | { status: 'ready' } | { status: 'error'; message: string };
@@ -80,6 +81,7 @@ function Bootstrap({ children }: { children: ReactNode }) {
 export function App() {
   return (
     <BrowserRouter>
+      <TitleBar />
       <Bootstrap>
         <DesktopBridge />
         <AppearanceEffects />

@@ -1,10 +1,12 @@
 mod badge;
 mod commands;
 mod config;
+mod discovery;
 mod notify;
 mod probe;
 mod server_url;
 mod session;
+mod tailscale;
 mod tray;
 mod updater;
 mod window;
@@ -38,9 +40,19 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::connect_server,
-            commands::get_server_url,
+            commands::discover_servers,
+            commands::disconnect_server,
+            commands::forget_server,
+            commands::known_servers,
+            commands::tailscale_status,
+            commands::tailscale_switch,
             commands::notify,
             commands::set_badge,
+            commands::window_close,
+            commands::window_is_maximized,
+            commands::window_minimize,
+            commands::window_start_dragging,
+            commands::window_toggle_maximize,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

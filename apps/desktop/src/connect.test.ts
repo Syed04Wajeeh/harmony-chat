@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { connect, describeError, storedServerUrl, type Call } from './connect.js';
+import { connect, describeError, type Call } from './connect.js';
 
 describe('describeError', () => {
   it('turns every native error code into a sentence', () => {
@@ -29,6 +29,15 @@ describe('connect', () => {
     expect(call).toHaveBeenCalledWith('connect_server', { url: 'https://chat.example.ts.net' });
   });
 
+  it('passes along the owner the address was picked with', async () => {
+    const call = vi.fn().mockResolvedValue(undefined);
+    await connect('https://a.test', call as Call, 'Your device');
+    expect(call).toHaveBeenCalledWith('connect_server', {
+      url: 'https://a.test',
+      ownerLabel: 'Your device',
+    });
+  });
+
   it('returns a friendly message when the command rejects', async () => {
     const call = vi.fn().mockRejectedValue({ code: 'timeout' });
     const result = await connect('x', call as Call);
@@ -36,15 +45,5 @@ describe('connect', () => {
       ok: false,
       message: 'The server took too long to answer — is Tailscale connected?',
     });
-  });
-});
-
-describe('storedServerUrl', () => {
-  it('returns the stored address, or an empty string when there is none or the call fails', async () => {
-    expect(await storedServerUrl(vi.fn().mockResolvedValue('https://a.test/') as Call)).toBe(
-      'https://a.test/',
-    );
-    expect(await storedServerUrl(vi.fn().mockResolvedValue(null) as Call)).toBe('');
-    expect(await storedServerUrl(vi.fn().mockRejectedValue(new Error('x')) as Call)).toBe('');
   });
 });
