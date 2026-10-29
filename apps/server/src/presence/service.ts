@@ -9,7 +9,10 @@ import { effectiveStatus, presenceTopicsOf, type Memberships } from './scope.js'
 const ONLINE_SET = 'harmony:presence:online';
 /** User id to the status shown to others (online, idle or dnd). Absent means offline or invisible. */
 const STATUS_HASH = 'harmony:presence:status';
+/** User id to the status the user chose (online, idle, dnd, or offline for invisible). */
+const CHOSEN_HASH = 'harmony:presence:chosen';
 const connectionsKey = (userId: string): string => `harmony:presence:${userId}`;
+const idleKey = (userId: string): string => `harmony:presence:idle:${userId}`;
 /** HMGET size per round trip. */
 const STATUS_CHUNK = 2000;
 
@@ -21,40 +24,90 @@ const STATUS_CHUNK = 2000;
  * who is offline with a status, or online without one (apart from the instant between a
  * heartbeat re-registering a swept user and `status` being applied).
  *
- * KEYS: connections ZSET, ONLINE set, STATUS hash.
- * ARGV: op (touch | remove | sweep | status), connection id, user id, connection ttl ms, shown
- * status ('' = unknown, 'offline' = hidden).
- * Returns 1 when the user just came online, -1 when just went offline, 0 otherwise; for `status`,
- * 1 if the user is online (and the status was applied) and 0 if not.
+ * The shown status is derived: the CHOSEN hash holds what the user picked (online, idle, dnd or
+ * offline for invisible); only a chosen 'online' is refined by automatic idleness, which is per
+ * connection. The IDLE hash (per user, connection id to 1) lists the connections that reported
+ * themselves idle; the user shows as idle when every live connection is in it. Entries of
+ * connections that expired are dropped whenever the shown status is recomputed.
+ *
+ * KEYS: connections ZSET, ONLINE set, STATUS hash, CHOSEN hash, IDLE hash.
+ * ARGV: op (touch | remove | sweep | status | activity), connection id, user id, connection ttl
+ * ms, chosen status ('' = unknown, 'offline' = hidden), idle flag ('1' or '0', activity only).
+ * Returns 1 when the user just came online, -1 when just went offline, 2 when the shown status
+ * changed without that, 0 otherwise. For `status`: the new shown status, or '' if the user is
+ * not online. For `activity`: the new shown status if it changed, else ''.
  * The clock is Redis's own (TIME), so instances with skewed clocks agree on expiry.
  */
 const PRESENCE_SCRIPT = `
-local op, member, userId, ttl, shown = ARGV[1], ARGV[2], ARGV[3], tonumber(ARGV[4]), ARGV[5]
+local op, member, userId, ttl, chosen, idleFlag = ARGV[1], ARGV[2], ARGV[3], tonumber(ARGV[4]), ARGV[5], ARGV[6]
+local function derive()
+  local c = redis.call('HGET', KEYS[4], userId)
+  if c ~= 'online' then return c end
+  local total = redis.call('ZCARD', KEYS[1])
+  if total == 0 then return c end
+  local idle = 0
+  for _, id in ipairs(redis.call('HKEYS', KEYS[5])) do
+    if redis.call('ZSCORE', KEYS[1], id) then idle = idle + 1 else redis.call('HDEL', KEYS[5], id) end
+  end
+  if idle >= total then return 'idle' end
+  return 'online'
+end
 local function show()
-  if shown == 'offline' then redis.call('HDEL', KEYS[3], userId)
-  elseif shown ~= '' then redis.call('HSET', KEYS[3], userId, shown) end
+  local shown = derive()
+  if shown == 'offline' or not shown then redis.call('HDEL', KEYS[3], userId)
+  else redis.call('HSET', KEYS[3], userId, shown) end
+  return shown
+end
+local function refresh()
+  local before = redis.call('HGET', KEYS[3], userId)
+  local after = derive()
+  if after and after ~= 'offline' and after ~= before then redis.call('HSET', KEYS[3], userId, after) return after end
+  return ''
 end
 if op == 'status' then
-  if redis.call('SISMEMBER', KEYS[2], userId) == 1 then show() return 1 end
-  return 0
+  if chosen ~= '' then redis.call('HSET', KEYS[4], userId, chosen) end
+  if redis.call('SISMEMBER', KEYS[2], userId) == 1 then return show() or '' end
+  return ''
 end
 local t = redis.call('TIME')
 local now = t[1] * 1000 + math.floor(t[2] / 1000)
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
+if op == 'activity' then
+  if not redis.call('ZSCORE', KEYS[1], member) then return '' end
+  if idleFlag == '1' then
+    redis.call('HSET', KEYS[5], member, 1)
+    redis.call('PEXPIRE', KEYS[5], ttl * 2)
+  else
+    redis.call('HDEL', KEYS[5], member)
+  end
+  if redis.call('SISMEMBER', KEYS[2], userId) == 0 then return '' end
+  return refresh()
+end
 if op == 'touch' then
-  redis.call('ZADD', KEYS[1], now + ttl, member)
+  local fresh = redis.call('ZADD', KEYS[1], now + ttl, member)
   redis.call('PEXPIRE', KEYS[1], ttl * 2)
+  if redis.call('HLEN', KEYS[5]) > 0 then redis.call('PEXPIRE', KEYS[5], ttl * 2) end
   local added = redis.call('SADD', KEYS[2], userId)
-  if added == 1 then show() end
-  return added
+  if added == 1 then
+    redis.call('DEL', KEYS[5])
+    if chosen ~= '' then redis.call('HSET', KEYS[4], userId, chosen) end
+    if chosen ~= '' then show() end
+    return 1
+  end
+  -- A new connection starts active, which can end an automatic idle.
+  if fresh == 1 and refresh() ~= '' then return 2 end
+  return 0
 end
 if op == 'remove' then
   redis.call('ZREM', KEYS[1], member)
+  redis.call('HDEL', KEYS[5], member)
 end
 if redis.call('ZCARD', KEYS[1]) == 0 and redis.call('SREM', KEYS[2], userId) == 1 then
   redis.call('HDEL', KEYS[3], userId)
+  redis.call('DEL', KEYS[5])
   return -1
 end
+if redis.call('SISMEMBER', KEYS[2], userId) == 1 and refresh() ~= '' then return 2 end
 return 0
 `;
 
@@ -109,7 +162,9 @@ export class PresenceService {
     known: { status?: UserStatus; topics?: readonly string[] } = {},
   ): Promise<void> {
     const shown = known.status ? effectiveStatus(known.status) : '';
-    if ((await this.run('touch', userId, connectionId, shown)) !== 1) return;
+    const result = Number(await this.run('touch', userId, connectionId, shown));
+    if (result === 2) return this.publishCurrent(userId, known.topics);
+    if (result !== 1) return;
     const status = shown || (await this.applyChosenStatus(userId));
     await this.publish(userId, status, known.topics);
   }
@@ -120,15 +175,17 @@ export class PresenceService {
     connectionId: string,
     topics?: readonly string[],
   ): Promise<void> {
-    if ((await this.run('remove', userId, connectionId)) === -1) {
-      await this.publish(userId, 'offline', topics);
-    }
+    const result = Number(await this.run('remove', userId, connectionId));
+    if (result === -1) await this.publish(userId, 'offline', topics);
+    else if (result === 2) await this.publishCurrent(userId, topics);
   }
 
   /** Expires stale connections of every online user, whichever instance owned them. */
   async sweep(): Promise<void> {
     for (const userId of await this.redis.smembers(ONLINE_SET)) {
-      if ((await this.run('sweep', userId, '')) === -1) await this.publish(userId, 'offline');
+      const result = Number(await this.run('sweep', userId, ''));
+      if (result === -1) await this.publish(userId, 'offline');
+      else if (result === 2) await this.publishCurrent(userId);
     }
   }
 
@@ -146,7 +203,18 @@ export class PresenceService {
   /** Call after a user changes their chosen status. */
   async statusChanged(userId: string, status: UserStatus): Promise<void> {
     const shown = effectiveStatus(status);
-    if ((await this.run('status', userId, '', shown)) === 1) await this.publish(userId, shown);
+    const now = String(await this.run('status', userId, '', shown));
+    if (now) await this.publish(userId, now as PresenceStatus);
+  }
+
+  /**
+   * One connection says whether it is idle (no interaction for a while, or hidden). The user
+   * shows as idle only when their chosen status is online and every connection is idle, so
+   * activity on any device brings them back. Publishes only when the shown status changes.
+   */
+  async activity(userId: string, connectionId: string, idle: boolean): Promise<void> {
+    const now = String(await this.run('activity', userId, connectionId, '', idle ? '1' : '0'));
+    if (now) await this.publish(userId, now as PresenceStatus);
   }
 
   /** The guilds and DMs of a user, from the database. Used once per connection. */
@@ -216,20 +284,34 @@ export class PresenceService {
     if (shown && shown !== 'offline') await this.publish(userId, shown as PresenceStatus, topics);
   }
 
-  private async run(op: string, userId: string, connectionId: string, shown = ''): Promise<number> {
-    const result = await this.redis.eval(
+  private async run(
+    op: string,
+    userId: string,
+    connectionId: string,
+    chosen = '',
+    idle = '0',
+  ): Promise<unknown> {
+    return this.redis.eval(
       PRESENCE_SCRIPT,
-      3,
+      5,
       connectionsKey(userId),
       ONLINE_SET,
       STATUS_HASH,
+      CHOSEN_HASH,
+      idleKey(userId),
       op,
       connectionId,
       userId,
       this.options.ttlMs,
-      shown,
+      chosen,
+      idle,
     );
-    return Number(result);
+  }
+
+  /** Publishes whatever the user currently shows (after a transition that did not say). */
+  private async publishCurrent(userId: string, topics?: readonly string[]): Promise<void> {
+    const shown = await this.redis.hget(STATUS_HASH, userId);
+    if (shown) await this.publish(userId, shown as PresenceStatus, topics);
   }
 
   /** Reads the chosen status from the database and applies it; used when it was not known. */
@@ -240,8 +322,7 @@ export class PresenceService {
       .where('id', '=', userId)
       .executeTakeFirst();
     const shown = row ? effectiveStatus(row.status) : 'offline';
-    await this.run('status', userId, '', shown);
-    return shown;
+    return (String(await this.run('status', userId, '', shown)) || shown) as PresenceStatus;
   }
 
   /**

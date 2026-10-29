@@ -39,6 +39,8 @@ export const ClientFrame = z.discriminatedUnion('type', [
   z.object({ type: z.literal('read'), channelId: Id, messageId: Id }),
   z.object({ type: z.literal('typing'), channelId: Id }),
   z.object({ type: z.literal('presence.set'), status: UserStatus }),
+  /** This socket's own idleness; the user shows idle only when their chosen status is online and all sockets are idle. */
+  z.object({ type: z.literal('presence.activity'), idle: z.boolean() }),
   z.object({ type: z.literal('command.invoke'), channelId: Id, ...InvokeCommandBody.shape }),
   z.object({ type: z.literal('action.invoke'), ...InvokeActionBody.shape }),
 ]);

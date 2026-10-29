@@ -103,6 +103,9 @@ export function handleConnection(
         await users.setStatus(user.id, frame.status);
         await presence.statusChanged(user.id, frame.status);
         return;
+      case 'presence.activity':
+        await presence.activity(user.id, connectionId, frame.idle);
+        return;
       case 'action.invoke':
         await interactions.invokeAction(user, {
           source: frame.source,
