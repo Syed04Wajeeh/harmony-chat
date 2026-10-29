@@ -243,6 +243,27 @@ export class PanelService {
     return panel;
   }
 
+  /** Like `replaceView`, addressed the way a bot names its panels: channel and key. */
+  async replaceViewByKey(
+    botId: string,
+    channelId: string,
+    key: string,
+    view: PanelView,
+  ): Promise<Panel> {
+    const row = await this.db
+      .updateTable('panels')
+      .set({ view: JSON.stringify(view), version: sql`version + 1`, updated_at: new Date() })
+      .where('channel_id', '=', channelId)
+      .where('bot_id', '=', botId)
+      .where('key', '=', key)
+      .returningAll()
+      .executeTakeFirst();
+    if (!row) throw notFound();
+    const panel = toPanel(row);
+    this.coalescer.push(panel);
+    return panel;
+  }
+
   private async announceDeleted(channelId: string, panelId: string): Promise<void> {
     this.coalescer.cancel(panelId);
     await this.events.toChannel(channelId, { type: 'panel.deleted', channelId, panelId });

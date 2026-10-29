@@ -384,6 +384,17 @@ export class BotService {
       .where('bot_id', '=', botId)
       .where('guild_id', 'in', guildIds)
       .execute();
+    // Assignments and schedules do not outlive the membership: a removed bot stops being asked.
+    await trx
+      .deleteFrom('bot_schedules')
+      .where('bot_id', '=', botId)
+      .where('guild_id', 'in', guildIds)
+      .execute();
+    await sql`
+      delete from channel_bots cb using channels c
+      where cb.channel_id = c.id and cb.bot_id = ${botId}
+        and c.guild_id = any(${guildIds}::bigint[])
+    `.execute(trx);
     for (const guildId of guildIds) {
       await enqueueEvent(trx, { guildId, type: 'guild.member_left', data: { userId: botId } });
     }

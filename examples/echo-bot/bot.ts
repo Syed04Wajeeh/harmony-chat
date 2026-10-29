@@ -20,6 +20,8 @@ const BOT_ID = TOKEN.split('_')[1];
 // Optional: a dashboard (or any) channel to publish the demo panel into. Needs the panels.write scope.
 const DASHBOARD_CHANNEL_ID = process.env.HARMONY_DASHBOARD_CHANNEL_ID;
 const PANEL_INTERVAL_MS = Number(process.env.HARMONY_PANEL_INTERVAL_MS ?? 5000);
+// How often Harmony asks the bot to refresh the demo panel (a schedule; the server's minimum is 60).
+const REFRESH_SECONDS = Number(process.env.HARMONY_REFRESH_SECONDS ?? 60);
 
 async function harmony(path: string, method: string, body: unknown, bot = true) {
   const res = await fetch(API + path, {
@@ -148,12 +150,31 @@ if (DASHBOARD_CHANNEL_ID) {
       )
       .catch(console.error);
   }, PANEL_INTERVAL_MS).unref();
+
+  // Scheduled refresh: Harmony sends a `refresh` interaction every REFRESH_SECONDS and the bot
+  // answers with update_panel. Bulk overwrite again, so run this on every start; a manager's
+  // pause survives it. Needs the `commands` scope, like the interactions themselves.
+  await harmony('/api/bots/@me/schedules', 'PUT', {
+    schedules: [
+      {
+        id: 'host-panel',
+        channelId: DASHBOARD_CHANNEL_ID,
+        every: REFRESH_SECONDS,
+        panelKey: 'host',
+      },
+    ],
+  });
 }
 
 type Answer = Record<string, unknown>;
 
 /** The bot's logic, independent of how the interaction arrived. */
 function answer(interaction: InteractionPayload): Answer {
+  if (interaction.type === 'refresh') {
+    // A schedule came due; there is no user. interaction.schedule.panelKey names the panel.
+    cpu = wander(cpu, 18);
+    return { type: 'update_panel', view: hostView(seed()) };
+  }
   if (interaction.type === 'action') {
     // A button was clicked. Harmony already checked the user may see the channel and holds the
     // button's requiredPermission; answer like a command, or replace the panel itself.

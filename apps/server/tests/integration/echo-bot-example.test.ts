@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Panel } from '@harmony/shared';
 import {
@@ -37,12 +38,36 @@ describe('examples/echo-bot', () => {
 
   beforeAll(async () => {
     infra = createInfra();
-    target = await infra.startApp({ OUTBOUND_PRIVATE_ALLOWLIST: '127.0.0.1' });
+    target = await infra.startApp({
+      OUTBOUND_PRIVATE_ALLOWLIST: '127.0.0.1',
+      SCHEDULER_TICK_MS: '100',
+    });
   });
   afterAll(async () => {
     child?.kill();
     await infra.stop();
   });
+
+  /** The bot registered its 60 s schedule; make it due and wait for the refresh to be answered. */
+  async function expectScheduledRefresh(botId: string, panelKey: string) {
+    const rows = () =>
+      infra.db.selectFrom('bot_schedules').selectAll().where('bot_id', '=', botId).execute();
+    const [row] = await rows();
+    expect(row).toMatchObject({ slug: 'host-panel', every_seconds: 60, panel_key: panelKey });
+    await sql`update bot_schedules set next_run_at = now() where bot_id = ${botId}`.execute(
+      infra.db,
+    );
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const [now] = await rows();
+      if (now?.last_status) {
+        expect(now).toMatchObject({ last_status: 'ok', last_error: null });
+        return;
+      }
+      if (Date.now() > deadline) throw new Error('the scheduled refresh was never answered');
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
 
   it('registers its commands, answers /echo ephemerally and /roll with a follow-up', async () => {
     const tag = randomUUID().slice(0, 8);
@@ -165,6 +190,7 @@ describe('examples/echo-bot', () => {
     });
     await socket.waitFor('interaction.completed');
     await socket.waitFor('panel.updated');
+    await expectScheduledRefresh(created.bot.id, 'host');
     await socket.close();
   });
   it('runs in gateway mode with no URL: commands, events and the dashboard button', async () => {
@@ -226,6 +252,7 @@ describe('examples/echo-bot', () => {
       body: { source: { panelId: panel.id }, actionId: 'refresh', nonce: 'g2' },
     });
     await socket.waitFor('interaction.completed');
+    await expectScheduledRefresh(created.bot.id, 'host');
     await socket.close();
   });
 });
