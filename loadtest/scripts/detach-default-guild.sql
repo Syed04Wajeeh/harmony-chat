@@ -1,3 +1,5 @@
+-- Since migration 0018 new users join no guild unless an admin sets a lobby, so this is only needed
+-- for databases seeded before that (or with a lobby set).
 -- Every user is auto-joined to the default guild on first contact, which would make the world one
 -- giant shared guild. This removes the load users (all but the guild's owner, load-cap-0, who
 -- created it) from it, leaving each user only in their own 100-member guild. Restart the app
