@@ -166,6 +166,12 @@
   display: block;
 }
 
+@media (min-width: 900px) {
+  .modal-dialog.modal-wide {
+    width: min(960px, calc(100vw - 48px));
+  }
+}
+
 @media (max-width: 899.98px) {
   .modal-dialog {
     left: var(--sheet-inset);

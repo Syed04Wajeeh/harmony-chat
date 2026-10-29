@@ -1,4 +1,9 @@
-import { WebhookName, type ChannelSummary, type Webhook } from '@harmony/shared';
+import {
+  WebhookName,
+  type ChannelSummary,
+  type Webhook,
+  type WebhookFormat,
+} from '@harmony/shared';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router';
 import { api, uploadFile } from '../../api/client.js';
@@ -6,11 +11,13 @@ import { attempt } from '../../store/actions.js';
 import { guildChannels } from '../../store/selectors.js';
 import { useApp } from '../../store/store.js';
 import { Avatar } from '../Avatar.js';
-import { HashIcon, LockIcon, PlusIcon, TrashIcon } from '../Icons.js';
+import { EditIcon, HashIcon, LockIcon, PlusIcon, TrashIcon } from '../Icons.js';
 import { ConfirmDialog, Modal } from '../Overlay.js';
+import { FORMAT_INFO, STARTER_TEMPLATE, WEBHOOK_FORMAT_ORDER } from '../../lib/webhook-formats.js';
 import { DocLinks } from './DocLinks.js';
 import { SecretsView } from './SecretsView.js';
 import { SettingsCard, SettingsPage } from './SettingsLayout.js';
+import { WebhookEditor } from './WebhookEditor.js';
 
 type CreatedWebhook = Awaited<ReturnType<typeof api.createWebhook>>;
 
@@ -36,6 +43,7 @@ function CreateWebhookDialog({
   const [channelId, setChannelId] = useState(initialChannelId ?? '');
   const [name, setName] = useState('');
   const [avatar, setAvatar] = useState<File | null>(null);
+  const [format, setFormat] = useState<WebhookFormat>('discord');
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<CreatedWebhook | null>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -54,6 +62,9 @@ function CreateWebhookDialog({
       api.createWebhook(target, {
         name: name.trim(),
         ...(avatarAttachmentId && { avatarAttachmentId }),
+        ...(format !== 'discord' && { format }),
+        // A template webhook starts from an example; the editor changes it.
+        ...(format === 'template' && { template: STARTER_TEMPLATE }),
       }),
       'Could not create the webhook',
     );
@@ -116,6 +127,20 @@ function CreateWebhookDialog({
               placeholder="Uptime Kuma"
             />
           </label>
+          <label className="field">
+            <span>Format</span>
+            <select
+              value={format}
+              onChange={(event) => setFormat(event.target.value as WebhookFormat)}
+            >
+              {WEBHOOK_FORMAT_ORDER.map((value) => (
+                <option key={value} value={value}>
+                  {FORMAT_INFO[value].label}
+                </option>
+              ))}
+            </select>
+            <small className="field-hint">{FORMAT_INFO[format].hint}</small>
+          </label>
           <div className="field">
             <span>Avatar (optional)</span>
             <div className="icon-editor">
@@ -173,6 +198,7 @@ export function IntegrationsPage() {
   const [byChannel, setByChannel] = useState<Record<string, Webhook[]> | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<Webhook | null>(null);
+  const [editing, setEditing] = useState<Webhook | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -197,6 +223,14 @@ export function IntegrationsPage() {
       [webhook.channelId]: [...(current?.[webhook.channelId] ?? []), webhook],
     }));
 
+  const replaceLocally = (webhook: Webhook) =>
+    setByChannel((current) => ({
+      ...current,
+      [webhook.channelId]: (current?.[webhook.channelId] ?? []).map((w) =>
+        w.id === webhook.id ? webhook : w,
+      ),
+    }));
+
   async function remove(webhook: Webhook) {
     setDeleting(null);
     const deleted = await attempt(
@@ -219,7 +253,7 @@ export function IntegrationsPage() {
     <SettingsPage title="Integrations" back={`/settings/server/${guildId}`}>
       <SettingsCard
         title="Incoming webhooks"
-        description="A webhook gives a tool a URL to post messages into one channel. The payload follows Discord's webhook format, so existing tools work as they are."
+        description="A webhook gives a tool a URL to post messages into one channel. Discord-style payloads work as they are, and presets or a template turn other services' JSON into messages."
       >
         <DocLinks />
         <div className="settings-toolbar">
@@ -263,9 +297,18 @@ export function IntegrationsPage() {
                     <span className="settings-row-text">
                       <span className="settings-row-title">{webhook.name}</span>
                       <span className="settings-row-meta">
-                        Created {new Date(webhook.createdAt).toLocaleDateString()}
+                        {FORMAT_INFO[webhook.format].label} · Created{' '}
+                        {new Date(webhook.createdAt).toLocaleDateString()}
                       </span>
                     </span>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`Edit webhook ${webhook.name}`}
+                      onClick={() => setEditing(webhook)}
+                    >
+                      <EditIcon />
+                    </button>
                     <button
                       type="button"
                       className="icon-button"
@@ -289,6 +332,15 @@ export function IntegrationsPage() {
         onOpenChange={setCreating}
         onCreated={addLocally}
       />
+      {editing && (
+        <WebhookEditor
+          key={editing.id}
+          webhook={editing}
+          open
+          onOpenChange={(open) => !open && setEditing(null)}
+          onSaved={replaceLocally}
+        />
+      )}
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}

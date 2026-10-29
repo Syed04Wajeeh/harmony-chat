@@ -30,6 +30,11 @@ export function DocLinks() {
         <code>embeds</code>. <Doc path="examples/post-from-script.sh">Example script</Doc>
       </li>
       <li>
+        <strong>Forgejo, GitHub, Alertmanager, Grafana, Watchtower or any JSON:</strong> pick a
+        format with the edit button on a webhook.{' '}
+        <Doc path="docs/integrations.md#webhook-presets-and-templates">Presets and templates</Doc>
+      </li>
+      <li>
         <strong>Reaching Harmony from another host or container:</strong>{' '}
         <Doc path="docs/integrations.md">Integration ingress</Doc>
       </li>

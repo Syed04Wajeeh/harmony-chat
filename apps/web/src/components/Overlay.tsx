@@ -12,6 +12,8 @@ interface ModalProps {
   /** `sheet` is always a bottom sheet; the default is centred on desktop and a sheet on phones. */
   variant?: 'dialog' | 'sheet' | 'viewer';
   hideTitle?: boolean;
+  /** A wider dialog on desktop, for editors with a side-by-side preview. */
+  wide?: boolean;
   /** Ignore outside taps this long after opening, e.g. the release of the long-press that opened it. */
   graceMs?: number;
 }
@@ -24,6 +26,7 @@ export function Modal({
   children,
   variant = 'dialog',
   hideTitle = false,
+  wide = false,
   graceMs = 0,
 }: ModalProps) {
   const openedAt = useRef(0);
@@ -36,7 +39,7 @@ export function Modal({
       <Dialog.Portal>
         <Dialog.Overlay className="overlay" />
         <Dialog.Content
-          className={`modal modal-${variant}${graceMs ? ' modal-guarded' : ''}`}
+          className={`modal modal-${variant}${wide ? ' modal-wide' : ''}${graceMs ? ' modal-guarded' : ''}`}
           style={graceMs ? ({ '--grace': `${String(graceMs)}ms` } as CSSProperties) : undefined}
           onInteractOutside={(event) => {
             if (Date.now() - openedAt.current < graceMs) event.preventDefault();

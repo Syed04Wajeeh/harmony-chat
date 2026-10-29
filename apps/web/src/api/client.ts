@@ -39,6 +39,8 @@ import {
   PerksOverview,
   UserProfileResponse,
   ListWebhooksResponse,
+  PreviewWebhookResponse,
+  Webhook,
   Me,
   MembersResponse,
   Message,
@@ -52,6 +54,8 @@ import {
   type CreateChannelBody,
   type CreateRoleBody,
   type CreateWebhookBody,
+  type PreviewWebhookBody,
+  type UpdateWebhookBody,
   type InvokeActionBody,
   type PutOverwriteBody,
   type UpdateRoleBody,
@@ -382,6 +386,15 @@ export const api = {
       method: 'POST',
       body,
       schema: CreatedWebhook,
+    }),
+  updateWebhook: (id: string, body: UpdateWebhookBody) =>
+    request(`/api/webhooks/${id}`, { method: 'PATCH', body, schema: Webhook }),
+  previewWebhook: (id: string, body: PreviewWebhookBody, signal?: AbortSignal) =>
+    request(`/api/webhooks/${id}/preview`, {
+      method: 'POST',
+      body,
+      schema: PreviewWebhookResponse,
+      signal,
     }),
   deleteWebhook: (id: string) => request(`/api/webhooks/${id}`, { method: 'DELETE' }),
 
