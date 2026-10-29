@@ -1,0 +1,22 @@
+{
+  "name": "@harmony/example-homelab-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A gateway-mode Harmony bot for a home server: Docker, game servers and monitors, with a dashboard and slash commands",
+  "scripts": {
+    "start": "node src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@harmony/shared": "workspace:*",
+    "@types/node": "^26.6.5",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.5"
+  }
+}

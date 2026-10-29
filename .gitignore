@@ -17,3 +17,9 @@ loadtest/results/*.cpuprofile
 target/
 apps/desktop/src-tauri/gen/
 .deploy-nginx.sha
+
+# homelab bot: real config, compose file and generated proxy lists are deployment details
+examples/homelab-bot/config.yml
+examples/homelab-bot/compose.local.yml
+examples/homelab-bot/proxy/acl/
+examples/homelab-bot/*.env
