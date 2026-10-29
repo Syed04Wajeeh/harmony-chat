@@ -314,6 +314,87 @@ export class InteractionService {
   }
 
   /**
+   * Delivers a due schedule to its bot as a `refresh` interaction, through the same signed HTTP
+   * call or gateway frame as a command, and applies the answer. Resolves with the outcome rather
+   * than throwing; the scheduler records it.
+   */
+  async refresh(job: {
+    botId: string;
+    guildId: string;
+    channelId: string;
+    slug: string;
+    panelKey: string | null;
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
+    const bot = await this.db
+      .selectFrom('bots as b')
+      .innerJoin('users as bu', 'bu.id', 'b.user_id')
+      .innerJoin('users as owner', 'owner.id', 'bu.bot_owner_id')
+      .select([
+        'b.interactions_url',
+        'b.scopes',
+        'b.signing_secret',
+        'owner.is_admin as owner_is_admin',
+      ])
+      .where('b.user_id', '=', job.botId)
+      .executeTakeFirst();
+    const route = bot && routeFor(bot);
+    if (!route) return { ok: false, error: 'bot_unavailable' };
+
+    const token = generateSecret();
+    const expiresAt = new Date(Date.now() + INTERACTION_TTL_SECONDS * 1000);
+    const row = await this.db
+      .insertInto('interactions')
+      .values({
+        token_hash: hashSecret(token),
+        bot_id: job.botId,
+        // No person is involved; the bot stands in as the invoker so the columns stay filled.
+        user_id: job.botId,
+        channel_id: job.channelId,
+        command_name: `refresh:${job.slug}`,
+        options: '{}',
+        nonce: null,
+        expires_at: expiresAt,
+        type: 'refresh',
+      })
+      .returning(['id', 'created_at'])
+      .executeTakeFirstOrThrow();
+    const payload: InteractionPayload = {
+      id: row.id,
+      token,
+      type: 'refresh',
+      schedule: { id: job.slug, channelId: job.channelId, panelKey: job.panelKey },
+      guildId: job.guildId,
+      channelId: job.channelId,
+      createdAt: row.created_at.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    };
+    const raw =
+      route.kind === 'http'
+        ? await this.callHttp(payload, route)
+        : await this.callGateway(job.botId, payload);
+    if (raw.failure) return { ok: false, error: raw.failure };
+
+    const response = InteractionResponse.safeParse(raw.body);
+    if (!response.success) return { ok: false, error: 'invalid_response' };
+    const answer = response.data;
+    try {
+      if (answer.type === 'deferred') return { ok: true };
+      if (answer.type === 'update_panel') {
+        if (!job.panelKey) return { ok: false, error: 'invalid_response' };
+        await this.panels.replaceViewByKey(job.botId, job.channelId, job.panelKey, answer.view);
+        return { ok: true };
+      }
+      // Nobody asked, so there is no one to show an ephemeral note to.
+      if (answer.ephemeral) return { ok: false, error: 'invalid_response' };
+      await this.post(await this.botUser(job.botId), job.channelId, answer);
+      return { ok: true };
+    } catch (error) {
+      this.log.warn({ err: error }, 'could not apply refresh response');
+      return { ok: false, error: 'post_failed' };
+    }
+  }
+
+  /**
    * Built-in commands run in this process, to completion, before the request is answered.
    * Validation and the shape of the outcome match bot commands: a public message or an
    * ephemeral note, delivered the same way. A public answer is posted as the caller.
@@ -345,7 +426,7 @@ export class InteractionService {
           message: answer,
         });
       } else {
-        await this.post(user, channelId, answer);
+        await this.post(user, channelId, answer, true);
       }
     }
     return { interactionId };
@@ -381,7 +462,7 @@ export class InteractionService {
         interactionId: id,
         channelId: row.channel_id,
         command: row.command_name,
-        kind: row.type,
+        kind: row.type === 'action' ? 'action' : 'command',
         botId: row.bot_id,
         nonce: row.nonce ?? undefined,
         message,
@@ -406,7 +487,7 @@ export class InteractionService {
     const raw =
       route.kind === 'http'
         ? await this.callHttp(payload, route)
-        : await this.callGateway(target, payload);
+        : await this.callGateway(target.botId, payload);
     if (raw.failure) return this.fail(target, raw.failure);
 
     const response = InteractionResponse.safeParse(raw.body);
@@ -486,17 +567,23 @@ export class InteractionService {
 
   /** Sends the payload to the bot's gateway socket (any instance) and waits for its answer. */
   private async callGateway(
-    target: Target,
+    botId: string,
     payload: InteractionPayload,
   ): Promise<{ body: unknown; failure?: undefined } | { failure: InteractionFailureReason }> {
     if (!this.gateway) return { failure: 'unreachable' };
-    const result = await this.gateway.ask(target.botId, payload, this.options.deadlineMs);
+    const result = await this.gateway.ask(botId, payload, this.options.deadlineMs);
     return result.ok ? { body: result.response } : { failure: result.reason };
   }
 
-  private async post(author: DirectoryUser, channelId: string, message: BotMessage) {
+  private async post(
+    author: DirectoryUser,
+    channelId: string,
+    message: BotMessage,
+    viaCommand = false,
+  ) {
     return this.messages.send({
       author,
+      ...(viaCommand && { viaCommand }),
       channelId,
       content: stripMassMentions(message.content),
       embeds: message.embeds,

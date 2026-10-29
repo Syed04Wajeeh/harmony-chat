@@ -21,11 +21,15 @@ export function splitSlashInput(text: string): { name: string; rest: string } | 
   return match ? { name: (match[1] ?? '').toLowerCase(), rest: match[2] ?? '' } : null;
 }
 
-/** Name prefix matches first, then names containing the query, then descriptions. */
+/**
+ * Name prefix matches first, then names containing the query, then descriptions. Commands of
+ * `preferredBotIds` (the bots assigned to the channel) come before all others.
+ */
 export function suggestCommands(
   commands: readonly GuildCommand[],
   query: string,
   limit = 8,
+  preferredBotIds: readonly string[] = [],
 ): GuildCommand[] {
   const q = query.toLowerCase();
   const rank = (command: GuildCommand): number => {
@@ -35,9 +39,18 @@ export function suggestCommands(
     return 3;
   };
   return commands
-    .map((command) => ({ command, rank: rank(command) }))
+    .map((command) => ({
+      command,
+      rank: rank(command),
+      preferred: command.botId !== null && preferredBotIds.includes(command.botId) ? 0 : 1,
+    }))
     .filter(({ rank: r }) => r < 3)
-    .sort((a, b) => a.rank - b.rank || a.command.name.localeCompare(b.command.name))
+    .sort(
+      (a, b) =>
+        a.preferred - b.preferred ||
+        a.rank - b.rank ||
+        a.command.name.localeCompare(b.command.name),
+    )
     .slice(0, limit)
     .map(({ command }) => command);
 }

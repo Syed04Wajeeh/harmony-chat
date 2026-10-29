@@ -40,6 +40,9 @@ import { MessageService } from './messages/service.js';
 import { PERMISSIONS_INVALIDATE_TOPIC, PermissionService } from './permissions/service.js';
 import { panelRoutes } from './panels/routes.js';
 import { PanelService } from './panels/service.js';
+import { scheduleRoutes } from './schedules/routes.js';
+import { Scheduler } from './schedules/scheduler.js';
+import { ScheduleService } from './schedules/service.js';
 import { PresenceService } from './presence/service.js';
 import { RateLimiter } from './rate-limit.js';
 import { EventBus, REVOKED_CLOSE_CODE, REVOKE_TOPIC } from './realtime/events.js';
@@ -293,6 +296,19 @@ export async function buildApp({
     limiter('actions', config.ACTION_RATE_MAX, config.ACTION_RATE_WINDOW_SECONDS),
     gatewayInteractions,
   );
+  const schedules = new ScheduleService(db, channels, perms, {
+    minEverySeconds: config.SCHEDULE_MIN_EVERY_SECONDS,
+  });
+  const scheduler = new Scheduler(
+    db,
+    (job) => interactions.refresh(job),
+    {
+      tickMs: config.SCHEDULER_TICK_MS,
+      // Past the deadline, so a run that is merely slow is still pending when the next one is due.
+      pendingMs: config.INTERACTION_DEADLINE_MS + 5000,
+    },
+    app.log,
+  );
   const webhooks = new WebhookService(
     db,
     channels,
@@ -304,11 +320,13 @@ export async function buildApp({
     presence.start();
     profiles.start();
     await host.start();
+    scheduler.start();
   });
   app.addHook('onClose', async () => {
     presence.stop();
     profiles.stop();
     panels.stop();
+    await scheduler.stop();
     await host.stop();
     await interactions.drain();
   });
@@ -348,6 +366,7 @@ export async function buildApp({
       await api.register(botRoutes, { bots });
       await api.register(panelRoutes, { panels });
       await api.register(commandRoutes, { registry: commandRegistry, interactions });
+      await api.register(scheduleRoutes, { schedules });
       await api.register(webhookRoutes, { webhooks });
       await api.register(moduleRoutes, { state: moduleState, guilds, events, perms });
       await api.register(realtimeRoutes, {

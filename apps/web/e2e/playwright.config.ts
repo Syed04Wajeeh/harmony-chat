@@ -34,6 +34,7 @@ export default defineConfig({
             'panels.spec.ts',
             'webhook-templates.spec.ts',
             'presence.spec.ts',
+            'bot-channels.spec.ts',
           ],
           use: { viewport: { width: 1280, height: 800 } },
         },
@@ -44,6 +45,7 @@ export default defineConfig({
             'integrations.mobile.spec.ts',
             'directory.mobile.spec.ts',
             'webhook-templates.mobile.spec.ts',
+            'bot-channels.mobile.spec.ts',
           ],
           use: {
             viewport: { width: 390, height: 844 },
@@ -79,6 +81,9 @@ export default defineConfig({
             RATE_LIMIT_MAX: '5000',
             // The bot e2e points an admin-owned bot at a stub on localhost.
             OUTBOUND_PRIVATE_ALLOWLIST: 'localhost,127.0.0.1',
+            // The bot-channels spec watches a schedule fire every couple of seconds.
+            SCHEDULER_TICK_MS: '500',
+            SCHEDULE_MIN_EVERY_SECONDS: '1',
           },
         },
         {

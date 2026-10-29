@@ -123,6 +123,14 @@ describe('migrations', () => {
   it('can be undone: down() removes what up() added', async () => {
     const db = await freshDb();
     await migrateAll(db, modules);
+    const botChannels = await createMigrator(db).migrateDown();
+    expect(botChannels.error).toBeUndefined();
+    expect(await tables(db)).not.toEqual(expect.arrayContaining(['channel_bots']));
+    expect(await tables(db)).not.toContain('bot_schedules');
+    const channelColumns = await sql<{ column_name: string }>`
+      select column_name from information_schema.columns where table_name = 'channels'
+    `.execute(db);
+    expect(channelColumns.rows.map((row) => row.column_name)).not.toContain('bot_feed');
     // 0022 only resets stored statuses, so there is nothing to see; step over it.
     expect((await createMigrator(db).migrateDown()).error).toBeUndefined();
     const formats = await createMigrator(db).migrateDown();

@@ -14,6 +14,8 @@ import {
   GuildModulesResponse,
   GuildSummary,
   Channel,
+  ListSchedulesResponse,
+  Schedule,
   ChannelSummary,
   CustomTheme,
   ListThemesResponse,
@@ -214,8 +216,16 @@ export const api = {
       body,
       schema: GuildModule,
     }),
-  updateChannel: (id: string, body: { name?: string; topic?: string | null }) =>
+  updateChannel: (id: string, body: { name?: string; topic?: string | null; botFeed?: boolean }) =>
     request(`/api/channels/${id}`, { method: 'PATCH', body, schema: Channel }),
+  setChannelBots: (id: string, botIds: readonly string[]) =>
+    request(`/api/channels/${id}/bots`, { method: 'PUT', body: { botIds }, schema: Channel }),
+  channelSchedules: async (id: string, signal?: AbortSignal) =>
+    (await request(`/api/channels/${id}/schedules`, { schema: ListSchedulesResponse, signal }))
+      .schedules,
+  setSchedulePaused: (rowId: string, paused: boolean) =>
+    request(`/api/schedules/${rowId}`, { method: 'PATCH', body: { paused }, schema: Schedule }),
+  deleteSchedule: (rowId: string) => request(`/api/schedules/${rowId}`, { method: 'DELETE' }),
   roles: async (guildId: string, signal?: AbortSignal) =>
     (await request(`/api/guilds/${guildId}/roles`, { schema: ListRolesResponse, signal })).roles,
   createRole: (guildId: string, body: CreateRoleBody) =>
