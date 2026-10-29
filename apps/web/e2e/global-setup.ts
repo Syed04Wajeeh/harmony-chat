@@ -9,6 +9,8 @@ const baseURL = process.env['E2E_BASE_URL'] ?? 'http://localhost:15173';
  * database the setting is whatever it was.
  */
 export default async function globalSetup(): Promise<void> {
+  // The screenshot run seeds its own story and needs Ada to be the first, and so the admin, user.
+  if (process.env['E2E_SCREENSHOTS'] === '1') return;
   const admin = new DevApi(baseURL, ADMIN_LOGIN);
   const me = await admin.request<{ isAdmin: boolean }>('GET', '/api/me');
   if (!me.isAdmin) return;
