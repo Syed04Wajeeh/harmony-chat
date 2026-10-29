@@ -283,6 +283,8 @@ export class HomelabBot {
     if (interaction.guildId !== this.guildId) {
       return ctx.say('This bot only works in its own server.');
     }
+    // The bot pushes its panels on its own timer and registers no schedules.
+    if (interaction.type === 'refresh') return ctx.defer();
     if (interaction.type === 'action') {
       ctx.defer();
       const found = this.registry.fromButton(interaction.action.id);
@@ -314,6 +316,7 @@ export class HomelabBot {
 
   private async mayView(ctx: InteractionContext): Promise<boolean> {
     const need = this.deps.config.harmony.statusPermission;
+    if (ctx.interaction.type === 'refresh') return false;
     if (!need || (await this.deps.permissions.has(ctx.interaction.user.id, need))) return true;
     await ctx.say(`You need the ${need} permission for that.`);
     return false;
@@ -322,6 +325,7 @@ export class HomelabBot {
   /** The single path every start, stop and restart takes, whether it came from a button or a command. */
   async control(ctx: InteractionContext, verb: Verb, target: Target): Promise<void> {
     const { config, docker, pterodactyl } = this.deps;
+    if (ctx.interaction.type === 'refresh') return;
     const { user } = ctx.interaction;
     const who = safeName(user.displayName);
 
