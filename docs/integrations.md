@@ -40,3 +40,13 @@ network names are deployment details), set the external network name, and run
 Host firewalls often drop traffic from containers to ports published on the host, which
 is why attaching to the network is the recommended route for containers, rather than
 `host.docker.internal:8471`.
+
+## Agents (MCP)
+
+[`packages/mcp`](../packages/mcp/README.md) is a Model Context Protocol server that gives an
+agent (Claude Code, Claude Desktop, any MCP client) tools to read channels, post, ask a person
+a question and wait for the answer. It is one more bot client of this ingress: set
+`HARMONY_URL=http://127.0.0.1:8471` and `HARMONY_BOT_TOKEN` to the bot's token, and it uses
+the same `Authorization: Bot` REST calls and `/api/ws` gateway described above. It has no
+access beyond the bot's scopes and memberships. Setup, scopes per tool and the safety notes
+(chat is untrusted input, rate limit, mass mentions) are in its README.
