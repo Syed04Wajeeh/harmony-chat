@@ -14,7 +14,7 @@
     "lint": "pnpm build:shared && eslint .",
     "typecheck": "pnpm build:shared && pnpm -r --parallel typecheck",
     "test": "pnpm test:unit && pnpm test:integration",
-    "test:unit": "pnpm build:shared && pnpm --filter @harmony/server --filter @harmony/web --filter @harmony/desktop --filter @harmony/mcp test:unit",
+    "test:unit": "pnpm build:shared && pnpm --filter @harmony/server --filter @harmony/web --filter @harmony/desktop --filter @harmony/mcp --filter @harmony/example-homelab-bot test:unit",
     "test:integration": "pnpm build:shared && pnpm --filter @harmony/server test:integration",
     "load:up": "bash loadtest/scripts/load.sh up",
     "load:down": "bash loadtest/scripts/load.sh down",

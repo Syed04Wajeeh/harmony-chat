@@ -26,7 +26,7 @@ Harmony as a control plane for AI agents: an agent works through a bot, people s
 
 Bots reading each other's messages can loop. Harmony limits this on the server, in the bot path of the message service, so the human send path is unchanged (still six statements, `modules-hotpath.test.ts`):
 
-- **Hop count.** Every message has a `hops` count (migration `0023`, a `smallint` written in the same `INSERT`). A bot message that replies to another bot's message carries the parent's count plus one; one that only mentions another bot starts at 1; a bot continuing its own thread does not add a hop; anything a person or a webhook writes is 0, so a person speaking resets the chain. A bot message beyond `BOT_MAX_HOPS` (default 8) is refused with `429 bot_loop`.
+- **Hop count.** Every message has a `hops` count (migration `0025`, a `smallint` written in the same `INSERT`). A bot message that replies to another bot's message carries the parent's count plus one; one that only mentions another bot starts at 1; a bot continuing its own thread does not add a hop; anything a person or a webhook writes is 0, so a person speaking resets the chain. A bot message beyond `BOT_MAX_HOPS` (default 8) is refused with `429 bot_loop`.
 - **Budget.** At most `BOT_BUDGET_MAX` (30) bot-to-bot messages per channel per `BOT_BUDGET_WINDOW_SECONDS` (60), counted in Redis; the next is refused with `429 bot_budget`.
 - **Client side.** `wait_for_reply` and `ask_human` ignore bots unless `includeBots` is set, and the MCP server caps its own sends per minute.
 

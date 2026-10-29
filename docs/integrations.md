@@ -280,6 +280,15 @@ most). Managers see each schedule, its next run and its last result under **Chan
 Bots**, and can pause, resume or delete it. Removing the bot from the guild deletes its schedules.
 Details and error codes: [protocol](api/protocol.md#scheduled-refreshes).
 
+## An operations bot for a home server
+
+[`examples/homelab-bot`](../examples/homelab-bot/README.md) is a complete gateway bot built on the
+pieces above: slash commands, dashboard panels that refresh on a timer, buttons with confirm
+dialogs and `requiredPermission`, and follow-ups for slow work. It shows Docker containers (through a
+socket proxy whose rules allow only list, inspect, start, stop and restart of listed names),
+game servers (Pterodactyl's client API) and an Uptime Kuma status page, and logs every action to an
+ops channel. Its README has the setup, the threat model and what the proxy refuses, as tested.
+
 ## Agents (MCP)
 
 [`packages/mcp`](../packages/mcp/README.md) is a Model Context Protocol server that gives an
