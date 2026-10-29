@@ -5,14 +5,16 @@ import {
   containerExists,
   containerState,
   startThrowaway,
+  waitForProxy,
   type Throwaway,
 } from './docker-helpers.ts';
 
 /** Real docker-socket-proxy, real daemon, throwaway `sleep` containers. Needs Docker. */
 describe('docker socket proxy rules', () => {
   let t: Throwaway;
-  beforeAll(() => {
+  beforeAll(async () => {
     t = startThrowaway();
+    await waitForProxy(t.proxyUrl);
   });
   afterAll(() => t?.cleanup());
 

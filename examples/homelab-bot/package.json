@@ -8,13 +8,15 @@
     "start": "node src/main.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:unit": "vitest run --project unit",
-    "test:integration": "vitest run --project integration"
+    "test:integration": "vitest run --project integration",
+    "test:stack": "vitest run --project stack"
   },
   "dependencies": {
     "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@harmony/shared": "workspace:*",
+    "@playwright/test": "^1.64.1",
     "@types/node": "^26.6.5",
     "typescript": "^6.0.3",
     "vitest": "^5.0.5"

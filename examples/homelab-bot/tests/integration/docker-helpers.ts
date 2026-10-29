@@ -60,6 +60,10 @@ export function startThrowaway(run = Date.now().toString(36)): Throwaway {
       '--name',
       proxy,
       '--read-only',
+      '--cap-drop',
+      'ALL',
+      '--security-opt',
+      'no-new-privileges:true',
       '--tmpfs',
       '/run',
       '--tmpfs',
@@ -92,3 +96,19 @@ export const containerExists = (name: string): boolean => {
     return false;
   }
 };
+
+/** The proxy accepts connections a moment after its container starts. */
+export async function waitForProxy(url: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    try {
+      await fetch(`${url}/containers/json`);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  throw new Error('the test proxy did not start');
+}
+
+export const startedAt = (name: string): string =>
+  docker('inspect', '--format', '{{.State.StartedAt}}', name);
