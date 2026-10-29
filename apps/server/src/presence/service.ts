@@ -94,7 +94,9 @@ if op == 'touch' then
     if chosen ~= '' then show() end
     return 1
   end
-  -- A new connection starts active, which can end an automatic idle.
+  -- A new connection starts active, which can end an automatic idle. The chosen status it
+  -- carries comes from the database, so a value cached before a migration cannot outlive it.
+  if fresh == 1 and chosen ~= '' then redis.call('HSET', KEYS[4], userId, chosen) end
   if fresh == 1 and refresh() ~= '' then return 2 end
   return 0
 end

@@ -667,6 +667,24 @@ describe('presence', () => {
       await until(() => seenAs(watcher, userId) === 'online');
     });
 
+    it('a new connection replaces a stale cached chosen status with the database one', async () => {
+      const login = unique('stale');
+      const userId = await ensureUser(infra.db, login);
+      const guildId = (await createGuildVia(login)).id;
+      await listen(guildId);
+      const presence = new PresenceService(
+        infra.redis,
+        infra.db,
+        new EventBus(infra.redis),
+        { ttlMs: 60_000, sweepMs: 60_000 },
+        noLog,
+      );
+      await presence.touch(userId, 'old', { status: 'idle' });
+      await presence.touch(userId, 'new', { status: 'online' });
+      await settle();
+      expect(busEvents(guildId, userId).map((e) => e.status)).toEqual(['idle', 'online']);
+    });
+
     it('scores the service script directly: only changes publish', async () => {
       const { userId, guildId } = await (async () => {
         const login = unique('script');
