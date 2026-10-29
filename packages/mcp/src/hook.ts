@@ -35,6 +35,8 @@ export interface HookConfig {
   url: string;
   token: string;
   channel: string;
+  /** Where the optional run panel lives (a dashboard channel works); defaults to `channel`. */
+  runChannel: string;
   /** Tool calls whose subject matches this ask for approval. Unset: none do. */
   approvalPattern: RegExp | undefined;
   approvalSeconds: number;
@@ -96,6 +98,7 @@ export function loadHookConfig(env: Record<string, string | undefined>): HookCon
     url: (env.HARMONY_URL?.trim() || 'http://127.0.0.1:8471').replace(/\/+$/, ''),
     token,
     channel,
+    runChannel: env.HARMONY_HOOK_RUN_CHANNEL?.trim() || channel,
     approvalPattern,
     approvalSeconds,
     onTimeout,
@@ -209,7 +212,8 @@ export async function handleHook(
     return {};
   }
 
-  const channelId = await new ChannelResolver(client, undefined).resolve(config.channel);
+  const resolver = new ChannelResolver(client, undefined);
+  const channelId = await resolver.resolve(config.channel);
   const runs = new RunManager(client, {
     minIntervalMs: 0,
     permission: config.permission,
@@ -231,12 +235,13 @@ export async function handleHook(
   const track = async (change: (run: Run) => void | Promise<void>, create = true) => {
     if (!config.runPanel) return;
     try {
+      const runChannelId = await resolver.resolve(config.runChannel, ['dashboard', 'text']);
       const saved = await loadRun(config, input);
-      if (saved && saved.channelId === channelId && saved.endedAt === undefined) {
+      if (saved && saved.channelId === runChannelId && saved.endedAt === undefined) {
         run = runs.restore(saved);
       } else if (create) {
         const title = `Claude Code${input.cwd ? ` in ${path.basename(input.cwd)}` : ''}`;
-        run = await runs.start({ channelId, title });
+        run = await runs.start({ channelId: runChannelId, title });
       }
       if (!run) return;
       await change(run);

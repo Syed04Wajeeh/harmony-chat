@@ -7,6 +7,8 @@ export interface Config {
   allowMassMentions: boolean;
   /** Channel for runs and approvals when a call names none (HARMONY_AGENT_CHANNEL). */
   agentChannel: string | undefined;
+  /** Where approvals are posted when a call names none (a dashboard channel cannot hold messages). */
+  approvalChannel: string | undefined;
   /** Permission a person needs to decide an approval or cancel a run. */
   approvalPermission: string;
   /** At most one panel write per run in this many milliseconds. */
@@ -58,6 +60,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     maxSendsPerMinute,
     allowMassMentions: env.HARMONY_ALLOW_MASS_MENTIONS === '1',
     agentChannel: env.HARMONY_AGENT_CHANNEL?.trim() || undefined,
+    approvalChannel: env.HARMONY_APPROVAL_CHANNEL?.trim() || undefined,
     approvalPermission,
     panelMinIntervalMs,
   };

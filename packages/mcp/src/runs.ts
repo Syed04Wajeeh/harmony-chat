@@ -175,6 +175,8 @@ interface Sync {
 export class RunManager {
   private readonly runs = new Map<string, Run>();
   private readonly sync = new Map<string, Sync>();
+  /** Gateway holds for runs with a Cancel button: the click needs a socket while the run lives. */
+  private readonly holds = new Map<string, () => void>();
   private heartbeat: NodeJS.Timeout | undefined;
   /** The run tools act on when a call names none: the newest one, kept after it is cancelled. */
   current: Run | undefined;
@@ -268,6 +270,7 @@ export class RunManager {
       throw error;
     }
     this.current = run;
+    if (this.options.cancellable) this.holds.set(id, await this.client.holdGateway());
     this.startHeartbeat();
     return run;
   }
@@ -353,8 +356,16 @@ export class RunManager {
     run.endedAt = this.now();
     if (summary) run.summary = summary;
     this.note(run, `${LABELS[status]}${summary ? `: ${summary}` : ''}`, false);
+    this.release(run);
     await this.flush(run);
     this.stopHeartbeatIfIdle();
+  }
+
+  private release(run: Run): void {
+    const hold = this.holds.get(run.id);
+    this.holds.delete(run.id);
+    // A moment later: the answer to the click that ended the run still has to leave the socket.
+    if (hold) setTimeout(hold, 1000).unref();
   }
 
   /** A person pressed Cancel: stop the run, tell everything waiting on it, show it on the panel. */
@@ -365,6 +376,7 @@ export class RunManager {
     run.cancelledBy = by;
     this.note(run, `Cancelled by ${by.displayName} (@${by.login})`, false);
     run.abort.abort();
+    this.release(run);
     this.schedule(run);
     this.stopHeartbeatIfIdle();
   }

@@ -13,13 +13,14 @@ export interface AgentToolContext {
   config: Config;
   runs: RunManager;
   approvals: Approvals;
-  resolveChannel: (ref: string | undefined) => Promise<string>;
+  resolveChannel: (ref: string | undefined, kinds?: readonly string[]) => Promise<string>;
+  isDashboard: (channelId: string) => Promise<boolean>;
   /** Shown to the model so it treats the person's decision as the only signal. */
   untrustedHint: string;
 }
 
 const channelHelp =
-  'Channel id or "#name". Defaults to the run\'s channel, then HARMONY_AGENT_CHANNEL, then HARMONY_DEFAULT_CHANNEL.';
+  'Channel id or "#name". Defaults to HARMONY_AGENT_CHANNEL, then HARMONY_DEFAULT_CHANNEL (approvals: HARMONY_APPROVAL_CHANNEL, else the run\'s channel unless it is a dashboard).';
 
 const PersonOut = z.object({ id: z.string(), login: z.string(), displayName: z.string() });
 
@@ -67,7 +68,10 @@ export function registerAgentTools(server: McpServer, ctx: AgentToolContext): vo
     },
     async ({ title, channel, step, totalSteps, link }) => {
       try {
-        const channelId = await ctx.resolveChannel(channel ?? config.agentChannel);
+        const channelId = await ctx.resolveChannel(channel ?? config.agentChannel, [
+          'dashboard',
+          'text',
+        ]);
         const run = await runs.start({ channelId, title, step, totalSteps, link });
         return ok(
           `Run ${run.id} started in channel ${channelId}. Pass runId to later calls, or omit it to use this run.`,
@@ -184,8 +188,10 @@ export function registerAgentTools(server: McpServer, ctx: AgentToolContext): vo
       const stop = keepAlive(extra, 'waiting for approval');
       try {
         const run = pick(ctx, runId);
+        // Messages cannot be posted in a dashboard channel, so a run shown there asks elsewhere.
+        const runHome = run && !(await ctx.isDashboard(run.channelId)) ? run.channelId : undefined;
         const channelId = await ctx.resolveChannel(
-          channel ?? run?.channelId ?? config.agentChannel,
+          channel ?? config.approvalChannel ?? runHome ?? config.agentChannel,
         );
         const signal = run ? AbortSignal.any([extra.signal, run.abort.signal]) : extra.signal;
         const result = await runs.whileWaiting(

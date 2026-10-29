@@ -97,7 +97,17 @@ export class ChannelResolver {
     return channels;
   }
 
-  async resolve(ref: string | undefined): Promise<string> {
+  /** True when the channel is a dashboard (panels only, no messages). Unknown counts as no. */
+  async isDashboard(channelId: string): Promise<boolean> {
+    try {
+      return (await this.channels(false)).some((c) => c.id === channelId && c.kind === 'dashboard');
+    } catch {
+      return false;
+    }
+  }
+
+  /** `kinds` says which channels a `#name` may match; panels live in dashboard channels too. */
+  async resolve(ref: string | undefined, kinds: readonly string[] = ['text']): Promise<string> {
     const raw = (ref ?? this.defaultChannel ?? '').trim();
     if (!raw) {
       throw new ToolError(
@@ -112,7 +122,7 @@ export class ChannelResolver {
 
     const find = async (refresh: boolean) => {
       const channels = (await this.channels(refresh)).filter(
-        (channel) => channel.kind === 'text' && channel.name?.toLowerCase() === name,
+        (channel) => kinds.includes(channel.kind) && channel.name?.toLowerCase() === name,
       );
       if (guildPart === undefined) return { matches: channels, guilds: undefined };
       const guilds = await this.client.listGuilds();
@@ -139,7 +149,7 @@ export class ChannelResolver {
       );
     }
     const available = (await this.channels(false))
-      .filter((c) => c.kind === 'text')
+      .filter((c) => kinds.includes(c.kind))
       .map((c) => `#${c.name ?? '?'} (id ${c.id})`)
       .slice(0, 30)
       .join(', ');
@@ -588,7 +598,8 @@ export function registerTools(mcp: McpServer, tools: Tools): void {
     config,
     runs,
     approvals: tools.approvals,
-    resolveChannel: (ref) => resolver.resolve(ref),
+    resolveChannel: (ref, kinds) => resolver.resolve(ref, kinds),
+    isDashboard: (id) => resolver.isDashboard(id),
     untrustedHint: UNTRUSTED_HINT,
   });
 
