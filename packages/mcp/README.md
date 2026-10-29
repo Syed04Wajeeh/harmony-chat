@@ -4,6 +4,24 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server that lets an 
 
 It talks to Harmony as a **bot**, with a bot token. It adds no privileges: the bot's scopes, its guild and channel membership and its permissions decide everything, and the server checks every request itself. Transport is stdio, so the client starts it as a child process.
 
+### Headless runs
+
+`claude -p` works too. `--allowedTools` accepts several values, so give the prompt on stdin rather
+than as a trailing argument, and keep the token out of the MCP config with a small launcher:
+
+```sh
+# ~/.config/harmony-mcp/run.sh (mode 700); secrets.env holds HARMONY_BOT_TOKEN (mode 600)
+set -a; . "$HOME/.config/harmony-mcp/secrets.env"; set +a
+export HARMONY_URL=http://127.0.0.1:8471
+exec node /path/to/harmony/packages/mcp/dist/index.js
+```
+
+```sh
+echo '{"mcpServers":{"harmony":{"command":"'$HOME'/.config/harmony-mcp/run.sh"}}}' > mcp.json
+echo "Start a run in #agents, ask for approval in #approvals, then finish it." |
+  claude -p --mcp-config mcp.json --strict-mcp-config --allowedTools "mcp__harmony__*"
+```
+
 ## Set it up
 
 1. **Create a bot.** In Harmony open _Settings > Bots_ (your account settings), create a bot and choose its scopes. The token (`hb_<botId>_...`) is shown once; rotating it later revokes the old one.
