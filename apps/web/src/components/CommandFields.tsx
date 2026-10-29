@@ -191,52 +191,54 @@ export function CommandFields({ active, members, channels, onChange, onSubmit, o
           <CloseIcon width={14} height={14} />
         </button>
       </div>
-      {command.options.map((option, index) => {
-        const error = errors[option.name];
-        const errorId = `${id}-${option.name}`;
-        // A label would forward clicks on its text to the first chip.
-        const Field = option.type === 'boolean' ? 'div' : 'label';
-        return (
-          <Field
-            key={option.name}
-            className="command-option"
-            data-type={option.type}
-            data-invalid={error ? '' : undefined}
-          >
-            <span className="command-option-name">
-              {option.name}
-              {option.required && <abbr title="required">*</abbr>}
-            </span>
-            <OptionInput
-              option={option}
-              value={values[option.name] ?? ''}
-              invalid={Boolean(error)}
-              describedBy={error ? errorId : undefined}
-              autoFocus={index === 0}
-              members={members}
-              channels={channels}
-              onChange={(value) => onChange(option.name, value)}
-            />
-            {error && (
-              <span id={errorId} className="command-error" role="alert">
-                {error}
+      <div className="command-scroller">
+        {command.options.map((option, index) => {
+          const error = errors[option.name];
+          const errorId = `${id}-${option.name}`;
+          // A label would forward clicks on its text to the first chip.
+          const Field = option.type === 'boolean' ? 'div' : 'label';
+          return (
+            <Field
+              key={option.name}
+              className="command-option"
+              data-type={option.type}
+              data-invalid={error ? '' : undefined}
+            >
+              <span className="command-option-name">
+                {option.name}
+                {option.required && <abbr title="required">*</abbr>}
               </span>
-            )}
-          </Field>
-        );
-      })}
-      {errors[FORM_ERROR] && (
-        <span className="command-error" role="alert">
-          {errors[FORM_ERROR]}
-        </span>
-      )}
-      {command.options.length === 0 ? (
-        <button type="submit" className="button button-primary command-run" autoFocus>
-          Run
-        </button>
-      ) : (
-        <button type="submit" hidden />
-      )}
+              <OptionInput
+                option={option}
+                value={values[option.name] ?? ''}
+                invalid={Boolean(error)}
+                describedBy={error ? errorId : undefined}
+                autoFocus={index === 0}
+                members={members}
+                channels={channels}
+                onChange={(value) => onChange(option.name, value)}
+              />
+              {error && (
+                <span id={errorId} className="command-error" role="alert">
+                  {error}
+                </span>
+              )}
+            </Field>
+          );
+        })}
+        {errors[FORM_ERROR] && (
+          <span className="command-error" role="alert">
+            {errors[FORM_ERROR]}
+          </span>
+        )}
+        {command.options.length === 0 ? (
+          <button type="submit" className="button button-primary command-run" autoFocus>
+            Run
+          </button>
+        ) : (
+          <button type="submit" hidden />
+        )}
+      </div>
     </form>
   );
 }
