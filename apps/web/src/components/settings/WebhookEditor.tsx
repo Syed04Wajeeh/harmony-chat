@@ -206,8 +206,8 @@ export function WebhookEditor({
                   </option>
                 ))}
               </select>
-              <small className="field-hint">{info.hint}</small>
             </label>
+            <p className="field-hint">{info.hint}</p>
 
             {format === 'template' && (
               <label className="field">
@@ -219,11 +219,13 @@ export function WebhookEditor({
                   value={templateText}
                   onChange={(e) => setTemplateText(e.target.value)}
                 />
-                <small className="field-hint">
-                  Use {'{{path.to.field}}'} with the filters upper, lower, truncate:N, default:
-                  &quot;x&quot; and json. Missing fields render empty.
-                </small>
               </label>
+            )}
+            {format === 'template' && (
+              <p className="field-hint">
+                Use {'{{path.to.field}}'} with the filters upper, lower, truncate:N, default:
+                &quot;x&quot; and json. Missing fields render empty.
+              </p>
             )}
 
             {info.signed && (

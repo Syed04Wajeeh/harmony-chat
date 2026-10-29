@@ -139,8 +139,8 @@ function CreateWebhookDialog({
                 </option>
               ))}
             </select>
-            <small className="field-hint">{FORMAT_INFO[format].hint}</small>
           </label>
+          <p className="field-hint">{FORMAT_INFO[format].hint}</p>
           <div className="field">
             <span>Avatar (optional)</span>
             <div className="icon-editor">

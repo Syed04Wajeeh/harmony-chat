@@ -32,12 +32,18 @@ export default defineConfig({
             'profiles.spec.ts',
             'directory.spec.ts',
             'panels.spec.ts',
+            'webhook-templates.spec.ts',
           ],
           use: { viewport: { width: 1280, height: 800 } },
         },
         {
           name: 'mobile',
-          testMatch: ['mobile.spec.ts', 'integrations.mobile.spec.ts', 'directory.mobile.spec.ts'],
+          testMatch: [
+            'mobile.spec.ts',
+            'integrations.mobile.spec.ts',
+            'directory.mobile.spec.ts',
+            'webhook-templates.mobile.spec.ts',
+          ],
           use: {
             viewport: { width: 390, height: 844 },
             deviceScaleFactor: 3,
