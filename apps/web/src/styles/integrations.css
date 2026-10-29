@@ -450,6 +450,55 @@
   min-height: 36px;
 }
 
+/* Phones: one scrolling row, so the composer is as tall as a plain message box. */
+@media (max-width: 599.98px) {
+  .command-fields {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: 6.5rem var(--space-1);
+    padding-block: 2px;
+  }
+  .command-fields::-webkit-scrollbar {
+    display: none;
+  }
+  .command-fields > * {
+    flex: none;
+    scroll-snap-align: start;
+  }
+  /* The command name stays put while the fields scroll under it. */
+  .command-fields > .command-chip {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    scroll-snap-align: none;
+  }
+  .command-option,
+  .command-option[data-type='string'] {
+    flex: none;
+    flex-wrap: nowrap;
+    max-width: none;
+  }
+  .command-option[data-type='string'] input {
+    width: 11rem;
+  }
+  .command-option[data-type='integer'] input {
+    width: 4.5rem;
+  }
+  .command-option .command-error {
+    flex-basis: auto;
+    padding: 0 var(--space-3);
+    white-space: nowrap;
+  }
+  .command-fields > .command-error {
+    flex-basis: auto;
+    white-space: nowrap;
+  }
+}
+
 @media (pointer: coarse) {
   .command-option {
     min-height: 44px;
