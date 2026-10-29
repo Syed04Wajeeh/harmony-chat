@@ -223,6 +223,63 @@ protocol). Answer within 3 seconds with a message, `deferred`, or `update_panel`
 The same buttons work under a message: add `"components": { "buttons": [ … ] }` to a message the
 bot sends.
 
+## Bot channels
+
+A guild manager (the channel's creator or anyone with `manage_channels`) can assign bots to a
+channel from **Channel settings > Bots**, or with `PUT /api/channels/:id/bots`. The channel header
+then shows the assigned bots and `/` autocomplete in that channel lists their commands first.
+Assignment is a hint for clients and grants a bot nothing: it can still only do what its scopes and
+the channel's permissions allow, and it must already be a member of the guild.
+
+The same tab has **Bot feed**, for channels that carry alerts, status or digests and should stay
+readable. With feed mode on, only bots, incoming webhooks and people with `manage_messages` in the
+channel can post. Everyone else sees a locked composer, can still react, press panel and message
+buttons and run `/` commands, and gets `403 bot_feed` from the API if they try to post anyway.
+Pinned panels sit above the messages as usual, so a feed channel with an assigned bot, a pinned
+dashboard and the bot's posts is a complete status page. See the
+[protocol](api/protocol.md#patch-apichannelsid) for the endpoints.
+
+## Scheduling refreshes
+
+A bot that keeps a dashboard fresh does not need its own timer: it registers a schedule and Harmony
+asks it when the time comes. The `commands` scope is enough (the schedule is delivered like a
+command, so a bot with no URL gets it on its gateway connection).
+
+```sh
+curl -X PUT $API/api/bots/@me/schedules \
+  -H "Authorization: Bot $TOKEN" -H 'Content-Type: application/json' -d '{
+  "schedules": [
+    { "id": "host-panel", "channelId": "'$CHANNEL_ID'", "every": 60, "panelKey": "host" },
+    { "id": "weekly-digest", "channelId": "'$CHANNEL_ID'", "cron": "0 9 * * 1" }
+  ]
+}'
+```
+
+`every` is 60 to 86400 seconds; `cron` has five fields (minute, hour, day of month, month, day of
+week) in **UTC**, with numbers, `*`, lists, ranges and `/` steps (no names or `@` macros; when both
+day fields are restricted either may match, as in cron). Register on every start: the call replaces
+the bot's whole list, a schedule that keeps its cadence keeps its place in time, and a pause set by a
+manager survives it. At most 20 schedules per bot per guild.
+
+When one is due the bot receives a `refresh` interaction (same signature, same 3 second deadline,
+no `user`):
+
+```json
+{ "type": "refresh", "schedule": { "id": "host-panel", "channelId": "11", "panelKey": "host" }, "id": "9", "token": "…", … }
+```
+
+Answer `{"type": "update_panel", "view": …}` to replace the panel named by `panelKey`,
+`{"type": "message", …}` to post, or `{"type": "deferred"}` and update the panel yourself with the
+panel API. The [echo bot](../examples/echo-bot/README.md) does the first in both HTTP and gateway
+mode.
+
+What to expect: runs are at most once per period even with two app instances; if the bot is still
+answering the previous run when the next falls due, that one is skipped; runs missed while the
+server was down are not replayed; jitter moves each run by up to 10 percent of the period (5 s at
+most). Managers see each schedule, its next run and its last result under **Channel settings >
+Bots**, and can pause, resume or delete it. Removing the bot from the guild deletes its schedules.
+Details and error codes: [protocol](api/protocol.md#scheduled-refreshes).
+
 ## Agents (MCP)
 
 [`packages/mcp`](../packages/mcp/README.md) is a Model Context Protocol server that gives an

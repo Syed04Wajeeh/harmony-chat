@@ -38,6 +38,8 @@ export function channel(id: string, overrides: Partial<ChannelSummary> = {}): Ch
     isPrivate: false,
     createdBy: '1',
     dmUser: null,
+    botFeed: false,
+    botIds: [],
     unreadCount: 0,
     mentionCount: 0,
     lastMessageId: null,

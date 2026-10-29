@@ -83,6 +83,33 @@ export interface ChannelsTable {
   created_by: string | null;
   created_at: Timestamp;
   archived_at: Date | null;
+  bot_feed: Generated<boolean>;
+}
+
+export interface ChannelBotsTable {
+  channel_id: string;
+  bot_id: string;
+  position: Generated<number>;
+  created_at: Generated<Date>;
+}
+
+export interface BotSchedulesTable {
+  id: Generated<string>;
+  bot_id: string;
+  slug: string;
+  guild_id: string;
+  channel_id: string;
+  every_seconds: number | null;
+  cron: string | null;
+  panel_key: string | null;
+  paused: Generated<boolean>;
+  next_run_at: Date;
+  pending_until: Date | null;
+  last_run_at: Date | null;
+  last_status: 'ok' | 'failed' | 'skipped' | null;
+  last_error: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
 }
 
 export interface ChannelMembersTable {
@@ -189,7 +216,7 @@ export interface InteractionsTable {
   nonce: string | null;
   created_at: Timestamp;
   expires_at: Date;
-  type: Generated<'command' | 'action'>;
+  type: Generated<'command' | 'action' | 'refresh'>;
   action_id: Generated<string | null>;
   panel_id: Generated<string | null>;
   message_id: Generated<string | null>;
@@ -303,6 +330,8 @@ export interface Database {
   guild_invites: GuildInvitesTable;
   channels: ChannelsTable;
   channel_members: ChannelMembersTable;
+  channel_bots: ChannelBotsTable;
+  bot_schedules: BotSchedulesTable;
   messages: MessagesTable;
   message_reactions: MessageReactionsTable;
   message_mentions: MessageMentionsTable;

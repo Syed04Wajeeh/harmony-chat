@@ -223,6 +223,14 @@ always can, and `pins.pin` lets a server open pinning to everyone (as it was) or
 | `manage_emoji`                        | `POST/PATCH/DELETE /api/guilds/:id/emoji…` (custom emoji module)                                                                                                |
 | `mention_everyone`                    | nothing yet (the feature does not exist)                                                                                                                        |
 
+A channel in **bot feed mode** (`channels.bot_feed`) adds a rule to the same place: in
+`MessageService.send` a human needs `manage_messages` in the channel on top of `send_messages`
+(`403 bot_feed` otherwise). Bots and incoming webhooks are exempt, and the public answer to a
+built-in slash command still posts as the caller. The check reads the channel row the send already
+loads and the cached permissions, so it adds no statement to the send path. Assigning bots to a
+channel (`channel_bots`) is display and ordering only and grants nothing. Managing either needs
+`manage_channels` (or being the channel's creator).
+
 Messages from incoming webhooks skip the membership and permission checks, as before: the webhook
 token is the authorization, and creating a webhook needs `manage_guild`.
 

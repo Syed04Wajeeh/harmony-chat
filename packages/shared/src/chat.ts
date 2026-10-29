@@ -62,6 +62,10 @@ export const Channel = z.object({
   createdBy: Id.nullable(),
   /** The other participant of a DM, from the requesting user's point of view. */
   dmUser: User.nullable(),
+  /** Only bots, and people with manage_messages, may post here. */
+  botFeed: z.boolean().default(false),
+  /** Bots a manager assigned to the channel, in assignment order. */
+  botIds: z.array(Id).default([]),
 });
 export type Channel = z.infer<typeof Channel>;
 
@@ -264,11 +268,16 @@ export const UpdateChannelBody = z
     name: ChannelName.optional(),
     topic: ChannelTopic.nullable().optional(),
     archived: z.boolean().optional(),
+    botFeed: z.boolean().optional(),
   })
   .refine((body) => Object.values(body).some((value) => value !== undefined), {
     message: 'Nothing to update',
   });
 export type UpdateChannelBody = z.infer<typeof UpdateChannelBody>;
+
+export const MAX_CHANNEL_BOTS = 10;
+export const SetChannelBotsBody = z.object({ botIds: z.array(Id).max(MAX_CHANNEL_BOTS) });
+export type SetChannelBotsBody = z.infer<typeof SetChannelBotsBody>;
 
 export const AddMemberBody = z.object({ userId: Id });
 export const MembersResponse = z.object({ members: z.array(DirectoryUser) });

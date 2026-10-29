@@ -57,6 +57,8 @@ export function createInfra(): Infra {
         PROXY_SHARED_SECRET: PROXY_SECRET,
         PUBLIC_ORIGIN,
         INSTANCE_ID: `test-${randomUUID().slice(0, 8)}`,
+        // Tests drive the scheduler explicitly (or turn it on with a short tick).
+        SCHEDULER_TICK_MS: '0',
         UPLOAD_DIR: mkdtempSync(path.join(tmpdir(), 'harmony-uploads-')),
         ...overrides,
       };

@@ -32,6 +32,8 @@ export interface SendMessageInput {
   embeds?: readonly Embed[] | undefined;
   /** Buttons; only bots may set them (the route and the interaction pipeline are the callers). */
   components?: MessageComponents | undefined;
+  /** A built-in command's public answer, posted as the caller; feed mode lets it through. */
+  viaCommand?: boolean | undefined;
   /** Set for incoming-webhook messages: per-message overrides, no membership or user limit. */
   source?: { webhookId: string; displayName?: string | undefined; avatarUrl?: string | undefined };
   /**
@@ -85,6 +87,16 @@ export class MessageService {
       channel = await this.channels.requireMember(channelId, author.id);
       if (channel.guild_id) {
         await this.perms.require(author, channel.guild_id, 'send_messages', channelId);
+        // The channel row is already in hand and the permission lookup is cached: no new statement.
+        if (channel.bot_feed && !author.isBot && !input.viaCommand) {
+          if (!(await this.perms.has(author, channel.guild_id, 'manage_messages', channelId))) {
+            throw new AppError(
+              403,
+              'bot_feed',
+              'Only bots and people with manage_messages can post in this channel',
+            );
+          }
+        }
         if (input.attachmentIds?.length) {
           await this.perms.require(author, channel.guild_id, 'attach_files', channelId);
         }

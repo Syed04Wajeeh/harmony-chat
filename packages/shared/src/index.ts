@@ -13,6 +13,7 @@ export * from './permissions.js';
 export * from './presets.js';
 export * from './profile.js';
 export * from './protocol.js';
+export * from './schedule.js';
 export * from './settings.js';
 export * from './theme.js';
 export * from './webhook-format.js';

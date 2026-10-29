@@ -10,6 +10,7 @@
 @import './chat.css';
 @import './overlays.css';
 @import './integrations.css';
+@import './bot-channels.css';
 @import './panels.css';
 @import './modules.css';
 @import './roles.css';

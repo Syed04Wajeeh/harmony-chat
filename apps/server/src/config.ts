@@ -64,6 +64,10 @@ const ConfigSchema = z
     BOT_BUDGET_WINDOW_SECONDS: z.coerce.number().int().min(1).default(60),
     ACTION_RATE_MAX: z.coerce.number().int().min(1).default(10),
     ACTION_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(10),
+    /** How often each app instance looks for due bot schedules; 0 turns the scheduler off. */
+    SCHEDULER_TICK_MS: z.coerce.number().int().min(0).default(5000),
+    /** The shortest `every` a bot may register. Lowered only by tests and small installs. */
+    SCHEDULE_MIN_EVERY_SECONDS: z.coerce.number().int().min(1).default(60),
     INTERACTION_DEADLINE_MS: z.coerce.number().int().min(10).default(3000),
     /** Gateway bots: concurrent sockets per bot, presence lifetime and refresh, inbound frame budget. */
     GATEWAY_MAX_CONNECTIONS: z.coerce.number().int().min(1).default(3),

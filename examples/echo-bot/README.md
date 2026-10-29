@@ -42,6 +42,10 @@ pnpm --filter @harmony/example-echo-bot start
 
 Add the `panels.write` scope to the bot, make a channel of type **Dashboard**, and set `HARMONY_DASHBOARD_CHANNEL_ID` (and optionally `HARMONY_PANEL_INTERVAL_MS`, default 5000). The bot then publishes a "Demo host" panel with made-up numbers: two stats, a live area chart it appends points to, a status list, a progress bar and two buttons. **Refresh** is answered with `update_panel`; **Restart service** has a confirm dialog, needs `manage_messages`, and is answered with an ephemeral message.
 
+## Scheduled refresh
+
+With a dashboard channel set, the bot also registers a schedule with `PUT /api/bots/@me/schedules` (needs the `commands` scope it already has): `every: 60` seconds, `panelKey: "host"`. Harmony then sends a `refresh` interaction once a minute and the bot answers with `update_panel`, in HTTP and gateway mode alike. `HARMONY_REFRESH_SECONDS` changes the period (the server refuses less than 60 unless `SCHEDULE_MIN_EVERY_SECONDS` is lowered). Managers see the schedule, and can pause it, under Channel settings > Bots.
+
 ## Gateway mode (no URL)
 
 The same bot can run with nothing reachable: create it **without** `interactionsUrl` and `eventsUrl` (keep the `commands` scope; add `events` and `eventTypes` if you want events), then

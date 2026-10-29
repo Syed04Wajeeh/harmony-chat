@@ -1,0 +1,123 @@
+/* Bot channels: header chips, feed-mode composer, settings tab */
+.channel-bots {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.channel-bot,
+.channel-bots-feed {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-raised);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.channel-bot {
+  padding-left: 4px;
+}
+
+.channel-bots-feed {
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+  color: var(--color-accent-text);
+  font-weight: var(--weight-heavy);
+}
+
+@media (max-width: 640px) {
+  .channel-bot {
+    padding: 0 4px;
+  }
+
+  .channel-bot > span:last-child {
+    display: none;
+  }
+}
+
+.composer-feed-note {
+  margin: 0;
+  padding: var(--space-1) var(--space-3) 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.composer-box[data-feed-locked] {
+  background: var(--color-bg-canvas);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.composer-box[data-feed-locked] .send-button {
+  opacity: 0.5;
+}
+
+.channel-bots-tab {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.channel-bots-tab h3 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-md);
+}
+
+.bot-assign-list,
+.schedule-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.switch-row .bot-assign-who {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.schedule-row {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-card);
+  background: var(--color-bg-canvas);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.schedule-row[data-paused] {
+  opacity: 0.7;
+}
+
+.schedule-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.schedule-main small {
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.schedule-status[data-status='failed'] {
+  color: var(--color-danger-text);
+}
+
+.schedule-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

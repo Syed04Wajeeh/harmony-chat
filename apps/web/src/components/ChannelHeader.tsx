@@ -1,6 +1,7 @@
 import type { ChannelSummary } from '@harmony/shared';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useIsDesktop } from '../hooks/useMediaQuery.js';
+import { loadGuildMembers } from '../store/actions.js';
 import { useApp } from '../store/store.js';
 import { useUi } from '../store/ui.js';
 import { Avatar } from './Avatar.js';
@@ -13,6 +14,33 @@ import { usePresenceOf } from './ProfilePopover.js';
 
 interface Props {
   channel: ChannelSummary;
+}
+
+/** The bots a manager assigned to the channel, and a mark when only bots may post. */
+function ChannelBots({ channel }: { channel: ChannelSummary }) {
+  const users = useApp((state) => state.users);
+  const guildId = channel.guildId ?? '';
+  const known = channel.botIds.every((id) => users[id]);
+  useEffect(() => {
+    if (!known && guildId) void loadGuildMembers(guildId);
+  }, [known, guildId]);
+  const bots = channel.botIds.flatMap((id) => (users[id] ? [users[id]] : []));
+  if (bots.length === 0 && !channel.botFeed) return null;
+  return (
+    <ul className="channel-bots" aria-label="Bots in this channel">
+      {channel.botFeed && (
+        <li className="channel-bots-feed" title="Only bots and moderators can post here">
+          Bot feed
+        </li>
+      )}
+      {bots.map((bot) => (
+        <li key={bot.id} className="channel-bot" title={bot.displayName}>
+          <Avatar user={bot} size={20} />
+          <span>{bot.displayName}</span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 export function ChannelHeader({ channel }: Props) {
@@ -80,6 +108,7 @@ export function ChannelHeader({ channel }: Props) {
           </>
         )}
       </div>
+      <ChannelBots channel={channel} />
       <div className="channel-actions">
         {channel.isPrivate && channel.guildId && (
           <>

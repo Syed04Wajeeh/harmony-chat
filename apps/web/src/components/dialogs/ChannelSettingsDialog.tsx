@@ -12,6 +12,7 @@ import {
 import { appStore, useApp } from '../../store/store.js';
 import { Modal } from '../Overlay.js';
 import { RoleDot } from '../RoleDot.js';
+import { ChannelBotsTab } from './ChannelBotsTab.js';
 
 type State = 'allow' | 'neutral' | 'deny';
 
@@ -196,7 +197,9 @@ export function ChannelSettingsDialog({
   canEdit: boolean;
   canPermissions: boolean;
 }) {
-  const [tab, setTab] = useState<'overview' | 'permissions'>(canEdit ? 'overview' : 'permissions');
+  const [tab, setTab] = useState<'overview' | 'bots' | 'permissions'>(
+    canEdit ? 'overview' : 'permissions',
+  );
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={`#${channel.name ?? ''} settings`}>
       <div className="role-tabs" role="tablist">
@@ -209,6 +212,17 @@ export function ChannelSettingsDialog({
             onClick={() => setTab('overview')}
           >
             Overview
+          </button>
+        )}
+        {canEdit && channel.kind !== 'dm' && (
+          <button
+            role="tab"
+            className="chip"
+            aria-selected={tab === 'bots'}
+            data-active={tab === 'bots' || undefined}
+            onClick={() => setTab('bots')}
+          >
+            Bots
           </button>
         )}
         {canPermissions && (
@@ -226,6 +240,7 @@ export function ChannelSettingsDialog({
       {tab === 'overview' && canEdit && (
         <OverviewTab channel={channel} onDone={() => onOpenChange(false)} />
       )}
+      {tab === 'bots' && canEdit && <ChannelBotsTab channel={channel} />}
       {tab === 'permissions' && canPermissions && <PermissionsTab channel={channel} />}
     </Modal>
   );

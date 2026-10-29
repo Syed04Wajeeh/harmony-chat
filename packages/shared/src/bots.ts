@@ -3,6 +3,7 @@ import { Id } from './chat.js';
 import { MessageComponents, PanelSlug } from './components.js';
 import { Embed, EmbedsInput } from './embeds.js';
 import { PanelView } from './panels.js';
+import { ScheduleSlug } from './schedule.js';
 import { MAX_WEBHOOK_CONTENT, MAX_WEBHOOK_SECRET, WebhookFormat } from './webhook-format.js';
 import { WebhookTemplate } from './webhook-template.js';
 
@@ -262,14 +263,17 @@ export const InvokeActionBody = z.object({
 });
 export type InvokeActionBody = z.infer<typeof InvokeActionBody>;
 
-const payloadBase = {
+const payloadCore = {
   id: Id,
   token: z.string(),
   guildId: Id,
   channelId: Id,
-  user: z.object({ id: Id, login: z.string(), displayName: z.string() }),
   createdAt: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
+};
+const payloadBase = {
+  ...payloadCore,
+  user: z.object({ id: Id, login: z.string(), displayName: z.string() }),
 };
 
 /** The signed request body sent to a bot's `interactions_url`; discriminated on `type`. */
@@ -288,6 +292,16 @@ export const InteractionPayload = z.discriminatedUnion('type', [
         z.object({ kind: z.literal('panel'), panelId: Id, key: PanelSlug }),
         z.object({ kind: z.literal('message'), messageId: Id }),
       ]),
+    }),
+  }),
+  /** A schedule came due. No user is involved; answer with `update_panel`, a message or `deferred`. */
+  z.object({
+    ...payloadCore,
+    type: z.literal('refresh'),
+    schedule: z.object({
+      id: ScheduleSlug,
+      channelId: Id,
+      panelKey: PanelSlug.nullable(),
     }),
   }),
 ]);

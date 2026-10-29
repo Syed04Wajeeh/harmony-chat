@@ -449,11 +449,26 @@ guild with them. Errors: `400` (yourself), `403` (a bot you share no guild with)
 
 ### `PATCH /api/channels/:id`
 
-Body: any of `{ "name": string, "topic": string | null, "archived": boolean }` (at least one).
+Body: any of `{ "name": string, "topic": string | null, "archived": boolean, "botFeed": boolean }` (at least one).
 Allowed for the channel's creator and anyone with `manage_channels` in it (the owner and instance
 admins included) who is a member of the channel. Response `200` Channel. Members get `channel.updated`; archiving sends
 `channel.removed` (and unarchiving `channel.joined`) to every member. Errors: `400 dm_immutable`,
 `403 missing_permission`, `409 name_taken`.
+
+`botFeed: true` puts the channel in **bot feed mode**: only bots, incoming webhooks and people with
+`manage_messages` in the channel may post; everyone else gets `403 bot_feed` from every send path
+(REST and `message.send`). Reactions, buttons and slash commands keep working, and the public
+answer of a built-in command is still posted as the caller. `Channel` and `ChannelSummary` carry
+`botFeed` and `botIds`.
+
+### `PUT /api/channels/:id/bots`
+
+Body `{ "botIds": string[] (<=10) }`: replaces the channel's assigned bots, in that order. Allowed
+for the channel's creator and anyone with `manage_channels` (humans only). Every id must be a bot
+in the channel's guild (`404 bot_not_found`). Response `200` Channel (`botIds` set); members get
+`channel.updated`. Assigning grants a bot nothing: clients show the bots in the channel header and
+list their slash commands first in that channel. A bot removed from the guild drops out of every
+assignment and loses its schedules.
 
 ### `GET /api/channels/:id/members`
 
@@ -643,6 +658,68 @@ The caller's socket then gets `interaction.ephemeral`, `interaction.pending` or 
 (with `kind: "action"`, and `command` set to the button's label), or `interaction.completed`
 (`{interactionId, channelId, nonce?}`) after a public message or a panel update, so a button can
 stop its spinner; all carry the click's `nonce`.
+
+## Scheduled refreshes
+
+A bot registers schedules and Harmony calls it when they fall due, so a dashboard can refresh
+without the bot keeping its own timer. Guide: [integrations](../integrations.md#scheduling-refreshes).
+
+`Schedule` = `{rowId, id, botId, guildId, channelId, every, cron, panelKey, paused, nextRunAt, lastRunAt, lastStatus, lastError}`;
+`id` is the bot's own slug for it, `every` seconds or `cron` is set (never both), `lastStatus` is
+`ok`, `failed` or `skipped`.
+
+| Endpoint                            | Behavior                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUT /api/bots/@me/schedules`       | Bot token with the `commands` scope (that scope is what lets a bot receive interactions at all). Body `{schedules: [{id, channelId, every \| cron, panelKey?}]}` replaces the bot's schedules, like commands: entries left out are removed. `every` is 60 to 86400 seconds (`SCHEDULE_MIN_EVERY_SECONDS` lowers the floor), `cron` five UTC fields. Response `{schedules: Schedule[]}`. People get `403 bots_only`. |
+| `GET /api/bots/@me/schedules`       | The bot's own schedules.                                                                                                                                                                                                                                                                                                                                                                                            |
+| `GET /api/channels/:id/schedules`   | Schedules targeting the channel; needs the channel's creator or `manage_channels` (humans only).                                                                                                                                                                                                                                                                                                                    |
+| `PATCH /api/schedules/:scheduleId`  | `{paused}`; same rule. Resuming starts a fresh period.                                                                                                                                                                                                                                                                                                                                                              |
+| `DELETE /api/schedules/:scheduleId` | `204`; same rule. The bot's next `PUT` recreates it, so pause is the lasting control.                                                                                                                                                                                                                                                                                                                               |
+
+Errors on `PUT`: `400 schedule_too_frequent`, `400 duplicate_schedule`, `400` for a bad cron
+expression, a value outside the range or both/neither of `every` and `cron`;
+`409 bot_not_in_channel` (the bot must be a member of every target channel, which must be a
+non-archived guild channel); `409 schedule_limit` (at most 20 per bot per guild). A schedule that
+keeps its channel and cadence on re-registration keeps its next run and its paused flag.
+
+### The `refresh` interaction
+
+When a schedule is due, the bot gets an interaction of `type: "refresh"` over the same path as a
+command: a signed POST to its interactions URL, or an `interaction.create` frame on its gateway
+connection if it has none. The body has no `user`:
+
+```json
+{
+  "id": "9",
+  "token": "…",
+  "type": "refresh",
+  "schedule": { "id": "host-panel", "channelId": "11", "panelKey": "host" },
+  "guildId": "1",
+  "channelId": "11",
+  "createdAt": "…",
+  "expiresAt": "…"
+}
+```
+
+The deadline (3 s) and the token (valid 15 minutes for follow-ups) are the same as for a command.
+Answers: `{"type": "update_panel", "view": …}` replaces the panel `panelKey` of this bot in the channel
+(needs a `panelKey`, and the panel must exist: `post_failed` otherwise); `{"type": "message", …}`
+is posted as the bot (`ephemeral` is refused, there is nobody to show it to); `{"type": "deferred"}`
+means the bot answers through the panel API or a follow-up later. Anything else, a non-2xx status,
+a timeout or an offline gateway bot is recorded in `lastStatus: "failed"` with the reason in
+`lastError` (`timeout`, `unreachable`, `bad_status`, `invalid_response`, `blocked_url`,
+`post_failed`, `bot_unavailable`).
+
+### How runs are claimed
+
+Every app instance runs a scheduler (`SCHEDULER_TICK_MS`, default 5000, `0` turns it off). A tick
+claims due rows with `FOR UPDATE SKIP LOCKED` and in the same short transaction moves
+`next_run_at` ahead (the period counts from now plus jitter of up to 10 percent, at most 5 s; cron
+adds under 2 s) and sets `pending_until` to the interaction deadline plus 5 s. Another instance, or
+the next tick, therefore finds nothing due. If the bot's previous run is still pending when a
+schedule falls due again, that run is skipped (`lastStatus: "skipped"`) and the next one is
+scheduled normally. A crashed instance leaves a marker that expires on its own. Missed periods are
+not replayed: after downtime a schedule runs once.
 
 ## Profiles, custom emoji and perks
 
@@ -878,16 +955,17 @@ frames the server closes the socket with code 1008. Typing pings are further thr
 
 ### Client to server
 
-| `type`           | Fields                                                          | Effect                                                                                                                         |
-| ---------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `subscribe`      | `channelId`, `lastSeenId?`                                      | Start receiving the channel's events. Members only. Answered with `backfill`.                                                  |
-| `unsubscribe`    | `channelId`                                                     | Stop receiving. No reply.                                                                                                      |
-| `message.send`   | `channelId`, `content`, `nonce`, `replyToId?`, `attachmentIds?` | Same rules as `POST /messages`. Answered with `ack` (to you) and `message.created` (to subscribers). `nonce` is required here. |
-| `read`           | `channelId`, `messageId`                                        | Same as `POST /channels/:id/read`. Answered with `read.updated` to all your sessions.                                          |
-| `typing`         | `channelId`                                                     | Relays `typing` to subscribers. Members only; ignored if you sent one for this channel in the last 2 seconds.                  |
-| `presence.set`   | `status` (`online`, `idle`, `dnd`, `invisible`)                 | Same as `PATCH /api/me`. No reply.                                                                                             |
-| `action.invoke`  | `source` (`{panelId}` or `{messageId}`), `actionId`, `nonce?`   | Press a button (humans only); same as `POST /api/interactions/actions`. See Panels and buttons.                                |
-| `command.invoke` | `channelId`, `name`, `options?`, `nonce?`                       | Run a slash command (humans only); the outcome arrives as a message or an `interaction.*` frame. See Slash commands.           |
+| `type`              | Fields                                                          | Effect                                                                                                                         |
+| ------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `subscribe`         | `channelId`, `lastSeenId?`                                      | Start receiving the channel's events. Members only. Answered with `backfill`.                                                  |
+| `unsubscribe`       | `channelId`                                                     | Stop receiving. No reply.                                                                                                      |
+| `message.send`      | `channelId`, `content`, `nonce`, `replyToId?`, `attachmentIds?` | Same rules as `POST /messages`. Answered with `ack` (to you) and `message.created` (to subscribers). `nonce` is required here. |
+| `read`              | `channelId`, `messageId`                                        | Same as `POST /channels/:id/read`. Answered with `read.updated` to all your sessions.                                          |
+| `typing`            | `channelId`                                                     | Relays `typing` to subscribers. Members only; ignored if you sent one for this channel in the last 2 seconds.                  |
+| `presence.set`      | `status` (`online`, `idle`, `dnd`, `invisible`)                 | Same as `PATCH /api/me`. No reply.                                                                                             |
+| `presence.activity` | `idle` (boolean)                                                | This socket's own idleness; see Presence. No reply. Humans only.                                                               |
+| `action.invoke`     | `source` (`{panelId}` or `{messageId}`), `actionId`, `nonce?`   | Press a button (humans only); same as `POST /api/interactions/actions`. See Panels and buttons.                                |
+| `command.invoke`    | `channelId`, `name`, `options?`, `nonce?`                       | Run a slash command (humans only); the outcome arrives as a message or an `interaction.*` frame. See Slash commands.           |
 
 ```json
 { "type": "subscribe", "channelId": "11", "lastSeenId": "980" }
@@ -1015,6 +1093,17 @@ quick disconnect and reconnect sends nothing. A frame has at most 500 updates; a
 than that arrives as several frames in the same tick. A change is therefore seen up to one
 window late. It is produced when a user's first connection opens, their last one closes or
 times out (up to about 2 minutes after a crash), or they change their status.
+
+**Chosen status and automatic idle.** `presence.set` and `PATCH /api/me` set the chosen status
+(`online`, `idle`, `dnd`, `invisible`), which is stored and survives reconnecting. Automatic
+idleness is separate, per socket and never stored: a client sends `presence.activity` with
+`idle: true` after its own quiet time (the web app also counts a hidden tab) and `idle: false` on
+the next interaction, only when that flag changes. A user whose chosen status is `online` is shown
+as `idle` when every connected socket is idle, and as `online` as soon as any one is active; any
+other chosen status is shown as it is whatever the sockets report. A new socket starts active, so
+a client that is idle after reconnecting sends `idle: true` again; closed and timed-out sockets
+stop counting. `GET /api/me` always returns the chosen status, never the automatic idle. Older
+clients that send `presence.set` with `idle` keep working: that is a chosen idle, as before.
 
 Who can see whom follows membership live: joining a guild or getting a DM starts delivery (and
 the others learn how you are doing), leaving, being kicked or deleting stops it, all without

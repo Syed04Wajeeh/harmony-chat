@@ -261,7 +261,7 @@
   --state: var(--color-danger);
 }
 
-.status-dot {
+.status-list .status-dot {
   grid-area: dot;
   width: 10px;
   height: 10px;
