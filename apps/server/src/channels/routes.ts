@@ -11,6 +11,7 @@ import {
   MarkReadBody,
   MembersResponse,
   ReadState,
+  SetChannelBotsBody,
   UpdateChannelBody,
 } from '@harmony/shared';
 import type { ChannelService } from './service.js';
@@ -41,6 +42,15 @@ export const channelRoutes: FastifyPluginCallbackZod<{ channels: ChannelService 
       schema: { params: ChannelParams, body: UpdateChannelBody, response: { 200: Channel } },
     },
     (request) => channels.update(request.user, request.params.id, request.body),
+  );
+
+  app.put(
+    '/channels/:id/bots',
+    {
+      config: { humanOnly: true },
+      schema: { params: ChannelParams, body: SetChannelBotsBody, response: { 200: Channel } },
+    },
+    (request) => channels.setBots(request.user, request.params.id, request.body.botIds),
   );
 
   app.post(

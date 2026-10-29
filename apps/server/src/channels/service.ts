@@ -32,13 +32,19 @@ interface SummaryRow {
   last_message_id: string | null;
   unread_count: number;
   mention_count: number;
+  bot_feed: boolean;
+  bot_ids: string[];
 }
 
 const UNIQUE_VIOLATION = '23505';
 const isUniqueViolation = (error: unknown): boolean =>
   (error as { code?: string }).code === UNIQUE_VIOLATION;
 
-const toChannel = (row: ChannelRow, dmUser: User | null = null): Channel => ({
+const toChannel = (
+  row: ChannelRow,
+  dmUser: User | null = null,
+  botIds: string[] = [],
+): Channel => ({
   id: row.id,
   guildId: row.guild_id,
   kind: row.kind as Channel['kind'],
@@ -47,6 +53,8 @@ const toChannel = (row: ChannelRow, dmUser: User | null = null): Channel => ({
   isPrivate: row.is_private,
   createdBy: row.created_by,
   dmUser,
+  botFeed: row.bot_feed,
+  botIds,
 });
 
 const freshSummary = (row: ChannelRow): ChannelSummary => ({
@@ -133,7 +141,9 @@ export class ChannelService {
     } = {},
   ): Promise<ChannelSummary[]> {
     const { rows } = await sql<SummaryRow>`
-      select c.id, c.guild_id, c.kind, c.name, c.topic, c.is_private, c.created_by,
+      select c.id, c.guild_id, c.kind, c.name, c.topic, c.is_private, c.created_by, c.bot_feed,
+        coalesce((select array_agg(cb.bot_id::text order by cb.position, cb.bot_id)
+                  from channel_bots cb where cb.channel_id = c.id), '{}') as bot_ids,
         cm.last_read_message_id,
         (select max(m.id) from messages m where m.channel_id = c.id) as last_message_id,
         (select count(*)::int from (
@@ -174,6 +184,8 @@ export class ChannelService {
       isPrivate: row.is_private,
       createdBy: row.created_by,
       dmUser: dmUsers.get(row.id) ?? null,
+      botFeed: row.bot_feed,
+      botIds: row.bot_ids,
       unreadCount: row.unread_count,
       mentionCount: row.mention_count,
       lastMessageId: row.last_message_id,
@@ -266,6 +278,7 @@ export class ChannelService {
           ...(body.archived !== undefined && {
             archived_at: body.archived ? new Date() : null,
           }),
+          ...(body.botFeed !== undefined && { bot_feed: body.botFeed }),
         })
         .where('id', '=', channelId)
         .returningAll()
@@ -279,6 +292,7 @@ export class ChannelService {
 
     const archivedChanged = (channel.archived_at === null) !== (updated.archived_at === null);
     const memberIds = await this.memberIds(channelId);
+    const botIds = await this.botIds(channelId);
     await Promise.all(
       memberIds.map(async (userId) => {
         if (archivedChanged && updated.archived_at) {
@@ -288,12 +302,74 @@ export class ChannelService {
         } else {
           await this.events.toUser(userId, {
             type: 'channel.updated',
-            channel: toChannel(updated),
+            channel: toChannel(updated, null, botIds),
           });
         }
       }),
     );
-    return toChannel(updated);
+    return toChannel(updated, null, botIds);
+  }
+
+  async botIds(channelId: string): Promise<string[]> {
+    const rows = await this.db
+      .selectFrom('channel_bots')
+      .select('bot_id')
+      .where('channel_id', '=', channelId)
+      .orderBy('position')
+      .orderBy('bot_id')
+      .execute();
+    return rows.map((row) => row.bot_id);
+  }
+
+  /**
+   * Replaces the channel's assigned bots. Needs the channel's creator or `manage_channels`; every
+   * bot must be a member of the guild. The assignment is only a hint to clients (header chips,
+   * command ordering): it grants the bots nothing.
+   */
+  async setBots(actor: Actor, channelId: string, botIds: readonly string[]): Promise<Channel> {
+    const channel = await this.requireMember(channelId, actor.id);
+    if (!channel.guild_id) {
+      throw new AppError(400, 'dm_immutable', 'Direct messages cannot have bots assigned');
+    }
+    if (!(await this.canManage(actor, channel))) {
+      throw new AppError(
+        403,
+        'missing_permission',
+        'Only the channel creator or someone with manage_channels can assign bots',
+      );
+    }
+    const unique = [...new Set(botIds)];
+    if (unique.length > 0) {
+      const found = await this.db
+        .selectFrom('guild_members')
+        .innerJoin('bots', 'bots.user_id', 'guild_members.user_id')
+        .select('bots.user_id')
+        .where('guild_members.guild_id', '=', channel.guild_id)
+        .where('bots.user_id', 'in', unique)
+        .execute();
+      if (found.length !== unique.length) {
+        throw new AppError(404, 'bot_not_found', 'Every bot must be added to this guild first');
+      }
+    }
+    await this.db.transaction().execute(async (trx) => {
+      await trx.deleteFrom('channel_bots').where('channel_id', '=', channelId).execute();
+      if (unique.length > 0) {
+        await trx
+          .insertInto('channel_bots')
+          .values(
+            unique.map((botId, position) => ({ channel_id: channelId, bot_id: botId, position })),
+          )
+          .execute();
+      }
+    });
+    const updated = toChannel(channel, null, unique);
+    const memberIds = await this.memberIds(channelId);
+    await Promise.all(
+      memberIds.map((userId) =>
+        this.events.toUser(userId, { type: 'channel.updated', channel: updated }),
+      ),
+    );
+    return updated;
   }
 
   /** Adds a guild member to a private channel by allowing them to view it. */
