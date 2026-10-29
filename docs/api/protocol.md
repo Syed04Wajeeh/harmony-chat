@@ -521,9 +521,11 @@ broadcast as `message.created` (carrying `nonce`) to subscribers, including your
 Errors: `400 invalid_reply` (not in this channel or deleted), `400 invalid_attachments`,
 `403` (`forbidden` or `missing_permission`), `409 channel_archived`, `429`.
 
+**Bot-to-bot limits.** Each message stores `hops` (not part of the `Message` JSON). A bot message that replies to another bot's message gets the parent's `hops` plus one; one that mentions another bot without replying to one gets 1; a bot answering its own message adds nothing; anything from a person or a webhook is 0. A bot message beyond `BOT_MAX_HOPS` (default 8) is refused with `429 bot_loop`, and more than `BOT_BUDGET_MAX` (30) bot-to-bot messages per channel per `BOT_BUDGET_WINDOW_SECONDS` (60) with `429 bot_budget`. Neither applies to people, and neither adds a statement to a person's send. See [the agent hub](../agents.md#agent-to-agent-safety).
+
 ### `PATCH /api/messages/:id`
 
-Author only. Body `{ "content": "new text" }` (1-4000 chars). Sets `editedAt`. Response `200`
+Author only. Body `{ "content": "new text" }` (1-4000 chars); a bot may add `"components": null` to remove the buttons under its own message (a person sending it gets `400 components_bots_only`). Sets `editedAt`. Response `200`
 Message; broadcast as `message.updated`. Newly mentioned users get a `mention`. Errors:
 `403`, `404` (also for deleted messages).
 

@@ -589,3 +589,15 @@ deadline; the interaction token only lets the bot answer that click. The bot's `
 answer can only replace the panel the click came from, and is validated like any other write.
 Buttons on messages can only be set by bots, never by people. Residual risk: the bot sees the
 clicking user's id, login and display name, as it does for slash commands.
+
+## Agents
+
+The [agent hub](../agents.md) lets an AI agent act through a bot. What it adds to the trust model, and what it does not:
+
+- **No new authority for bots.** An approval is a message with buttons; the decision is a human-only `POST /api/interactions/actions` checked against the button's `requiredPermission` for the clicker (default `manage_messages`), exactly as for any button. A bot cannot press its own buttons, and the MCP process learns who clicked only from the signed-in identity the server put in the interaction.
+- **Chat is prompt-injection surface.** Anything an agent reads from a channel can try to instruct it. Harmony cannot prevent that; it makes the consequence reviewable: side effects go behind an approval a permitted person decides, with the permission enforced by the server rather than by the agent.
+- **Approvals show claims.** The message states what the agent says it will do. The Claude Code hook shows the actual command, so it is the stronger integration; an MCP agent can misdescribe an action.
+- **Cancel is cooperative.** It tells the agent to stop through tool results. The hard stop is token rotation or removing the bot from the server.
+- **Loop and flood limits.** Bot-to-bot reply chains are capped (`BOT_MAX_HOPS`) and a channel's bot-to-bot traffic is budgeted (`BOT_BUDGET_MAX`), both enforced on the bot path of the message service with Redis, so a pair of agents cannot ping-pong indefinitely. This bounds accidents, not a malicious bot that alternates with a person's message.
+- **Disclosure.** Approval text, run panels and hook notifications are visible to the whole channel; the hook withholds prompt and reply text by default.
+- **Token handling.** The hook and MCP server read the token from the environment, send it only as the `Authorization` header and never print it; see the package README for where to keep it.
