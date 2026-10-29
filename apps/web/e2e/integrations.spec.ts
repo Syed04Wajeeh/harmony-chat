@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { DevApi } from './support/dev-api.js';
+import { ADMIN_LOGIN, DevApi } from './support/dev-api.js';
 import { freePort, startEchoBot } from './support/echo-bot.js';
 
 const baseURL = process.env['E2E_BASE_URL'] ?? 'http://localhost:15173';
@@ -23,10 +23,15 @@ test('a bot made in the UI answers slash commands through the echo example', asy
   browser,
 }) => {
   const run = Date.now().toString(36);
-  const login = 'botowner@example.com';
+  // global-setup.ts makes dev@example.com the first user, hence the instance admin that bots need
+  // to reach localhost.
+  const login = ADMIN_LOGIN;
   const api = new DevApi(baseURL, login);
   const me = await api.me();
-  test.skip(!me.isAdmin, `needs an empty database: ${me.displayName} is not an instance admin`);
+  // Never skip: a silent skip once hid every bot spec from CI.
+  if (!me.isAdmin) {
+    throw new Error(`${me.displayName} is not an instance admin; run against an empty database`);
+  }
 
   const guild = await api.createGuild(`Bots ${run}`);
   const channel = (await api.channels()).find(
