@@ -27,6 +27,14 @@ export const HashIcon = (p: P) => (
     <path d="M5 9h14M5 15h14M10 3 8 21M16 3l-2 18" />
   </Icon>
 );
+export const DashboardIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="4" y="4" width="7" height="8" rx="1.5" />
+    <rect x="13" y="4" width="7" height="5" rx="1.5" />
+    <rect x="13" y="11" width="7" height="9" rx="1.5" />
+    <rect x="4" y="14" width="7" height="6" rx="1.5" />
+  </Icon>
+);
 export const LockIcon = (p: P) => (
   <Icon {...p}>
     <rect x="5" y="11" width="14" height="10" rx="2" />

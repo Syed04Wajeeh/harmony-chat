@@ -23,7 +23,7 @@ type ChannelRow = Selectable<Database['channels']>;
 interface SummaryRow {
   id: string;
   guild_id: string | null;
-  kind: 'text' | 'dm';
+  kind: 'text' | 'dm' | 'dashboard';
   name: string | null;
   topic: string | null;
   is_private: boolean;
@@ -197,6 +197,7 @@ export class ChannelService {
           .insertInto('channels')
           .values({
             guild_id: guildId,
+            kind: body.kind ?? 'text',
             name: body.name,
             topic: body.topic ?? null,
             is_private: isPrivate,

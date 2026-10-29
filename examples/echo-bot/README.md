@@ -37,3 +37,7 @@ pnpm --filter @harmony/example-echo-bot start
 ```
 
 `127.0.0.1:8471` is the integration ingress: it only forwards bot-token requests, webhooks and interaction follow-ups. Then type `/echo text:hi` or `/roll sides:20` in a channel of that guild (the web client lists commands from `GET /api/guilds/:id/commands`).
+
+## Demo dashboard
+
+Add the `panels.write` scope to the bot, make a channel of type **Dashboard**, and set `HARMONY_DASHBOARD_CHANNEL_ID` (and optionally `HARMONY_PANEL_INTERVAL_MS`, default 5000). The bot then publishes a "Demo host" panel with made-up numbers: two stats, a live area chart it appends points to, a status list, a progress bar and two buttons. **Refresh** is answered with `update_panel`; **Restart service** has a confirm dialog, needs `manage_messages`, and is answered with an ephemeral message.

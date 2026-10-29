@@ -35,7 +35,7 @@ export async function reconcileAccess(
       .selectFrom('channels')
       .select('id')
       .where('guild_id', '=', guildId)
-      .where('kind', '=', 'text')
+      .where('kind', 'in', ['text', 'dashboard'])
       .$if(scope.channelIds !== undefined, (qb) =>
         qb.where('id', 'in', [...(scope.channelIds ?? [])]),
       )

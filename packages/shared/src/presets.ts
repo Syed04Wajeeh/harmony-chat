@@ -70,6 +70,42 @@ export function accentTokens(
   };
 }
 
+const CHART_DARK = [
+  '#5fb89a',
+  '#7fa8ec',
+  '#f2a65a',
+  '#b79af0',
+  '#ef817a',
+  '#e6c340',
+  '#86cf5f',
+  '#e58db3',
+];
+const CHART_LIGHT = [
+  '#2c7a61',
+  '#3f6fc0',
+  '#bf6f20',
+  '#7a5cc4',
+  '#c23f37',
+  '#a98515',
+  '#46902b',
+  '#b64a78',
+];
+
+/** Categorical series colors for charts: the same eight hues, one set per base. */
+function chartTokens(dark: boolean) {
+  const set = dark ? CHART_DARK : CHART_LIGHT;
+  return {
+    'color-chart-1': set[0] ?? '',
+    'color-chart-2': set[1] ?? '',
+    'color-chart-3': set[2] ?? '',
+    'color-chart-4': set[3] ?? '',
+    'color-chart-5': set[4] ?? '',
+    'color-chart-6': set[5] ?? '',
+    'color-chart-7': set[6] ?? '',
+    'color-chart-8': set[7] ?? '',
+  };
+}
+
 const TONES = ['#4f6fa8', '#3b7a64', '#9a6128', '#a14860', '#ae4f3e', '#387a87', '#7759a3'];
 
 /**
@@ -147,6 +183,7 @@ export function deriveTokens(
     'color-tone-5': TONES[5] ?? '',
     'color-tone-6': TONES[6] ?? '',
     'color-tone-contrast': '#ffffff',
+    ...chartTokens(dark),
     'color-switch-thumb': '#ffffff',
     'color-viewer-bg': '#141413eb',
     'color-viewer-text': '#efebe2',

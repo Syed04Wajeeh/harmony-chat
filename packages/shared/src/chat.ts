@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MessageComponents } from './components.js';
 import { Embed } from './embeds.js';
 
 export const MAX_MESSAGE_LENGTH = 4000;
@@ -40,7 +41,8 @@ export type PresenceStatus = z.infer<typeof PresenceStatus>;
 export const Me = DirectoryUser.extend({ status: UserStatus });
 export type Me = z.infer<typeof Me>;
 
-export const ChannelKind = z.enum(['text', 'dm']);
+/** A dashboard channel shows the panels bots publish instead of a message list. */
+export const ChannelKind = z.enum(['text', 'dm', 'dashboard']);
 export type ChannelKind = z.infer<typeof ChannelKind>;
 
 export const ChannelName = z
@@ -126,6 +128,8 @@ export const Message = z.object({
   /** Per-message name and avatar given by a webhook caller; clients show them in place of the author's. */
   displayNameOverride: z.string().nullable().optional(),
   avatarUrlOverride: z.string().nullable().optional(),
+  /** Buttons a bot attached to the message; clicking one calls the bot's interactions URL. */
+  components: MessageComponents.optional(),
   /** Data attached by modules, keyed by module id. Clients validate each entry themselves. */
   modules: z.record(z.string(), z.unknown()).optional(),
 });
@@ -151,6 +155,8 @@ export const CreateChannelBody = z.object({
   topic: ChannelTopic.optional(),
   /** Private channels are visible only to the members added to them. */
   isPrivate: z.boolean().default(false),
+  /** `dashboard` makes a channel that shows bot panels instead of messages. */
+  kind: z.enum(['text', 'dashboard']).default('text'),
 });
 export type CreateChannelBody = z.input<typeof CreateChannelBody>;
 
@@ -304,7 +310,12 @@ export const SendMessageFields = {
 };
 
 export const SendMessageBody = z
-  .object({ ...SendMessageFields, nonce: Nonce.optional() })
+  .object({
+    ...SendMessageFields,
+    nonce: Nonce.optional(),
+    /** Bots only; the server rejects it from people. */
+    components: MessageComponents.optional(),
+  })
   .refine(hasContentOrAttachments, { message: 'Message is empty', path: ['content'] });
 export type SendMessageBody = z.infer<typeof SendMessageBody>;
 

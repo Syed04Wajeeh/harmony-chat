@@ -4,6 +4,7 @@ import { createServer } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { Panel } from '@harmony/shared';
 import {
   TestSocket,
   api,
@@ -97,6 +98,73 @@ describe('examples/echo-bot', () => {
     const [message] = await socket.waitFor('message.created');
     expect(message?.message.content).toMatch(/^You rolled a [1-6]$/);
     expect(message?.message.author.id).toBe(created.bot.id);
+    await socket.close();
+  });
+
+  it('publishes its demo dashboard, refreshes it from a button and answers the restart button', async () => {
+    const tag = randomUUID().slice(0, 8);
+    const owner = `owner-${tag}@example.com`;
+    await ensureUser(infra.db, owner, { admin: true });
+    const guildId = await createGuild(infra.db, owner);
+    const channelId = await createChannel(infra.db, [owner], {
+      guildId,
+      createdBy: owner,
+      kind: 'dashboard',
+    });
+    const port = await freePort();
+    const created = await createBot(target, owner, {
+      scopes: ['messages.read', 'messages.write', 'commands', 'panels.write'],
+      interactionsUrl: `http://127.0.0.1:${port}/interactions`,
+    });
+    await addBotToGuild(target, owner, guildId, created.bot.id);
+    child?.kill();
+    child = spawn('node', [BOT_FILE], {
+      env: {
+        ...process.env,
+        PORT: String(port),
+        HARMONY_URL: target.url,
+        HARMONY_BOT_TOKEN: created.token,
+        HARMONY_SIGNING_SECRET: created.signingSecret,
+        HARMONY_GUILD_ID: guildId,
+        HARMONY_DASHBOARD_CHANNEL_ID: channelId,
+        HARMONY_PANEL_INTERVAL_MS: '200',
+      },
+      stdio: 'ignore',
+    });
+
+    const asOwner = api(target, owner);
+    const deadline = Date.now() + 10_000;
+    let panel: Panel | undefined;
+    while (!panel) {
+      const listed = await asOwner(`/api/channels/${channelId}/panels`);
+      panel = (listed.body as { panels: Panel[] }).panels[0];
+      if (!panel && Date.now() > deadline) throw new Error('bot never published its panel');
+      if (!panel) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(panel.view.blocks.map((b) => b.type)).toEqual([
+      'stat',
+      'stat',
+      'chart',
+      'status',
+      'progress',
+      'actions',
+    ]);
+
+    const socket = await TestSocket.connect(target, owner);
+    await socket.subscribe(channelId);
+    await asOwner('/api/interactions/actions', {
+      method: 'POST',
+      body: { source: { panelId: panel.id }, actionId: 'restart', nonce: 'r1' },
+    });
+    const [restarted] = await socket.waitFor('interaction.ephemeral');
+    expect(restarted?.content).toMatch(/^Restarted/);
+
+    await asOwner('/api/interactions/actions', {
+      method: 'POST',
+      body: { source: { panelId: panel.id }, actionId: 'refresh', nonce: 'r2' },
+    });
+    await socket.waitFor('interaction.completed');
+    await socket.waitFor('panel.updated');
     await socket.close();
   });
 });

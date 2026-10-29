@@ -363,7 +363,7 @@ export class RoleService {
       update channels c set is_private = exists (
         select 1 from channel_overwrites o join roles r on r.id = o.target_id and r.is_default
         where o.channel_id = c.id and o.target_type = 'role' and 'view_channel' = any (o.deny)
-      ) where c.guild_id = ${guildId} and c.kind = 'text'
+      ) where c.guild_id = ${guildId} and c.kind in ('text', 'dashboard')
     `.execute(trx);
   }
 

@@ -26,7 +26,8 @@ export function InteractionItem({
       <li className="message message-local" data-kind="failed">
         <div className="message-failed" role="alert">
           <span>
-            <strong>/{item.command}</strong> failed: {name} {describeFailure(item.reason)}.
+            <strong>{item.action ? item.command : `/${item.command}`}</strong> failed: {name}{' '}
+            {describeFailure(item.reason)}.
           </span>
           <button type="button" className="link-button" onClick={dismiss}>
             Dismiss
@@ -51,7 +52,9 @@ export function InteractionItem({
           <div className="message-header">
             <span className="message-author">{name}</span>
             {item.botId && <AuthorBadge kind="bot" />}
-            <span className="message-command">used /{item.command}</span>
+            <span className="message-command">
+              {item.action ? `answered ${item.command}` : `used /${item.command}`}
+            </span>
           </div>
           {item.kind === 'pending' ? (
             <div className="thinking" role="status">

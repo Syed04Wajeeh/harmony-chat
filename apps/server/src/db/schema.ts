@@ -107,6 +107,7 @@ export interface MessagesTable {
   display_name_override: Generated<string | null>;
   avatar_url_override: Generated<string | null>;
   embeds: Generated<unknown>;
+  components: Generated<unknown>;
   modules: Generated<string[]>;
   search: ColumnType<string, never, never>;
 }
@@ -182,6 +183,23 @@ export interface InteractionsTable {
   nonce: string | null;
   created_at: Timestamp;
   expires_at: Date;
+  type: Generated<'command' | 'action'>;
+  action_id: Generated<string | null>;
+  panel_id: Generated<string | null>;
+  message_id: Generated<string | null>;
+}
+
+export interface PanelsTable {
+  id: Generated<string>;
+  channel_id: string;
+  bot_id: string;
+  key: string;
+  view: ColumnType<unknown, string, string>;
+  version: Generated<number>;
+  pinned: Generated<boolean>;
+  position: Generated<number>;
+  created_at: Timestamp;
+  updated_at: Generated<Date>;
 }
 
 export interface EventOutboxTable {
@@ -285,6 +303,7 @@ export interface Database {
   webhooks: WebhooksTable;
   bot_commands: BotCommandsTable;
   interactions: InteractionsTable;
+  panels: PanelsTable;
   event_outbox: EventOutboxTable;
   event_deliveries: EventDeliveriesTable;
   guild_modules: GuildModulesTable;

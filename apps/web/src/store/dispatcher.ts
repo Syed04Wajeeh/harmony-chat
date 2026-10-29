@@ -10,6 +10,7 @@ import {
 } from './actions.js';
 import { routeModuleFrame } from '../modules/registry.js';
 import { getRealtime } from './connection.js';
+import { reloadPanels, usePanels } from './panels.js';
 import { useProfiles } from './profiles.js';
 import { loadSettings, useSettings } from './settings.js';
 import { appStore } from './store.js';
@@ -99,6 +100,8 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
       void loadSettings().catch(() => undefined);
       void useProfiles.getState().refresh();
       if (activeChannelId) void loadLatest(activeChannelId);
+      // Panel frames sent while the socket was down are gone; fetch what is cached again.
+      reloadPanels();
       // Module switches may have changed while the socket was down.
       for (const guildId of Object.keys(appStore.getState().guildModules)) {
         void loadGuildModules(guildId);
@@ -125,6 +128,17 @@ export function startDispatcher(realtime: RealtimeClient = getRealtime()): () =>
   const offFrame = realtime.onFrame((frame) => {
     if (frame.type === 'settings.updated') useSettings.getState().receive(frame.settings);
     else if (frame.type === 'themes.updated') useSettings.getState().setThemes(frame.themes);
+    if (frame.type === 'panel.updated' || frame.type === 'panel.deleted') {
+      usePanels.getState().receive(frame);
+    } else if (
+      (frame.type === 'interaction.pending' ||
+        frame.type === 'interaction.ephemeral' ||
+        frame.type === 'interaction.failed' ||
+        frame.type === 'interaction.completed') &&
+      frame.nonce
+    ) {
+      usePanels.getState().finishAction(frame.nonce);
+    }
     if (frame.type === 'user.updated') {
       appStore.getState().ingestUsers([frame.user]);
       useProfiles.getState().userUpdated(frame.user.id, frame.profile);

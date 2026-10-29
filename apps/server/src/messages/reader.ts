@@ -3,6 +3,7 @@ import {
   REACTION_USER_PREVIEW,
   type Attachment,
   type Embed,
+  type MessageComponents,
   type Message,
   type Reaction,
 } from '@harmony/shared';
@@ -29,6 +30,7 @@ export interface MessageRow {
   display_name_override: string | null;
   avatar_url_override: string | null;
   embeds: unknown;
+  components: unknown;
   modules: string[];
   parent_id: string | null;
   parent_author_id: string | null;
@@ -84,6 +86,7 @@ export class MessageReader {
         'messages.display_name_override',
         'messages.avatar_url_override',
         'messages.embeds',
+        'messages.components',
         'messages.modules',
         'parent.id as parent_id',
         'parent.author_id as parent_author_id',
@@ -193,6 +196,8 @@ export class MessageReader {
         ...(!deleted &&
           Array.isArray(row.embeds) &&
           row.embeds.length > 0 && { embeds: row.embeds as Embed[] }),
+        ...(!deleted &&
+          row.components != null && { components: row.components as MessageComponents }),
         ...(modules.has(row.id) && { modules: modules.get(row.id) }),
       };
     });

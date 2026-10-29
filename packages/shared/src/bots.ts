@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { Id } from './chat.js';
+import { MessageComponents, PanelSlug } from './components.js';
 import { EmbedsInput } from './embeds.js';
+import { PanelView } from './panels.js';
 
 export const BOT_SCOPES = [
   'messages.read',
@@ -9,6 +11,7 @@ export const BOT_SCOPES = [
   'channels.read',
   'commands',
   'events',
+  'panels.write',
 ] as const;
 export const BotScope = z.enum(BOT_SCOPES);
 export type BotScope = z.infer<typeof BotScope>;
@@ -202,6 +205,8 @@ export const BotMessage = z
     content: z.string().max(MAX_BOT_RESPONSE_CONTENT).default(''),
     embeds: EmbedsInput.optional(),
     ephemeral: z.boolean().default(false),
+    /** Buttons under the message; ignored for ephemeral answers. */
+    components: MessageComponents.optional(),
   })
   .refine((m) => m.content.length > 0 || (m.embeds?.length ?? 0) > 0, {
     message: 'Message is empty',
@@ -212,6 +217,8 @@ export type BotMessage = z.infer<typeof BotMessage>;
 export const InteractionResponse = z.union([
   z.object({ type: z.literal('message') }).and(BotMessage),
   z.object({ type: z.literal('deferred') }),
+  /** Only valid as the answer to a button on a panel: replaces that panel's view. */
+  z.object({ type: z.literal('update_panel'), view: PanelView }),
 ]);
 export type InteractionResponse = z.infer<typeof InteractionResponse>;
 
@@ -230,18 +237,49 @@ export const InteractionFailureReason = z.enum([
 ]);
 export type InteractionFailureReason = z.infer<typeof InteractionFailureReason>;
 
-/** The signed request body sent to a bot's `interactions_url`. */
-export const InteractionPayload = z.object({
+/** Which button was clicked: one on a panel, or one under a bot message. */
+export const ActionSource = z.union([
+  z.object({ panelId: Id }).strict(),
+  z.object({ messageId: Id }).strict(),
+]);
+export type ActionSource = z.infer<typeof ActionSource>;
+
+export const InvokeActionBody = z.object({
+  source: ActionSource,
+  actionId: PanelSlug,
+  nonce: z.string().min(1).max(64).optional(),
+});
+export type InvokeActionBody = z.infer<typeof InvokeActionBody>;
+
+const payloadBase = {
   id: Id,
   token: z.string(),
-  type: z.literal('command'),
-  command: z.object({ name: z.string(), options: CommandOptionValues }),
   guildId: Id,
   channelId: Id,
   user: z.object({ id: Id, login: z.string(), displayName: z.string() }),
   createdAt: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
-});
+};
+
+/** The signed request body sent to a bot's `interactions_url`; discriminated on `type`. */
+export const InteractionPayload = z.discriminatedUnion('type', [
+  z.object({
+    ...payloadBase,
+    type: z.literal('command'),
+    command: z.object({ name: z.string(), options: CommandOptionValues }),
+  }),
+  z.object({
+    ...payloadBase,
+    type: z.literal('action'),
+    action: z.object({
+      id: PanelSlug,
+      source: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('panel'), panelId: Id, key: PanelSlug }),
+        z.object({ kind: z.literal('message'), messageId: Id }),
+      ]),
+    }),
+  }),
+]);
 export type InteractionPayload = z.infer<typeof InteractionPayload>;
 
 /* Webhooks */

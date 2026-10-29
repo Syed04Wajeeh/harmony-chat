@@ -72,6 +72,12 @@
   --palette-blue-600: #3f6fc0;
   --palette-blue-700: #2f57a0;
 
+  --palette-violet-400: #b79af0;
+  --palette-violet-600: #7a5cc4;
+
+  --palette-rose-400: #e58db3;
+  --palette-rose-600: #b64a78;
+
   /* Avatar fallbacks: earthy mid-tones that all carry light text. */
   --palette-tone-0: #4f6fa8;
   --palette-tone-1: #3b7a64;

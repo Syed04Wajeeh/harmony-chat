@@ -6,6 +6,7 @@ import {
   ChannelParams,
   GuildParams,
   InteractionFollowupParams,
+  InvokeActionBody,
   InvokeCommandBody,
   InvokeCommandResponse,
   ListCommandsResponse,
@@ -72,6 +73,16 @@ export const commandRoutes: FastifyPluginCallbackZod<CommandRoutesOptions> = (
       reply
         .code(202)
         .send(await interactions.invoke(request.user, request.params.id, request.body)),
+  );
+
+  app.post(
+    '/interactions/actions',
+    {
+      config: { humanOnly: true },
+      schema: { body: InvokeActionBody, response: { 202: InvokeCommandResponse } },
+    },
+    async (request, reply) =>
+      reply.code(202).send(await interactions.invokeAction(request.user, request.body)),
   );
 
   // The interaction token in the path is the credential, like a webhook URL.

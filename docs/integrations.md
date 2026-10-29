@@ -40,3 +40,54 @@ network names are deployment details), set the external network name, and run
 Host firewalls often drop traffic from containers to ports published on the host, which
 is why attaching to the network is the recommended route for containers, rather than
 `host.docker.internal:8471`.
+
+## Panels and buttons
+
+Bots can publish dashboards: panels of stats, charts, tables and buttons that Harmony renders
+natively. Give the bot the `panels.write` scope (and `commands` plus an interactions URL if it has
+buttons), add it to the server, and make a channel of type **Dashboard** (or pin a panel in a text
+channel). The full reference is in the [protocol](api/protocol.md#panels-and-buttons); the
+[echo bot](../examples/echo-bot/README.md) publishes a working demo.
+
+```sh
+curl -X PUT $API/api/channels/$CHANNEL_ID/panels/host \
+  -H "Authorization: Bot $TOKEN" -H 'Content-Type: application/json' -d '{
+  "pinned": false,
+  "view": {
+    "title": "Host",
+    "blocks": [
+      { "type": "stat", "label": "CPU", "value": 41, "unit": "%", "tone": "good" },
+      { "type": "stat", "label": "Memory", "value": "6.1", "unit": "GB", "delta": "+0.2" },
+      { "type": "chart", "id": "load", "kind": "line", "span": "full", "yUnit": "%",
+        "series": [{ "name": "cpu", "points": [{ "x": "2026-10-29T10:00:00Z", "y": 38 }] }] },
+      { "type": "status", "items": [{ "label": "Database", "state": "ok" }] },
+      { "type": "actions", "buttons": [
+        { "id": "restart", "label": "Restart", "style": "danger",
+          "confirm": { "title": "Restart the service?" },
+          "requiredPermission": "manage_messages" } ] }
+    ]
+  }
+}'
+
+# Stream new points instead of resending the view (the newest 500 per series are kept):
+curl -X POST $API/api/channels/$CHANNEL_ID/panels/host/points \
+  -H "Authorization: Bot $TOKEN" -H 'Content-Type: application/json' \
+  -d '{ "blockId": "load", "series": "cpu", "points": [{ "x": "2026-10-29T10:00:05Z", "y": 44 }] }'
+```
+
+Blocks: `stat` (label, value, unit, delta, tone), `chart` (`line`, `bar` or `area`; up to 8 series of
+500 points; x is a number or an ISO time), `table` (up to 8 columns and 100 rows), `status` (up to
+50 items: `ok`, `warn`, `bad`, `unknown`, `off`), `progress`, `kv` (up to 30 pairs), `markdown`
+(the same safe subset as messages, up to 4000 characters) and `actions` (up to 5 buttons). Without a
+`span`, stats and progress bars take half the width and the other blocks the full width; the grid
+has two columns when the card is at least 720 px wide and one below that.
+
+Pressing a button calls the bot's interactions URL with a signed `type: "action"` payload (see the
+protocol). Answer within 3 seconds with a message, `deferred`, or `update_panel`:
+
+```json
+{ "type": "update_panel", "view": { "blocks": [{ "type": "stat", "label": "CPU", "value": 12 }] } }
+```
+
+The same buttons work under a message: add `"components": { "buttons": [ … ] }` to a message the
+bot sends.

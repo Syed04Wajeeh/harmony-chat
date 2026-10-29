@@ -2,6 +2,7 @@ import { expect, test, type Browser, type BrowserContext, type Page } from '@pla
 import path from 'node:path';
 import { DevApi } from './support/dev-api.js';
 import { emojiPng, scenePng } from './support/png.js';
+import { freePort, startEchoBot } from './support/echo-bot.js';
 import { seedBookClub, type Seeded } from './support/seed.js';
 import {
   generateEvents,
@@ -854,5 +855,59 @@ test.describe('profiles, emoji and perks', () => {
     await editor.page.waitForTimeout(500);
     await editor.page.screenshot({ path: shot('mobile-profile-editor') });
     await editor.context.close();
+  });
+});
+
+test.describe('dashboards', () => {
+  let stop: () => void = () => undefined;
+
+  test.afterAll(() => stop());
+
+  test('a dashboard channel with a live chart, stats and buttons', async ({ browser }) => {
+    const { ada } = seeded.api;
+    const guild = await ada.createGuild('Home Lab Ops');
+    const channel = await ada.createChannel(guild.id, 'host-health', {
+      topic: 'Published by the dashboard example bot',
+      kind: 'dashboard',
+    });
+    const port = await freePort();
+    const created = await ada.createBot({
+      name: 'Ops',
+      scopes: ['messages.read', 'messages.write', 'commands', 'panels.write'],
+      interactionsUrl: `http://127.0.0.1:${String(port)}/interactions`,
+    });
+    await ada.addBotToGuild(guild.id, created.bot.id);
+    const bot = await startEchoBot({
+      HARMONY_URL: new URL(baseURL).origin,
+      HARMONY_BOT_TOKEN: created.token,
+      HARMONY_SIGNING_SECRET: created.signingSecret,
+      HARMONY_GUILD_ID: guild.id,
+      HARMONY_DASHBOARD_CHANNEL_ID: channel.id,
+      HARMONY_PANEL_INTERVAL_MS: '60000',
+      PORT: String(port),
+    });
+    stop = () => bot.kill();
+
+    for (const [prefix, options] of [
+      ['desktop', DESKTOP],
+      ['mobile', PHONE],
+    ] as const) {
+      const { context, page } = await visit(
+        browser,
+        'ada@example.com',
+        options,
+        `/channels/${guild.id}/${channel.id}`,
+      );
+      await page.getByRole('article', { name: 'Demo host' }).waitFor();
+      await page.getByRole('img', { name: /^Load\./ }).waitFor();
+      await page.evaluate(() => document.fonts.load('15px "Manrope Variable"'));
+      await page.waitForTimeout(600);
+      if (prefix === 'desktop') {
+        await page.getByRole('img', { name: /^Load\./ }).hover({ position: { x: 640, y: 100 } });
+        await page.waitForTimeout(200);
+      }
+      await page.screenshot({ path: shot(`${prefix}-dashboard`) });
+      await context.close();
+    }
   });
 });

@@ -8,6 +8,7 @@ export * from './health.js';
 export * from './mentions.js';
 export * from './modules.js';
 export * from './modules/polls.js';
+export * from './panels.js';
 export * from './permissions.js';
 export * from './presets.js';
 export * from './profile.js';

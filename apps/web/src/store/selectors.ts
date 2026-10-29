@@ -40,7 +40,7 @@ export const sortGuilds = (guilds: readonly GuildSummary[]): GuildSummary[] =>
 
 export const guildChannels = (channels: readonly ChannelSummary[], guildId: string) =>
   channels
-    .filter((channel) => channel.guildId === guildId && channel.kind === 'text')
+    .filter((channel) => channel.guildId === guildId && channel.kind !== 'dm')
     .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
 
 /** Most recently active conversation first. */

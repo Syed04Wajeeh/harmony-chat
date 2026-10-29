@@ -826,6 +826,7 @@ export function createAppStore(): StoreApi<AppState> {
                 botId: frame.botId,
                 ...(frame.source && { source: frame.source }),
                 command: frame.command,
+                ...(frame.kind === 'action' && { action: true }),
               };
               const item: LocalInteraction =
                 frame.type === 'interaction.pending'

@@ -123,6 +123,9 @@ describe('migrations', () => {
   it('can be undone: down() removes what up() added', async () => {
     const db = await freshDb();
     await migrateAll(db, modules);
+    const panels = await createMigrator(db).migrateDown();
+    expect(panels.error).toBeUndefined();
+    expect(await tables(db)).not.toContain('panels');
     // 0018 only resets a flag, so there is nothing to see; step over it.
     expect((await createMigrator(db).migrateDown()).error).toBeUndefined();
     const profiles = await createMigrator(db).migrateDown();

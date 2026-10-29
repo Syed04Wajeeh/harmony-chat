@@ -66,6 +66,7 @@ Raw scales for the default theme. Warm, slightly olive neutrals, so the dark the
 | `--color-info`                                                       | Informational accent (reserved)                                                             |
 | `--color-status-online`, `-idle`, `-dnd`, `-offline`                 | Presence dots (3:1 against panels), distinct from both accents                              |
 | `--color-tone-0..6`, `--color-tone-contrast`                         | Avatar fallback colors and their letter color                                               |
+| `--color-chart-1..8`                                                 | Categorical series colors of bot panel charts, in the order series are assigned             |
 | `--color-switch-thumb`                                               | Toggle knob                                                                                 |
 | `--color-viewer-bg`, `--color-viewer-text`, `--color-viewer-control` | Full-screen image viewer                                                                    |
 | `--shadow-panel`, `--shadow-raised`, `--shadow-sheet`                | Card, floating-element and bottom-sheet shadows                                             |
