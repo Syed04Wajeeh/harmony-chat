@@ -96,12 +96,11 @@ export function ProfileCard({ userId, guildId, close }: CardProps) {
             ? { backgroundImage: `url("${profile.bannerUrl}")` }
             : profileStyle(null, profile?.bannerColor)
         }
-        data-color={profile?.bannerUrl ? undefined : ''}
       />
       <div className="profile-head">
         <Avatar
           user={profile ? { ...user, avatarUrl: profile.avatarUrl } : user}
-          size={72}
+          size={80}
           status={status}
         />
       </div>

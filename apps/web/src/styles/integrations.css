@@ -303,8 +303,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px var(--space-2);
-  padding: 6px var(--space-1);
+  gap: var(--space-1) var(--space-2);
+  padding: 0 var(--space-1);
 }
 
 .command-chip {
@@ -333,16 +333,23 @@
   background: color-mix(in srgb, var(--color-accent-contrast) 18%, transparent);
 }
 
+/* Fields are content-sized pills in one wrapping row; only free text may grow. */
 .command-option {
-  flex: 1 1 180px;
+  flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  min-width: 0;
+  max-width: 100%;
+  min-height: 34px;
   padding-left: var(--space-3);
   border-radius: var(--radius-pill);
   background: var(--color-bg-input);
   box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
+.command-option[data-type='string'] {
+  flex: 1 1 11rem;
+  min-width: 0;
 }
 
 .command-option:focus-within {
@@ -367,17 +374,62 @@
 
 .command-option input,
 .command-option select {
-  flex: 1;
   min-width: 0;
-  min-height: 36px;
+  min-height: 32px;
   padding: 0 var(--space-2);
   border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
+  border-radius: var(--radius-pill);
+  background-color: transparent;
+  box-shadow: none;
 }
 
-.command-option select option {
-  background: var(--color-bg-raised);
+.command-option input {
+  flex: 1;
+}
+
+.command-option[data-type='integer'] input {
+  flex: none;
+  width: 7rem;
+}
+
+.command-option select {
+  max-width: 12rem;
+  padding-right: 28px;
+  font-size: var(--text-sm);
+}
+
+/* true / false chips inside the option pill */
+.command-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: var(--space-2);
+  padding: 2px;
+}
+
+.command-toggle-chip:focus-visible {
+  outline-offset: -2px;
+}
+
+.command-toggle-chip {
+  min-height: 28px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  transition:
+    background var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease);
+}
+
+.command-toggle-chip:hover {
+  background: var(--color-bg-hover);
+}
+
+.command-toggle-chip[aria-pressed='true'] {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
 }
 
 .command-error {
@@ -390,17 +442,91 @@
   padding: 0 var(--space-3) 4px 0;
 }
 
-.command-fields > .command-error {
+.command-scroller > .command-error {
   flex-basis: 100%;
+}
+
+/* Wide screens: the scroller is transparent and the fields wrap in the form's own row. */
+.command-scroller {
+  display: contents;
 }
 
 .command-run {
   min-height: 36px;
 }
 
+/* Phones: one scrolling row, so the composer is as tall as a plain message box. */
+@media (max-width: 599.98px) {
+  .command-fields {
+    flex-wrap: nowrap;
+    gap: var(--space-1);
+  }
+  .command-chip {
+    flex: none;
+  }
+  /* The chip is a sibling of the scroller, so nothing can render beside it; pills fade out at the scroller's edges. */
+  .command-scroller {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    gap: var(--space-2);
+    padding: 2px var(--space-2);
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: var(--space-2);
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      var(--color-text) var(--space-2),
+      var(--color-text) calc(100% - var(--space-2)),
+      transparent
+    );
+  }
+  .command-scroller::-webkit-scrollbar {
+    display: none;
+  }
+  .command-scroller > * {
+    flex: none;
+    scroll-snap-align: start;
+  }
+  .command-option,
+  .command-option[data-type='string'] {
+    flex: none;
+    flex-wrap: nowrap;
+    max-width: none;
+  }
+  .command-option[data-type='string'] input {
+    width: 11rem;
+  }
+  .command-option[data-type='integer'] input {
+    width: 3rem;
+  }
+  .command-option .command-error {
+    flex-basis: auto;
+    padding: 0 var(--space-3);
+    white-space: nowrap;
+  }
+  .command-scroller > .command-error {
+    flex-basis: auto;
+    white-space: nowrap;
+  }
+}
+
 @media (pointer: coarse) {
+  .command-option {
+    min-height: 44px;
+  }
   .command-option input,
-  .command-option select,
+  .command-option select {
+    min-height: 40px;
+  }
+  .command-toggle-chip {
+    min-height: 38px;
+  }
   .command-chip {
     min-height: 44px;
   }
@@ -466,10 +592,10 @@
 .inline-field select {
   width: 100%;
   min-height: 44px;
-  padding: 0 var(--space-3);
+  padding: 0 32px 0 var(--space-3);
   border: 0;
   border-radius: var(--radius-control);
-  background: var(--color-bg-input);
+  background-color: var(--color-bg-input);
   box-shadow: inset 0 0 0 1px var(--color-border-strong);
 }
 

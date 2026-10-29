@@ -789,6 +789,10 @@ html[data-keyboard='open'] .composer {
   transition: box-shadow var(--duration-fast) var(--ease);
 }
 
+.composer-box[data-command] {
+  align-items: center;
+}
+
 .composer-box:focus-within {
   box-shadow:
     var(--shadow-raised),

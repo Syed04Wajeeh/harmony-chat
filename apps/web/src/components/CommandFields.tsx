@@ -18,6 +18,53 @@ interface Props {
   onCancel: () => void;
 }
 
+/** true / false / unset as two chips; pressing the chosen one again clears it. */
+function TriState({
+  name,
+  description,
+  required,
+  invalid,
+  describedBy,
+  autoFocus,
+  value,
+  onChange,
+}: {
+  name: string;
+  description: string;
+  required: boolean;
+  invalid: boolean;
+  describedBy: string | undefined;
+  autoFocus: boolean;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <span
+      className="command-toggle"
+      role="group"
+      aria-label={name}
+      aria-required={required}
+      aria-invalid={invalid || undefined}
+      aria-describedby={describedBy}
+      title={description}
+    >
+      {(['true', 'false'] as const).map((choice, index) => (
+        <button
+          key={choice}
+          type="button"
+          className="command-toggle-chip"
+          aria-pressed={value === choice}
+          autoFocus={autoFocus && index === 0}
+          data-enter-submits=""
+          onClick={() => onChange(value === choice ? '' : choice)}
+        >
+          {choice}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 function OptionInput({
   option,
   value,
@@ -49,11 +96,16 @@ function OptionInput({
   switch (option.type) {
     case 'boolean':
       return (
-        <select {...common} onChange={(event) => onChange(event.target.value)}>
-          <option value="" />
-          <option value="true">true</option>
-          <option value="false">false</option>
-        </select>
+        <TriState
+          name={option.name}
+          description={option.description}
+          required={option.required}
+          invalid={invalid}
+          describedBy={describedBy}
+          autoFocus={autoFocus}
+          value={value}
+          onChange={onChange}
+        />
       );
     case 'user':
       return (
@@ -115,6 +167,14 @@ export function CommandFields({ active, members, channels, onChange, onSubmit, o
     if (event.key === 'Escape') {
       event.preventDefault();
       onCancel();
+    } else if (
+      event.key === 'Enter' &&
+      event.target instanceof HTMLElement &&
+      event.target.hasAttribute('data-enter-submits')
+    ) {
+      // Space toggles a chip; Enter runs the command like it does from a text field.
+      event.preventDefault();
+      onSubmit();
     }
   };
 
@@ -131,45 +191,54 @@ export function CommandFields({ active, members, channels, onChange, onSubmit, o
           <CloseIcon width={14} height={14} />
         </button>
       </div>
-      {command.options.map((option, index) => {
-        const error = errors[option.name];
-        const errorId = `${id}-${option.name}`;
-        return (
-          <label key={option.name} className="command-option" data-invalid={error ? '' : undefined}>
-            <span className="command-option-name">
-              {option.name}
-              {option.required && <abbr title="required">*</abbr>}
-            </span>
-            <OptionInput
-              option={option}
-              value={values[option.name] ?? ''}
-              invalid={Boolean(error)}
-              describedBy={error ? errorId : undefined}
-              autoFocus={index === 0}
-              members={members}
-              channels={channels}
-              onChange={(value) => onChange(option.name, value)}
-            />
-            {error && (
-              <span id={errorId} className="command-error" role="alert">
-                {error}
+      <div className="command-scroller">
+        {command.options.map((option, index) => {
+          const error = errors[option.name];
+          const errorId = `${id}-${option.name}`;
+          // A label would forward clicks on its text to the first chip.
+          const Field = option.type === 'boolean' ? 'div' : 'label';
+          return (
+            <Field
+              key={option.name}
+              className="command-option"
+              data-type={option.type}
+              data-invalid={error ? '' : undefined}
+            >
+              <span className="command-option-name">
+                {option.name}
+                {option.required && <abbr title="required">*</abbr>}
               </span>
-            )}
-          </label>
-        );
-      })}
-      {errors[FORM_ERROR] && (
-        <span className="command-error" role="alert">
-          {errors[FORM_ERROR]}
-        </span>
-      )}
-      {command.options.length === 0 ? (
-        <button type="submit" className="button button-primary command-run" autoFocus>
-          Run
-        </button>
-      ) : (
-        <button type="submit" hidden />
-      )}
+              <OptionInput
+                option={option}
+                value={values[option.name] ?? ''}
+                invalid={Boolean(error)}
+                describedBy={error ? errorId : undefined}
+                autoFocus={index === 0}
+                members={members}
+                channels={channels}
+                onChange={(value) => onChange(option.name, value)}
+              />
+              {error && (
+                <span id={errorId} className="command-error" role="alert">
+                  {error}
+                </span>
+              )}
+            </Field>
+          );
+        })}
+        {errors[FORM_ERROR] && (
+          <span className="command-error" role="alert">
+            {errors[FORM_ERROR]}
+          </span>
+        )}
+        {command.options.length === 0 ? (
+          <button type="submit" className="button button-primary command-run" autoFocus>
+            Run
+          </button>
+        ) : (
+          <button type="submit" hidden />
+        )}
+      </div>
     </form>
   );
 }

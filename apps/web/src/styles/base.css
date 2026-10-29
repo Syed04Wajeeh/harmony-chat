@@ -65,6 +65,99 @@ select {
   font-size: max(16px, 1em);
 }
 
+/* Native controls, themed once here; component rules only size and place them. */
+select {
+  appearance: none;
+  padding-right: 32px;
+  border-radius: var(--radius-control);
+  background-color: var(--color-bg-input);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--color-text-muted) 50%),
+    linear-gradient(135deg, var(--color-text-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 17px) 50%,
+    calc(100% - 12px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+select:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+select option {
+  background: var(--color-bg-raised);
+  color: var(--color-text);
+}
+
+input[type='checkbox']:not(.switch-row input) {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border-radius: var(--radius-inline);
+  background: var(--color-bg-input);
+  box-shadow: inset 0 0 0 1.5px var(--color-border-strong);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease);
+}
+
+input[type='checkbox']:not(.switch-row input)::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid var(--color-accent-contrast);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  opacity: 0;
+}
+
+input[type='checkbox']:not(.switch-row input):checked {
+  background: var(--color-accent);
+  box-shadow: none;
+}
+
+input[type='checkbox']:not(.switch-row input):checked::after {
+  opacity: 1;
+}
+
+input[type='checkbox']:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+input[type='color'] {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-inline);
+  background: none;
+  box-shadow: 0 0 0 1px var(--color-border-strong);
+  cursor: pointer;
+}
+
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+input[type='color']::-webkit-color-swatch {
+  border: 0;
+  border-radius: var(--radius-inline);
+}
+
+input[type='color']::-moz-color-swatch {
+  border: 0;
+  border-radius: var(--radius-inline);
+}
+
 button {
   cursor: pointer;
   background: none;
