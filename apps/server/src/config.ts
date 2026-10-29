@@ -64,8 +64,8 @@ const ConfigSchema = z
     GATEWAY_MAX_CONNECTIONS: z.coerce.number().int().min(1).default(3),
     GATEWAY_PRESENCE_TTL_MS: z.coerce.number().int().min(100).default(30_000),
     GATEWAY_HEARTBEAT_MS: z.coerce.number().int().min(10).default(10_000),
-    GATEWAY_FRAME_BURST: z.coerce.number().int().min(1).default(100),
-    GATEWAY_FRAME_REFILL_PER_SECOND: z.coerce.number().positive().default(20),
+    GATEWAY_FRAME_BURST: z.coerce.number().int().min(1).default(200),
+    GATEWAY_FRAME_REFILL_PER_SECOND: z.coerce.number().positive().default(100),
     /** Hostnames, IPs or CIDRs that bots owned by an instance admin may reach on private networks. */
     OUTBOUND_PRIVATE_ALLOWLIST: csv,
 
