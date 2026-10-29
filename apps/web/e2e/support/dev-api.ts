@@ -98,7 +98,7 @@ export class DevApi {
   createChannel(
     guildId: string,
     name: string,
-    options: { topic?: string; isPrivate?: boolean } = {},
+    options: { topic?: string; isPrivate?: boolean; kind?: 'text' | 'dashboard' } = {},
   ) {
     return this.call<ChannelSummary>('POST', `/api/guilds/${guildId}/channels`, {
       name,

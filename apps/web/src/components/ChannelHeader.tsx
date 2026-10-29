@@ -32,6 +32,8 @@ export function ChannelHeader({ channel }: Props) {
   const dmStatus = usePresenceOf(channel.dmUser?.id ?? '');
 
   const isDm = channel.kind === 'dm';
+  // A dashboard has no messages to search or pin and no member list of its own.
+  const isDashboard = channel.kind === 'dashboard';
   const navBadge = Object.values(channels).reduce(
     (sum, c) =>
       sum + (c.id !== channel.id ? (c.kind === 'dm' ? c.unreadCount : c.mentionCount) : 0),
@@ -119,8 +121,8 @@ export function ChannelHeader({ channel }: Props) {
             )}
           </>
         )}
-        <ChannelHeaderSlots channelId={channel.id} />
-        {!isDm && (
+        {!isDashboard && <ChannelHeaderSlots channelId={channel.id} />}
+        {!isDm && !isDashboard && (
           <button
             className="icon-button"
             aria-label="Member list"

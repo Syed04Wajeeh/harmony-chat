@@ -25,9 +25,11 @@ export function PinnedPanels({ channelId }: { channelId: string }) {
       >
         <PinIcon width={16} height={16} />
         <span>
-          {pinned.length === 1
-            ? (pinned[0]?.view.title ?? pinned[0]?.key)
-            : `${String(pinned.length)} pinned panels`}
+          {open
+            ? pinned.length === 1
+              ? 'Pinned panel'
+              : `${String(pinned.length)} pinned panels`
+            : pinned.map((panel) => panel.view.title ?? panel.key).join(', ')}
         </span>
         <ChevronDownIcon width={16} height={16} className="pinned-panels-chevron" />
       </button>

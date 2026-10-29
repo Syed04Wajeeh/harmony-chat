@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import type { InteractionPayload, PanelView } from '@harmony/shared';
 import { verifySignature } from '@harmony/shared/signature';
 
 const need = (name: string): string => {
@@ -12,6 +13,9 @@ const SECRET = need('HARMONY_SIGNING_SECRET'); // hsk_..., shown once as well
 const GUILD_ID = need('HARMONY_GUILD_ID');
 const PORT = Number(process.env.PORT ?? 4000);
 const BOT_ID = TOKEN.split('_')[1];
+// Optional: a dashboard (or any) channel to publish the demo panel into. Needs the panels.write scope.
+const DASHBOARD_CHANNEL_ID = process.env.HARMONY_DASHBOARD_CHANNEL_ID;
+const PANEL_INTERVAL_MS = Number(process.env.HARMONY_PANEL_INTERVAL_MS ?? 5000);
 
 async function harmony(path: string, method: string, body: unknown, bot = true) {
   const res = await fetch(API + path, {
@@ -36,10 +40,110 @@ await harmony(`/api/bots/${BOT_ID}/guilds/${GUILD_ID}/commands`, 'PUT', [
   },
 ]);
 
-interface Interaction {
-  id: string;
-  token: string;
-  command: { name: string; options: Record<string, string | number | boolean> };
+/* A demo dashboard: made-up host numbers, a live chart and two buttons. */
+
+const wander = (value: number, step: number, min = 2, max = 98) =>
+  Math.min(max, Math.max(min, value + (Math.random() - 0.5) * step));
+let cpu = 35;
+let memory = 58;
+let restarts = 0;
+
+const hostView = (history: { x: string; cpu: number; memory: number }[]): PanelView => ({
+  title: 'Demo host',
+  blocks: [
+    {
+      type: 'stat',
+      label: 'CPU',
+      value: Math.round(cpu),
+      unit: '%',
+      tone: cpu > 80 ? 'bad' : 'good',
+    },
+    {
+      type: 'stat',
+      label: 'Memory',
+      value: Math.round(memory),
+      unit: '%',
+      tone: memory > 85 ? 'warn' : 'neutral',
+    },
+    {
+      type: 'chart',
+      id: 'load',
+      title: 'Load',
+      span: 'full',
+      kind: 'area',
+      yUnit: '%',
+      yMin: 0,
+      yMax: 100,
+      series: [
+        { name: 'cpu', points: history.map((h) => ({ x: h.x, y: Math.round(h.cpu) })) },
+        { name: 'memory', points: history.map((h) => ({ x: h.x, y: Math.round(h.memory) })) },
+      ],
+    },
+    {
+      type: 'status',
+      title: 'Services',
+      items: [
+        { label: 'Database', state: 'ok', detail: 'accepting connections' },
+        { label: 'Backups', state: 'warn', detail: 'last run 26 hours ago' },
+        { label: 'Mail relay', state: 'off' },
+      ],
+    },
+    { type: 'progress', label: 'Disk', value: 412, max: 512, tone: 'warn' },
+    {
+      type: 'actions',
+      buttons: [
+        { id: 'refresh', label: 'Refresh', style: 'secondary' },
+        {
+          id: 'restart',
+          label: 'Restart service',
+          style: 'danger',
+          confirm: {
+            title: 'Restart the demo service?',
+            body: 'Nothing real happens; this only shows the confirmation flow.',
+            confirmLabel: 'Restart',
+          },
+          requiredPermission: 'manage_messages',
+        },
+      ],
+    },
+  ],
+});
+
+const seed = () => {
+  const now = Date.now();
+  return Array.from({ length: 24 }, (_, i) => {
+    cpu = wander(cpu, 18);
+    memory = wander(memory, 6);
+    return {
+      x: new Date(now - (24 - i) * PANEL_INTERVAL_MS * 6).toISOString(),
+      cpu,
+      memory,
+    };
+  });
+};
+
+if (DASHBOARD_CHANNEL_ID) {
+  const base = `/api/channels/${DASHBOARD_CHANNEL_ID}/panels/host`;
+  await harmony(base, 'PUT', { view: hostView(seed()), pinned: false });
+  // Live updates append points instead of resending the whole view.
+  setInterval(() => {
+    cpu = wander(cpu, 18);
+    memory = wander(memory, 6);
+    const x = new Date().toISOString();
+    harmony(`${base}/points`, 'POST', {
+      blockId: 'load',
+      series: 'cpu',
+      points: [{ x, y: Math.round(cpu) }],
+    })
+      .then(() =>
+        harmony(`${base}/points`, 'POST', {
+          blockId: 'load',
+          series: 'memory',
+          points: [{ x, y: Math.round(memory) }],
+        }),
+      )
+      .catch(console.error);
+  }, PANEL_INTERVAL_MS).unref();
 }
 
 createServer((req, res) => {
@@ -66,7 +170,22 @@ createServer((req, res) => {
       return void res.writeHead(204).end();
     }
 
-    const interaction = JSON.parse(raw) as Interaction;
+    const interaction = JSON.parse(raw) as InteractionPayload;
+    if (interaction.type === 'action') {
+      // A button was clicked. Harmony already checked the user may see the channel and holds the
+      // button's requiredPermission; answer like a command, or replace the panel itself.
+      if (interaction.action.id === 'restart') {
+        restarts++;
+        return reply({
+          type: 'message',
+          content: `Restarted (${String(restarts)} so far), asked by ${interaction.user.displayName}.`,
+          ephemeral: true,
+        });
+      }
+      cpu = wander(cpu, 18);
+      return reply({ type: 'update_panel', view: hostView(seed()) });
+    }
+
     const { name, options } = interaction.command;
     if (name === 'echo') {
       return reply({ type: 'message', content: String(options.text), ephemeral: true });

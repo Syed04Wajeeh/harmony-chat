@@ -29,6 +29,7 @@ export default defineConfig({
             'roles.spec.ts',
             'customization.spec.ts',
             'profiles.spec.ts',
+            'panels.spec.ts',
           ],
           use: { viewport: { width: 1280, height: 800 } },
         },
