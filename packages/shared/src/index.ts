@@ -15,5 +15,8 @@ export * from './profile.js';
 export * from './protocol.js';
 export * from './settings.js';
 export * from './theme.js';
+export * from './webhook-format.js';
+export * from './webhook-message.js';
+export * from './webhook-template.js';
 
 export const version = '0.0.0';

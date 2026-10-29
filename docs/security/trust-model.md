@@ -330,6 +330,46 @@ Treat a webhook URL like a password: anyone holding it can post to that channel 
 webhook is deleted. Failed guesses are not rate limited per source; at 256 bits that is not a
 practical attack, but it is the thing to add first if the surface ever becomes public.
 
+### Webhook templates, presets and signatures
+
+Webhook formats turn an unauthenticated sender's body into a message, so the conversion is
+treated as handling hostile input.
+
+- **Templates are data, not code.** A template is validated JSON (strict keys, string length caps,
+  at most 100 placeholders, at most 10 fields) whose strings may hold `{{path | filter}}`
+  placeholders. The only operations are a lookup and five fixed filters (`upper`, `lower`,
+  `truncate`, `default`, `json`). There is no `eval`, loop, condition, function call, regular
+  expression from the template, network access or file access, so a template author (a guild
+  manager) cannot run anything on the server. Scripts, if they ever exist, will be a separate
+  feature with their own sandbox and review (`NOTES.md`).
+- **Lookups cannot reach the runtime.** Paths are split into segments; `__proto__`, `constructor`
+  and `prototype` are refused when the template is saved, and the renderer reads only a body's own
+  properties and array indices, so neither a key in the JSON body nor a path can reach an
+  object's prototype. Paths are at most 12 segments, and a missing step renders as empty.
+- **Output is bounded and defused.** One substituted value is cut at 10,000 characters and a
+  rendered string at about four times the 2000-character message limit, then the whole message is
+  clamped to the embed limits. A body is parsed by the framework (the 1 MB limit at the proxy and
+  in Fastify applies), and the template only reads the parts it names, so a large body costs its
+  parse time and nothing more. `@everyone` and `@here` are defused in everything rendered, however
+  they arrived, and links that are not `http(s)` are dropped (an embed `url` of `javascript:` never
+  reaches a client).
+- **No outbound requests.** Presets and templates only read the body; `safeFetch` is not involved.
+- **Presets read, they do not trust.** Each preset treats the body as untyped data, ignores
+  fields it does not know and cannot throw on a surprising shape; unknown events become one short
+  line or nothing. Bodies that lie about who sent them are no worse than before: the sender of a
+  Discord-format body could already post anything to the channel with the URL.
+- **Signatures.** `github` and `forgejo` webhooks can require an HMAC-SHA256 over the raw request
+  body. The comparison is constant time and happens after the path token is checked and before the
+  body is interpreted. The secret is stored in the clear in the `webhooks` row, like a bot's
+  signing secret, because verifying an HMAC needs the secret itself; it is never returned by any
+  endpoint (only `hasSecret`), so a database or backup compromise exposes it but an API reader
+  cannot. A signature does not replace the token: it adds proof that the body was not altered and
+  that the sender knows the secret, which helps when a URL ends up in a log. There is no replay
+  protection, because neither GitHub nor Forgejo sign a timestamp.
+- **Preview** renders a sample for a guild manager and posts nothing. It does the same work as the
+  live endpoint on a body the manager typed, behind the normal identity, Origin and
+  `manage_guild` checks.
+
 ## Profiles, custom emoji and perks
 
 **Uploaded avatars, banners and emoji** go through the same upload path as every other file:

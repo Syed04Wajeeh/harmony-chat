@@ -162,6 +162,9 @@ export interface WebhooksTable {
   user_id: string;
   created_by: string;
   created_at: Timestamp;
+  format: Generated<string>;
+  template: ColumnType<unknown, string | null, string | null>;
+  signature_secret: string | null;
 }
 
 export interface BotCommandsTable {

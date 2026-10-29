@@ -1263,3 +1263,39 @@
 .appearance-preview .message:first-child {
   margin-top: 0;
 }
+
+/* Webhook editor: settings on one side, sample and live preview on the other */
+.webhook-editor {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.webhook-editor-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: var(--space-4);
+}
+
+.webhook-editor-column {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.webhook-editor .code-input {
+  min-height: 120px;
+}
+
+.webhook-preview {
+  min-width: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-card);
+  background: var(--color-bg-canvas);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.webhook-preview-message {
+  display: grid;
+  gap: var(--space-2);
+}
