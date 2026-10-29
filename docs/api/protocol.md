@@ -876,16 +876,17 @@ frames the server closes the socket with code 1008. Typing pings are further thr
 
 ### Client to server
 
-| `type`           | Fields                                                          | Effect                                                                                                                         |
-| ---------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `subscribe`      | `channelId`, `lastSeenId?`                                      | Start receiving the channel's events. Members only. Answered with `backfill`.                                                  |
-| `unsubscribe`    | `channelId`                                                     | Stop receiving. No reply.                                                                                                      |
-| `message.send`   | `channelId`, `content`, `nonce`, `replyToId?`, `attachmentIds?` | Same rules as `POST /messages`. Answered with `ack` (to you) and `message.created` (to subscribers). `nonce` is required here. |
-| `read`           | `channelId`, `messageId`                                        | Same as `POST /channels/:id/read`. Answered with `read.updated` to all your sessions.                                          |
-| `typing`         | `channelId`                                                     | Relays `typing` to subscribers. Members only; ignored if you sent one for this channel in the last 2 seconds.                  |
-| `presence.set`   | `status` (`online`, `idle`, `dnd`, `invisible`)                 | Same as `PATCH /api/me`. No reply.                                                                                             |
-| `action.invoke`  | `source` (`{panelId}` or `{messageId}`), `actionId`, `nonce?`   | Press a button (humans only); same as `POST /api/interactions/actions`. See Panels and buttons.                                |
-| `command.invoke` | `channelId`, `name`, `options?`, `nonce?`                       | Run a slash command (humans only); the outcome arrives as a message or an `interaction.*` frame. See Slash commands.           |
+| `type`              | Fields                                                          | Effect                                                                                                                         |
+| ------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `subscribe`         | `channelId`, `lastSeenId?`                                      | Start receiving the channel's events. Members only. Answered with `backfill`.                                                  |
+| `unsubscribe`       | `channelId`                                                     | Stop receiving. No reply.                                                                                                      |
+| `message.send`      | `channelId`, `content`, `nonce`, `replyToId?`, `attachmentIds?` | Same rules as `POST /messages`. Answered with `ack` (to you) and `message.created` (to subscribers). `nonce` is required here. |
+| `read`              | `channelId`, `messageId`                                        | Same as `POST /channels/:id/read`. Answered with `read.updated` to all your sessions.                                          |
+| `typing`            | `channelId`                                                     | Relays `typing` to subscribers. Members only; ignored if you sent one for this channel in the last 2 seconds.                  |
+| `presence.set`      | `status` (`online`, `idle`, `dnd`, `invisible`)                 | Same as `PATCH /api/me`. No reply.                                                                                             |
+| `presence.activity` | `idle` (boolean)                                                | This socket's own idleness; see Presence. No reply. Humans only.                                                               |
+| `action.invoke`     | `source` (`{panelId}` or `{messageId}`), `actionId`, `nonce?`   | Press a button (humans only); same as `POST /api/interactions/actions`. See Panels and buttons.                                |
+| `command.invoke`    | `channelId`, `name`, `options?`, `nonce?`                       | Run a slash command (humans only); the outcome arrives as a message or an `interaction.*` frame. See Slash commands.           |
 
 ```json
 { "type": "subscribe", "channelId": "11", "lastSeenId": "980" }
@@ -1013,6 +1014,17 @@ quick disconnect and reconnect sends nothing. A frame has at most 500 updates; a
 than that arrives as several frames in the same tick. A change is therefore seen up to one
 window late. It is produced when a user's first connection opens, their last one closes or
 times out (up to about 2 minutes after a crash), or they change their status.
+
+**Chosen status and automatic idle.** `presence.set` and `PATCH /api/me` set the chosen status
+(`online`, `idle`, `dnd`, `invisible`), which is stored and survives reconnecting. Automatic
+idleness is separate, per socket and never stored: a client sends `presence.activity` with
+`idle: true` after its own quiet time (the web app also counts a hidden tab) and `idle: false` on
+the next interaction, only when that flag changes. A user whose chosen status is `online` is shown
+as `idle` when every connected socket is idle, and as `online` as soon as any one is active; any
+other chosen status is shown as it is whatever the sockets report. A new socket starts active, so
+a client that is idle after reconnecting sends `idle: true` again; closed and timed-out sockets
+stop counting. `GET /api/me` always returns the chosen status, never the automatic idle. Older
+clients that send `presence.set` with `idle` keep working: that is a chosen idle, as before.
 
 Who can see whom follows membership live: joining a guild or getting a DM starts delivery (and
 the others learn how you are doing), leaving, being kicked or deleting stops it, all without

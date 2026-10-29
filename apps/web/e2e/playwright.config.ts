@@ -32,6 +32,7 @@ export default defineConfig({
             'profiles.spec.ts',
             'directory.spec.ts',
             'panels.spec.ts',
+            'presence.spec.ts',
           ],
           use: { viewport: { width: 1280, height: 800 } },
         },
