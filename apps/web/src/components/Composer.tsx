@@ -43,6 +43,7 @@ interface Draft {
   mentions: Map<string, string>;
 }
 const drafts = new Map<string, Draft>();
+const NO_BOTS: readonly string[] = [];
 
 interface Props {
   channelId: string;
@@ -73,7 +74,14 @@ export function Composer({
   const coarse = useCoarsePointer();
   const sendOnEnter = useSettings((state) => state.settings.behavior.sendOnEnter);
   const access = useGuildAccess(guildId ?? '', guildId ? channelId : undefined);
-  const canAttach = guildId === null || !access.loaded || access.has('attach_files');
+  const botIds = useApp((state) => state.channels[channelId]?.botIds) ?? NO_BOTS;
+  // A bot feed: people without manage_messages may react and run commands, not post.
+  const feedLocked =
+    useApp((state) => state.channels[channelId]?.botFeed ?? false) &&
+    !me.isBot &&
+    !(access.loaded && access.has('manage_messages'));
+  const canAttach =
+    !feedLocked && (guildId === null || !access.loaded || access.has('attach_files'));
   const field = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const lastTyping = useRef(0);
@@ -123,7 +131,8 @@ export function Composer({
   }, [replyTo]);
 
   const slashQuery = active || dismissed || !guildId ? null : findSlashQuery(text);
-  const commandMatches = slashQuery === null ? [] : suggestCommands(commands, slashQuery);
+  const commandMatches =
+    slashQuery === null ? [] : suggestCommands(commands, slashQuery, 8, botIds);
   const showCommands = commandMatches.length > 0;
 
   const query = active || dismissed || showCommands ? null : findMentionQuery(text, caret);
@@ -143,7 +152,7 @@ export function Composer({
 
   const canSend =
     active !== null ||
-    (!uploads.busy && (text.trim().length > 0 || uploads.attachments.length > 0));
+    (!feedLocked && !uploads.busy && (text.trim().length > 0 || uploads.attachments.length > 0));
 
   const focusText = () => requestAnimationFrame(() => field.current?.focus());
 
@@ -393,7 +402,11 @@ export function Composer({
           <strong>{active.command.botName}</strong> · {active.command.description}
         </p>
       )}
-      <div className="composer-box" data-command={active ? '' : undefined}>
+      <div
+        className="composer-box"
+        data-command={active ? '' : undefined}
+        data-feed-locked={feedLocked && !active ? '' : undefined}
+      >
         {showCommands && (
           <ul id={listId} className="command-list" role="listbox" aria-label="Slash commands">
             {commandMatches.map((command, index) => (
@@ -529,8 +542,8 @@ export function Composer({
             rows={1}
             value={text}
             maxLength={MAX_MESSAGE_LENGTH}
-            placeholder={placeholder}
-            aria-label={placeholder}
+            placeholder={feedLocked ? 'Bot feed: type / to run a command' : placeholder}
+            aria-label={feedLocked ? 'Bot feed: type / to run a command' : placeholder}
             aria-autocomplete="list"
             aria-controls={showSuggestions || showCommands ? listId : undefined}
             aria-activedescendant={
@@ -565,6 +578,12 @@ export function Composer({
           <SendIcon width={20} height={20} />
         </button>
       </div>
+      {feedLocked && (
+        <p className="composer-feed-note" role="status">
+          This channel is a bot feed. Only bots and people with Manage messages can post; you can
+          still react and run / commands.
+        </p>
+      )}
       {composerDialog.dialog}
     </div>
   );

@@ -46,6 +46,37 @@ describe('splitSlashInput', () => {
   });
 });
 
+describe('suggestCommands with channel bots', () => {
+  const by = (botId: string, name: string): GuildCommand => ({ ...command(name), botId });
+
+  it('lists the assigned bots’ commands first, keeping the usual order within each group', () => {
+    const commands = [by('1', 'alpha'), by('2', 'beta'), by('2', 'zeta'), by('3', 'gamma')];
+    expect(suggestCommands(commands, '', 8, ['2']).map((c) => c.name)).toEqual([
+      'beta',
+      'zeta',
+      'alpha',
+      'gamma',
+    ]);
+    expect(suggestCommands(commands, '', 8, []).map((c) => c.name)).toEqual([
+      'alpha',
+      'beta',
+      'gamma',
+      'zeta',
+    ]);
+  });
+
+  it('still filters by the query, and built-in commands are never preferred', () => {
+    const builtin: GuildCommand = { ...command('ping'), botId: null };
+    const commands = [builtin, by('2', 'pong'), by('1', 'pine')];
+    expect(suggestCommands(commands, 'p', 8, ['2']).map((c) => c.name)).toEqual([
+      'pong',
+      'pine',
+      'ping',
+    ]);
+    expect(suggestCommands(commands, 'zzz', 8, ['2'])).toEqual([]);
+  });
+});
+
 describe('suggestCommands', () => {
   const commands = [
     command('roll', 'Roll a die'),
