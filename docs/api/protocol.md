@@ -1142,7 +1142,7 @@ open; it stays open until acknowledged:
   through the normal send loop.
 
 Delivery is **at least once**: a replay, a retry after a lost ack or two instances racing can send
-`seq` 7 twice, and a retry can arrive after a higher `seq`. Deduplicate on `seq` (keep the highest one
+`seq` 7 twice, and a retry (or the live send that happens when the bot comes online, just before its `resume` replay) can arrive after a higher `seq`. Deduplicate on `seq` (keep the highest one
 handled) or on `deliveryId`. `seq` follows delivery creation, not event ids.
 
 **Several sockets.** At most `GATEWAY_MAX_CONNECTIONS` (3) per bot, counted across all instances; a

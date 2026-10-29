@@ -365,19 +365,23 @@ describe('bots on the gateway', () => {
       second.send({ type: 'resume', lastSeq: 1 });
       const [resumed] = await second.waitFor('resumed');
       expect(resumed).toMatchObject({ lastSeq: 1, replayed: 2 });
-      await waitUntil(() => second.of('event').length >= 2);
-      expect(second.of('event').map((frame) => frame.seq)).toEqual([2, 3]);
+      // At least once: the worker may also send 3 live the moment the bot is online, before
+      // the replay, so check what arrived rather than how often.
+      const seen = () => new Set(second.of('event').map((frame) => frame.seq));
+      await waitUntil(() => seen().has(2) && seen().has(3));
+      expect([...seen()].sort()).toEqual([2, 3]);
 
       second.send({ type: 'event.ack', seq: 3 });
       await waitUntil(async () =>
         (await w.deliveries()).every((row) => row.status === 'succeeded'),
       );
       // Longer than the ack timeout: nothing is sent again after an ack.
+      const before = second.of('event').length;
       await settle(900);
-      expect(second.of('event')).toHaveLength(2);
+      expect(second.of('event')).toHaveLength(before);
       await w.say('four');
-      await waitUntil(() => second.of('event').length >= 3);
-      expect(second.of('event')[2]?.seq).toBe(4);
+      await waitUntil(() => seen().has(4));
+      expect(second.of('event').at(-1)?.seq).toBe(4);
     });
 
     it('treats a resume cursor as an acknowledgement and replays nothing more', async () => {
