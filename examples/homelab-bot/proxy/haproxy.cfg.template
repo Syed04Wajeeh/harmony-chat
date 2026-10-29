@@ -1,0 +1,65 @@
+# Replaces the template of tecnativa/docker-socket-proxy. The stock one can allow a whole API
+# section (CONTAINERS=1 with POST=1 also allows create, delete, exec and kill), so this one
+# lists the four requests the bot makes and denies everything else.
+#
+#   GET  /containers/json                      list
+#   GET  /containers/<name>/json               inspect, only for names in visible.txt
+#   POST /containers/<name>/(start|stop|restart)   only for names in control.txt
+#
+# visible.txt and control.txt are generated from config.yml by proxy/gen-acl.ts and mounted
+# read-only next to this file. A name that is not in the file is refused, and so is a container id.
+# The entrypoint substitutes ${BIND_CONFIG}; $SOCKET_PATH and ${LOG_LEVEL} are read from the
+# environment by HAProxy itself.
+
+global
+    log stdout format raw daemon "${LOG_LEVEL}"
+    pidfile /run/haproxy.pid
+    maxconn 4000
+
+defaults
+    mode http
+    log global
+    option httplog
+    option dontlognull
+    option http-server-close
+    option redispatch
+    retries 3
+    timeout http-request 10s
+    timeout queue 1m
+    timeout connect 10s
+    timeout client 2m
+    timeout server 2m
+    timeout http-keep-alive 10s
+    timeout check 10s
+    maxconn 3000
+    errorfile 400 /usr/local/etc/haproxy/errors/400.http
+    errorfile 403 /usr/local/etc/haproxy/errors/403.http
+    errorfile 408 /usr/local/etc/haproxy/errors/408.http
+    errorfile 500 /usr/local/etc/haproxy/errors/500.http
+    errorfile 502 /usr/local/etc/haproxy/errors/502.http
+    errorfile 503 /usr/local/etc/haproxy/errors/503.http
+    errorfile 504 /usr/local/etc/haproxy/errors/504.http
+
+backend dockerbackend
+    server dockersocket $SOCKET_PATH
+
+frontend dockerfrontend
+    bind ${BIND_CONFIG}
+
+    acl m_get method GET
+    acl m_post method POST
+    # The decoded path, so %2e%2e and %2f tricks are matched as what Docker will see. No API
+    # version prefix is accepted: the bot talks to the daemon's default version.
+    acl p_list path,url_dec -m str /containers/json
+    acl p_inspect path,url_dec -m reg ^/containers/[a-zA-Z0-9][a-zA-Z0-9_.-]*/json$
+    acl p_power path,url_dec -m reg ^/containers/[a-zA-Z0-9][a-zA-Z0-9_.-]*/(start|stop|restart)$
+    acl n_visible path,url_dec,field(3,/) -m str -f /usr/local/etc/haproxy/acl/visible.txt
+    acl n_control path,url_dec,field(3,/) -m str -f /usr/local/etc/haproxy/acl/control.txt
+
+    http-request deny if { path,url_dec -m sub .. }
+    http-request allow if m_get p_list
+    http-request allow if m_get p_inspect n_visible
+    http-request allow if m_post p_power n_control
+    http-request deny
+
+    default_backend dockerbackend

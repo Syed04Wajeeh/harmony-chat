@@ -1,0 +1,6 @@
+node_modules
+tests
+proxy/acl
+config.yml
+compose.local.yml
+*.env

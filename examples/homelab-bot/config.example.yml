@@ -1,0 +1,54 @@
+# Copy to config.yml (gitignored) and edit. Secrets never go here: the bot token and the
+# Pterodactyl API key come from the environment only (HARMONY_BOT_TOKEN,
+# PTERODACTYL_CLIENT_API_KEY). Every setting below can also be set by the environment variable
+# named in its comment, and the variable wins.
+
+harmony:
+  # Where the bot reaches Harmony: the integrations ingress, never the user-facing proxy.
+  # HARMONY_URL
+  url: http://harmony-integrations:8081
+  # The server (guild) id. Optional when the bot is in exactly one server. HARMONY_GUILD_ID
+  guildId: ''
+  # Channel id or name of a Dashboard channel the panels are published into. DASHBOARD_CHANNEL
+  dashboardChannel: homelab
+  # Channel id or name where every start, stop and restart is logged. OPS_CHANNEL
+  opsChannel: ops
+  # The permission key a person needs to use control buttons and /start, /stop, /restart.
+  # Harmony checks it on every button press and the bot checks it again. ROLE_PERMISSION
+  rolePermission: manage_guild
+  # Optional key needed for /status and /games (by default anyone who may run commands). STATUS_PERMISSION
+  statusPermission: ''
+  # Optional file that keeps the last handled event number across restarts. HARMONY_SEQ_FILE
+  seqFile: ''
+
+docker:
+  # The docker-socket-proxy, on a network only the proxy and the bot share. DOCKER_PROXY_URL
+  proxyUrl: http://homelab-docker-proxy:2375
+  # Container names (docker ps --format '{{.Names}}') the bot may start, stop and restart.
+  # The proxy reads the same lists (see proxy/gen-acl.ts), so a name missing here is refused
+  # twice. A container in neither list does not exist as far as the bot is concerned.
+  control:
+    - jellyfin
+    - nextcloud
+  # Names the bot only shows. Restarting these from chat is deliberately impossible.
+  status:
+    - vaultwarden
+    - reverse-proxy
+
+pterodactyl:
+  # Base URL of the panel, reachable from the bot's container. PTERODACTYL_URL
+  # Needs PTERODACTYL_CLIENT_API_KEY, a client (account) API key, not an application key.
+  url: http://pterodactyl-panel
+  # Optional: only these servers (by slug, such as core_keeper) are shown and controllable.
+  # Empty means every server the key can see.
+  allow: []
+
+kuma:
+  # Optional Uptime Kuma public status page. KUMA_STATUS_URL (and KUMA_STATUS_SLUG when the
+  # URL does not end in /status/<slug>)
+  statusUrl: ''
+
+# Seconds between panel refreshes (30 to 60 is sensible) and the per-target pause after an
+# action that stops double clicks. REFRESH_SECONDS, COOLDOWN_SECONDS
+refreshSeconds: 30
+cooldownSeconds: 30
