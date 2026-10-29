@@ -133,6 +133,13 @@ const userEvents = [
     expiresAt: z.iso.datetime(),
     nonce: Nonce.optional(),
   }),
+  /** A button click was answered with a public message or a panel update; nothing else follows. */
+  z.object({
+    type: z.literal('interaction.completed'),
+    interactionId: Id,
+    channelId: Id,
+    nonce: Nonce.optional(),
+  }),
   z.object({
     type: z.literal('interaction.failed'),
     interactionId: Id,

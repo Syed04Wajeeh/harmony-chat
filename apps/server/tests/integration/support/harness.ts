@@ -234,6 +234,7 @@ export interface ChannelOptions {
   private?: boolean;
   createdBy?: string;
   name?: string;
+  kind?: 'text' | 'dashboard';
   /** Defaults to a new guild owned by `createdBy` (or the first member) containing `members`. */
   guildId?: string;
 }
@@ -294,6 +295,7 @@ export async function createChannel(
     .insertInto('channels')
     .values({
       guild_id: guildId,
+      kind: options.kind ?? 'text',
       name: options.name ?? `t-${randomUUID().slice(0, 12)}`,
       is_private: isPrivate,
       created_by: creator,

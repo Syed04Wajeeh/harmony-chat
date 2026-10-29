@@ -36,6 +36,8 @@ import { AppError } from './errors.js';
 import { messageRoutes } from './messages/routes.js';
 import { MessageService } from './messages/service.js';
 import { PERMISSIONS_INVALIDATE_TOPIC, PermissionService } from './permissions/service.js';
+import { panelRoutes } from './panels/routes.js';
+import { PanelService } from './panels/service.js';
 import { PresenceService } from './presence/service.js';
 import { RateLimiter } from './rate-limit.js';
 import { EventBus } from './realtime/events.js';
@@ -237,6 +239,15 @@ export async function buildApp({
     perks,
   });
 
+  const panels = new PanelService(
+    db,
+    events,
+    channels,
+    perms,
+    limiter('panels', config.PANEL_RATE_MAX, config.PANEL_RATE_WINDOW_SECONDS),
+    config.PANEL_COALESCE_MS,
+    app.log,
+  );
   const commandRegistry = new CommandRegistry(db, host.commands, moduleState);
   const interactions = new InteractionService(
     db,
@@ -249,6 +260,8 @@ export async function buildApp({
     host.commands,
     moduleState,
     perms,
+    panels,
+    limiter('actions', config.ACTION_RATE_MAX, config.ACTION_RATE_WINDOW_SECONDS),
   );
   const webhooks = new WebhookService(
     db,
@@ -265,6 +278,7 @@ export async function buildApp({
   app.addHook('onClose', async () => {
     presence.stop();
     profiles.stop();
+    panels.stop();
     await host.stop();
     await interactions.drain();
   });
@@ -301,6 +315,7 @@ export async function buildApp({
       await api.register(channelRoutes, { channels });
       await api.register(messageRoutes, { channels, messages });
       await api.register(botRoutes, { bots });
+      await api.register(panelRoutes, { panels });
       await api.register(commandRoutes, { registry: commandRegistry, interactions });
       await api.register(webhookRoutes, { webhooks });
       await api.register(moduleRoutes, { state: moduleState, guilds, events, perms });

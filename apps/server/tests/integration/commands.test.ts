@@ -90,9 +90,10 @@ describe('slash commands', () => {
     };
   }
 
-  const answer = (build: (payload: InteractionPayload) => Reply) => {
+  type CommandPayload = Extract<InteractionPayload, { type: 'command' }>;
+  const answer = (build: (payload: CommandPayload) => Reply) => {
     receiver.requests.length = 0;
-    receiver.handler = (request) => build(JSON.parse(request.body) as InteractionPayload);
+    receiver.handler = (request) => build(JSON.parse(request.body) as CommandPayload);
   };
 
   it('registers commands by bulk overwrite and lists them for members', async () => {

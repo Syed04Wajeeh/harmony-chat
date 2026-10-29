@@ -103,6 +103,13 @@ export function handleConnection(
         await users.setStatus(user.id, frame.status);
         await presence.statusChanged(user.id, frame.status);
         return;
+      case 'action.invoke':
+        await interactions.invokeAction(user, {
+          source: frame.source,
+          actionId: frame.actionId,
+          ...(frame.nonce && { nonce: frame.nonce }),
+        });
+        return;
       case 'command.invoke':
         await interactions.invoke(user, frame.channelId, {
           name: frame.name,
@@ -126,7 +133,9 @@ export function handleConnection(
       return;
     }
     const nonce =
-      frame && (frame.type === 'message.send' || (frame.type === 'command.invoke' && frame.nonce))
+      frame &&
+      (frame.type === 'message.send' ||
+        ((frame.type === 'command.invoke' || frame.type === 'action.invoke') && frame.nonce))
         ? { nonce: frame.nonce }
         : {};
     try {

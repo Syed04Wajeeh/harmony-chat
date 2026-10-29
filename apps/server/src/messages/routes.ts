@@ -8,6 +8,7 @@ import {
   MessageParams,
   SendMessageBody,
 } from '@harmony/shared';
+import { AppError } from '../errors.js';
 import type { ChannelService } from '../channels/service.js';
 import type { MessageService } from './service.js';
 
@@ -46,6 +47,9 @@ export const messageRoutes: FastifyPluginCallbackZod<MessageRoutesOptions> = (
       schema: { params: ChannelParams, body: SendMessageBody, response: { 201: Message } },
     },
     async (request, reply) => {
+      if (request.body.components && !request.bot) {
+        throw new AppError(400, 'components_bots_only', 'Only bots can attach buttons');
+      }
       const message = await messages.send({
         author: request.user,
         channelId: request.params.id,

@@ -5,13 +5,16 @@ import {
   INTERACTION_TTL_SECONDS,
   InteractionResponse,
   stripMassMentions,
+  viewButtons,
   validateCommandOptions,
   type CommandOption,
   type DirectoryUser,
   type InteractionFailureReason,
   type InteractionPayload,
+  type InvokeActionBody,
   type InvokeCommandBody,
   type Message,
+  type MessageComponents,
 } from '@harmony/shared';
 import { SIGNATURE_HEADER, TIMESTAMP_HEADER, sign } from '@harmony/shared/signature';
 import { generateSecret, hashSecret, verifySecret } from '../bots/token.js';
@@ -21,6 +24,7 @@ import { AppError } from '../errors.js';
 import type { MessageService } from '../messages/service.js';
 import type { BuiltinCommands, RegisteredCommand } from '../modules/builtin-commands.js';
 import type { GuildModuleState } from '../modules/guild-state.js';
+import type { PanelService } from '../panels/service.js';
 import type { PermissionService } from '../permissions/service.js';
 import { OutboundError, type PrivateAllowlist } from '../outbound/policy.js';
 import { safeFetch } from '../outbound/safe-fetch.js';
@@ -35,7 +39,11 @@ interface Target {
   interactionId: string;
   channelId: string;
   guildId: string;
+  /** The command name, or for a button click the button's label. */
   command: string;
+  kind: 'command' | 'action';
+  /** Set for a click on a panel button, the only place an `update_panel` answer makes sense. */
+  panelId?: string;
   botId: string;
   user: DirectoryUser;
   nonce: string | undefined;
@@ -58,6 +66,8 @@ export class InteractionService {
     private readonly builtins: BuiltinCommands,
     private readonly moduleState: GuildModuleState,
     private readonly perms: PermissionService,
+    private readonly panels: PanelService,
+    private readonly actionLimiter: RateLimiter,
   ) {}
 
   /** Waits for in-flight bot calls; used on shutdown and by tests. */
@@ -135,6 +145,7 @@ export class InteractionService {
       channelId,
       guildId,
       command: body.name,
+      kind: 'command',
       botId: command.bot_id,
       user,
       nonce: body.nonce,
@@ -154,6 +165,127 @@ export class InteractionService {
       url: command.interactions_url,
       secret: command.signing_secret,
       ownerIsAdmin: command.owner_is_admin,
+    })
+      .catch((err: unknown) => this.log.warn({ err }, 'interaction dispatch failed'))
+      .finally(() => this.inflight.delete(run));
+    this.inflight.add(run);
+    return { interactionId: row.id };
+  }
+
+  /**
+   * A click on a button, on a panel or under a bot message. The checks run in the order a person
+   * would expect them to fail: you must be in the channel, the button must exist in the panel or
+   * message as it is now, and you must hold the permission it names. The bot is then called
+   * through the same signed, time-limited pipeline as a command.
+   */
+  async invokeAction(user: DirectoryUser, body: InvokeActionBody) {
+    if (!(await this.actionLimiter.consume(user.id))) {
+      throw new AppError(429, 'rate_limited', 'You are pressing buttons too quickly');
+    }
+    let channelId: string;
+    let botId: string;
+    let buttons: MessageComponents['buttons'];
+    let panel: { id: string; key: string } | null = null;
+    let messageId: string | null = null;
+    if ('panelId' in body.source) {
+      const found = await this.panels.find(body.source.panelId);
+      if (!found) throw new AppError(404, 'panel_not_found', 'Panel not found');
+      channelId = found.channelId;
+      botId = found.botId;
+      buttons = viewButtons(found.view);
+      panel = { id: found.id, key: found.key };
+    } else {
+      const message = await this.db
+        .selectFrom('messages')
+        .select(['id', 'channel_id', 'author_id', 'components', 'deleted_at'])
+        .where('id', '=', body.source.messageId)
+        .executeTakeFirst();
+      if (!message || message.deleted_at) {
+        throw new AppError(404, 'message_not_found', 'Message not found');
+      }
+      channelId = message.channel_id;
+      botId = message.author_id;
+      buttons = (message.components as MessageComponents | null)?.buttons ?? [];
+      messageId = message.id;
+    }
+
+    const channel = await this.channels.requireMember(channelId, user.id);
+    if (!channel.guild_id) {
+      throw new AppError(400, 'commands_unavailable', 'Buttons only work in guild channels');
+    }
+    if (channel.archived_at) throw new AppError(409, 'channel_archived', 'Channel is archived');
+    const guildId = channel.guild_id;
+    await this.perms.require(user, guildId, 'view_channel', channelId);
+    const button = buttons.find((candidate) => candidate.id === body.actionId);
+    if (!button) throw new AppError(404, 'unknown_action', 'This button no longer exists');
+    if (button.requiredPermission) {
+      await this.perms.require(user, guildId, button.requiredPermission, channelId);
+    }
+
+    const bot = await this.db
+      .selectFrom('bots as b')
+      .innerJoin('users as bu', 'bu.id', 'b.user_id')
+      .innerJoin('users as owner', 'owner.id', 'bu.bot_owner_id')
+      .select(['b.interactions_url', 'b.signing_secret', 'owner.is_admin as owner_is_admin'])
+      .where('b.user_id', '=', botId)
+      .executeTakeFirst();
+    if (!bot?.interactions_url) {
+      throw new AppError(409, 'bot_unavailable', 'This bot cannot receive button clicks');
+    }
+
+    const token = generateSecret();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + INTERACTION_TTL_SECONDS * 1000);
+    const row = await this.db
+      .insertInto('interactions')
+      .values({
+        token_hash: hashSecret(token),
+        bot_id: botId,
+        user_id: user.id,
+        channel_id: channelId,
+        command_name: button.label,
+        options: '{}',
+        nonce: body.nonce ?? null,
+        expires_at: expiresAt,
+        type: 'action',
+        action_id: button.id,
+        panel_id: panel?.id ?? null,
+        message_id: messageId,
+      })
+      .returning(['id', 'created_at'])
+      .executeTakeFirstOrThrow();
+
+    const target: Target = {
+      interactionId: row.id,
+      channelId,
+      guildId,
+      command: button.label,
+      kind: 'action',
+      ...(panel && { panelId: panel.id }),
+      botId,
+      user,
+      nonce: body.nonce,
+    };
+    const payload: InteractionPayload = {
+      id: row.id,
+      token,
+      type: 'action',
+      action: {
+        id: button.id,
+        source: panel
+          ? { kind: 'panel', panelId: panel.id, key: panel.key }
+          : { kind: 'message', messageId: messageId ?? '' },
+      },
+      guildId,
+      channelId,
+      user: { id: user.id, login: user.login, displayName: user.displayName },
+      createdAt: row.created_at.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    };
+    const run = this.dispatch(target, payload, {
+      url: bot.interactions_url,
+      secret: bot.signing_secret,
+      ownerIsAdmin: bot.owner_is_admin,
     })
       .catch((err: unknown) => this.log.warn({ err }, 'interaction dispatch failed'))
       .finally(() => this.inflight.delete(run));
@@ -211,6 +343,7 @@ export class InteractionService {
         'i.user_id',
         'i.channel_id',
         'i.command_name',
+        'i.type',
         'i.nonce',
         'bu.login as bot_login',
         'bu.display_name as bot_name',
@@ -228,6 +361,7 @@ export class InteractionService {
         interactionId: id,
         channelId: row.channel_id,
         command: row.command_name,
+        kind: row.type,
         botId: row.bot_id,
         nonce: row.nonce ?? undefined,
         message,
@@ -285,12 +419,23 @@ export class InteractionService {
     if (!response.success) return this.fail(target, 'invalid_response');
 
     const answer = response.data;
+    if (answer.type === 'update_panel') {
+      if (!target.panelId) return this.fail(target, 'invalid_response');
+      try {
+        await this.panels.replaceView(target.botId, target.panelId, answer.view);
+      } catch (error) {
+        this.log.warn({ err: error }, 'could not update panel from interaction');
+        return this.fail(target, 'post_failed');
+      }
+      return this.completed(target);
+    }
     if (answer.type === 'deferred') {
       await this.events.toUser(target.user.id, {
         type: 'interaction.pending',
         interactionId: target.interactionId,
         channelId: target.channelId,
         command: target.command,
+        ...(target.kind === 'action' && { kind: 'action' as const }),
         botId: target.botId,
         expiresAt: new Date(Date.now() + INTERACTION_TTL_SECONDS * 1000).toISOString(),
         ...(target.nonce && { nonce: target.nonce }),
@@ -304,6 +449,7 @@ export class InteractionService {
     try {
       const botUser = await this.botUser(target.botId);
       await this.post(botUser, target.channelId, answer);
+      await this.completed(target);
     } catch (error) {
       this.log.warn({ err: error }, 'could not post interaction response');
       await this.fail(target, 'post_failed');
@@ -316,6 +462,7 @@ export class InteractionService {
       channelId,
       content: stripMassMentions(message.content),
       embeds: message.embeds,
+      components: message.components,
     });
   }
 
@@ -341,6 +488,7 @@ export class InteractionService {
       interactionId: string;
       channelId: string;
       command: string;
+      kind?: 'command' | 'action';
       botId: string | null;
       source?: string;
       nonce: string | undefined;
@@ -352,11 +500,23 @@ export class InteractionService {
       interactionId: info.interactionId,
       channelId: info.channelId,
       command: info.command,
+      ...(info.kind === 'action' && { kind: 'action' as const }),
       botId: info.botId,
       ...(info.source && { source: info.source }),
       content: info.message.content,
       ...(info.message.embeds && { embeds: info.message.embeds }),
       ...(info.nonce && { nonce: info.nonce }),
+    });
+  }
+
+  /** Lets a button's spinner stop when the answer was a public message or a panel update. */
+  private async completed(target: Target): Promise<void> {
+    if (target.kind !== 'action') return;
+    await this.events.toUser(target.user.id, {
+      type: 'interaction.completed',
+      interactionId: target.interactionId,
+      channelId: target.channelId,
+      ...(target.nonce && { nonce: target.nonce }),
     });
   }
 
@@ -366,6 +526,7 @@ export class InteractionService {
       interactionId: target.interactionId,
       channelId: target.channelId,
       command: target.command,
+      ...(target.kind === 'action' && { kind: 'action' as const }),
       botId: target.botId,
       reason,
       ...(target.nonce && { nonce: target.nonce }),

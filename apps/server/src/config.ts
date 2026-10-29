@@ -53,6 +53,12 @@ const ConfigSchema = z
     WEBHOOK_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(60),
     COMMAND_RATE_MAX: z.coerce.number().int().min(1).default(10),
     COMMAND_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(10),
+    /** Panel writes per bot per window; one panel publishes at most once per PANEL_COALESCE_MS. */
+    PANEL_RATE_MAX: z.coerce.number().int().min(1).default(10),
+    PANEL_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(1),
+    PANEL_COALESCE_MS: z.coerce.number().int().min(0).default(1000),
+    ACTION_RATE_MAX: z.coerce.number().int().min(1).default(10),
+    ACTION_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(10),
     INTERACTION_DEADLINE_MS: z.coerce.number().int().min(10).default(3000),
     /** Hostnames, IPs or CIDRs that bots owned by an instance admin may reach on private networks. */
     OUTBOUND_PRIVATE_ALLOWLIST: csv,

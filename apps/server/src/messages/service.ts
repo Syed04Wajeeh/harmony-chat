@@ -3,6 +3,7 @@ import {
   parseMentions,
   type DirectoryUser,
   type Embed,
+  type MessageComponents,
   type EventType,
   type Message,
 } from '@harmony/shared';
@@ -29,6 +30,8 @@ export interface SendMessageInput {
   replyToId?: string | undefined;
   attachmentIds?: readonly string[] | undefined;
   embeds?: readonly Embed[] | undefined;
+  /** Buttons; only bots may set them (the route and the interaction pipeline are the callers). */
+  components?: MessageComponents | undefined;
   /** Set for incoming-webhook messages: per-message overrides, no membership or user limit. */
   source?: { webhookId: string; displayName?: string | undefined; avatarUrl?: string | undefined };
   /**
@@ -87,6 +90,9 @@ export class MessageService {
       }
     }
     if (channel.archived_at) throw new AppError(409, 'channel_archived', 'Channel is archived');
+    if (channel.kind === 'dashboard') {
+      throw new AppError(400, 'dashboard_channel', 'Dashboard channels show panels, not messages');
+    }
 
     const content = await this.emoji.sanitize(input.content, author.id, channel.guild_id);
     const attachmentIds = [...new Set(input.attachmentIds ?? [])];
@@ -132,6 +138,7 @@ export class MessageService {
           pinned_at: null,
           pinned_by: null,
           ...(input.embeds?.length && { embeds: JSON.stringify(input.embeds) }),
+          ...(input.components && { components: JSON.stringify(input.components) }),
           ...(input.module && { modules: [input.module.id] }),
           ...(source && {
             webhook_id: source.webhookId,

@@ -71,7 +71,7 @@ export async function syncPrivacy(db: Executor, channelId: string): Promise<bool
       select 1 from channel_overwrites o join roles r on r.id = o.target_id and r.is_default
       where o.channel_id = c.id and o.target_type = 'role' and 'view_channel' = any (o.deny)
     )
-    where c.id = ${channelId} and c.kind = 'text'
+    where c.id = ${channelId} and c.kind in ('text', 'dashboard')
     returning c.is_private
   `.execute(db);
   return rows[0]?.is_private ?? false;
