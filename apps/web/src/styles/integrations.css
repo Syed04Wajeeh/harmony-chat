@@ -526,10 +526,10 @@
 .inline-field select {
   width: 100%;
   min-height: 44px;
-  padding: 0 var(--space-3);
+  padding: 0 32px 0 var(--space-3);
   border: 0;
   border-radius: var(--radius-control);
-  background: var(--color-bg-input);
+  background-color: var(--color-bg-input);
   box-shadow: inset 0 0 0 1px var(--color-border-strong);
 }
 
