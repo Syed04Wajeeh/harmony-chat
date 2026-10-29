@@ -523,4 +523,51 @@ describe('bots on the gateway', () => {
       expect(again.of('hello')).toHaveLength(1);
     });
   });
+  describe('revocation', () => {
+    const closed = (socket: TestSocket) =>
+      new Promise<{ code: number; reason: string }>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('socket stayed open')), 5000);
+        socket.socket.once('close', (code, reason) => {
+          clearTimeout(timer);
+          resolve({ code, reason: reason.toString() });
+        });
+      });
+
+    it('closes sockets on every instance when the token is rotated', async () => {
+      const w = await world();
+      const onA = await connectBot(a, w.token);
+      const onB = await connectBot(b, w.token);
+      const waits = Promise.all([closed(onA), closed(onB)]);
+      const res = await api(b, w.owner)(`/api/bots/${w.bot.id}/token`, { method: 'POST' });
+      expect(res.status).toBe(200);
+      for (const result of await waits) {
+        expect(result).toEqual({ code: 4001, reason: 'token rotated' });
+      }
+      await settle(100);
+      await w.invoke(a, { ...echo, nonce: 'r1' });
+      expect((await w.aliceA.waitFor('interaction.failed'))[0]?.reason).toBe('unreachable');
+    });
+
+    it('closes sockets when the bot is deleted', async () => {
+      const w = await world();
+      const onB = await connectBot(b, w.token);
+      const done = closed(onB);
+      const res = await api(a, w.owner)(`/api/bots/${w.bot.id}`, { method: 'DELETE' });
+      expect(res.status).toBe(204);
+      expect(await done).toEqual({ code: 4001, reason: 'bot deleted' });
+    });
+
+    it('closes sockets when a scope is removed, but not when one is added', async () => {
+      const w = await world({ scopes: ['messages.read', 'commands'], eventTypes: [] });
+      const onB = await connectBot(b, w.token);
+      const patch = (scopes: string[]) =>
+        api(a, w.owner)(`/api/bots/${w.bot.id}`, { method: 'PATCH', body: { scopes } });
+      expect((await patch(['messages.read', 'commands', 'messages.write'])).status).toBe(200);
+      await settle(200);
+      expect(onB.socket.readyState).toBe(onB.socket.OPEN);
+      const done = closed(onB);
+      expect((await patch(['messages.read'])).status).toBe(200);
+      expect(await done).toEqual({ code: 4001, reason: 'scopes reduced' });
+    });
+  });
 });

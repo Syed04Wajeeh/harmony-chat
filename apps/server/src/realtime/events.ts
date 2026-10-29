@@ -8,6 +8,10 @@ import {
   type UserEvent,
 } from '@harmony/shared';
 
+export const REVOKE_TOPIC = 'harmony:gateway:revoke';
+/** Close code for a socket whose credentials or scopes were revoked. */
+export const REVOKED_CLOSE_CODE = 4001;
+
 /** Every realtime delivery, to local and remote sockets alike, goes through these Redis topics. */
 export class EventBus {
   constructor(private readonly redis: Redis) {}
@@ -18,6 +22,11 @@ export class EventBus {
 
   toUser(userId: string, event: UserEvent): Promise<unknown> {
     return this.redis.publish(userTopic(userId), JSON.stringify(event));
+  }
+
+  /** Tells every instance to close the bot's open sockets; see `REVOKE_TOPIC`. */
+  revokeBot(botId: string, reason: string): Promise<unknown> {
+    return this.redis.publish(REVOKE_TOPIC, JSON.stringify({ botId, reason }));
   }
 
   /** Frames from modules; the caller has already checked they belong to the module. */

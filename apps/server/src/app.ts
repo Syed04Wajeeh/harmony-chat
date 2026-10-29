@@ -42,7 +42,7 @@ import { panelRoutes } from './panels/routes.js';
 import { PanelService } from './panels/service.js';
 import { PresenceService } from './presence/service.js';
 import { RateLimiter } from './rate-limit.js';
-import { EventBus } from './realtime/events.js';
+import { EventBus, REVOKED_CLOSE_CODE, REVOKE_TOPIC } from './realtime/events.js';
 import { GatewayBus } from './gateway/bus.js';
 import { GatewayInteractions } from './gateway/interactions.js';
 import { Hub } from './realtime/hub.js';
@@ -267,6 +267,16 @@ export async function buildApp({
   gatewayInteractions
     .listen(hub)
     .catch((err: unknown) => app.log.warn({ err }, 'gateway reply subscribe failed'));
+  hub
+    .listen(REVOKE_TOPIC, (raw) => {
+      try {
+        const { botId, reason } = JSON.parse(raw) as { botId: string; reason: string };
+        hub.closeBot(botId, REVOKED_CLOSE_CODE, reason);
+      } catch (err) {
+        app.log.warn({ err }, 'malformed gateway revoke');
+      }
+    })
+    .catch((err: unknown) => app.log.warn({ err }, 'gateway revoke subscribe failed'));
   const commandRegistry = new CommandRegistry(db, host.commands, moduleState);
   const interactions = new InteractionService(
     db,

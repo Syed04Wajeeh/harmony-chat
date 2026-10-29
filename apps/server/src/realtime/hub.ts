@@ -200,6 +200,13 @@ export class Hub {
     if (client.socket.readyState === WebSocket.OPEN) client.socket.send(json);
   }
 
+  /** Closes this instance's sockets of one bot (credentials or scopes changed). */
+  closeBot(botId: string, code: number, reason: string): void {
+    for (const client of this.clients) {
+      if (client.user.isBot && client.user.id === botId) client.socket.close(code, reason);
+    }
+  }
+
   closeAll(code: number, reason: string): void {
     clearInterval(this.heartbeat);
     this.batcher.stop();

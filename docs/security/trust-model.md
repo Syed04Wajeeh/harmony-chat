@@ -304,9 +304,13 @@ request from the server.
   unchanged.
 - **What it does not remove.** The token is still a bearer credential: anyone holding it can connect as
   the bot, take the interactions (it receives the interaction token) and read the events its scopes
-  allow. Rotating the token ends use of the old one on the next connection, but a socket that is
-  already open stays open until it closes (as with a REST request in flight); closing sockets on
-  rotation is not implemented.
+  allow. Revocation is immediate: rotating the token, deleting the bot or removing any of its scopes
+  publishes a revoke on Redis (`harmony:gateway:revoke`), and every instance closes that bot's open
+  sockets with code 4001 and a reason (`token rotated`, `bot deleted`, `scopes reduced`). A socket keeps
+  the scopes it connected with, so a reduced bot must reconnect to get the smaller set; adding a
+  scope does not close anything. A revoke published while an instance is briefly disconnected from
+  Redis is missed by that instance, and its sockets then end at the next restart or when the bot
+  fails authentication on reconnect.
 - **Resource limits.** At most 3 sockets per bot, counted in Redis across instances, a separate
   inbound frame budget, 16 KiB per frame, a pending-interaction marker in Redis that expires with the
   deadline, and an event backlog per bot that is capped and aged out. A bot that connects and never

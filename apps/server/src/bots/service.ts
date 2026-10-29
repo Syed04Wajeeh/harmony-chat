@@ -139,6 +139,10 @@ export class BotService {
           .execute();
       }
     });
+    // A socket keeps the scopes it connected with, so dropping one ends the connection; the bot
+    // reconnects with what it still holds.
+    const lost = current.scopes.some((scope) => !scopes.includes(scope as BotScope));
+    if (lost) await this.events.revokeBot(botId, 'scopes reduced');
     return this.load(botId);
   }
 
@@ -154,6 +158,7 @@ export class BotService {
       return guildIds;
     });
     await Promise.all(removed.map((guildId) => this.announceLeft(guildId, botId)));
+    await this.events.revokeBot(botId, 'bot deleted');
   }
 
   /** The old token stops working immediately: authentication looks the hash up on every request. */
@@ -165,6 +170,7 @@ export class BotService {
       .set({ token_hash: hashSecret(secret), token_rotated_at: new Date() })
       .where('user_id', '=', botId)
       .execute();
+    await this.events.revokeBot(botId, 'token rotated');
     return formatBotToken(botId, secret);
   }
 
