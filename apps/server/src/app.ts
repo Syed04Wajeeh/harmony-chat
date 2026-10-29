@@ -189,6 +189,10 @@ export async function buildApp({
     decorators,
     perms,
     emoji,
+    {
+      maxHops: config.BOT_MAX_HOPS,
+      budget: limiter('bot-budget', config.BOT_BUDGET_MAX, config.BOT_BUDGET_WINDOW_SECONDS),
+    },
   );
   const users = new UserStore(db, undefined, domain);
   const files = storage ?? new LocalDiskStorage(config.UPLOAD_DIR);

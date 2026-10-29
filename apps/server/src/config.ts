@@ -57,6 +57,11 @@ const ConfigSchema = z
     PANEL_RATE_MAX: z.coerce.number().int().min(1).default(10),
     PANEL_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(1),
     PANEL_COALESCE_MS: z.coerce.number().int().min(0).default(1000),
+    /** Bot-to-bot reply chains longer than this are refused (`bot_loop`). */
+    BOT_MAX_HOPS: z.coerce.number().int().min(1).default(8),
+    /** Bot-authored replies to or mentions of other bots per channel per window (`bot_budget`). */
+    BOT_BUDGET_MAX: z.coerce.number().int().min(1).default(30),
+    BOT_BUDGET_WINDOW_SECONDS: z.coerce.number().int().min(1).default(60),
     ACTION_RATE_MAX: z.coerce.number().int().min(1).default(10),
     ACTION_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(10),
     INTERACTION_DEADLINE_MS: z.coerce.number().int().min(10).default(3000),

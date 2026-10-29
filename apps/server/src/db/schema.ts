@@ -109,6 +109,7 @@ export interface MessagesTable {
   embeds: Generated<unknown>;
   components: Generated<unknown>;
   modules: Generated<string[]>;
+  hops: Generated<number>;
   search: ColumnType<string, never, never>;
 }
 

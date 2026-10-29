@@ -65,7 +65,14 @@ export const messageRoutes: FastifyPluginCallbackZod<MessageRoutesOptions> = (
       config: { scope: 'messages.write' },
       schema: { params: MessageParams, body: EditMessageBody, response: { 200: Message } },
     },
-    (request) => messages.edit(request.user, request.params.id, request.body.content),
+    (request) => {
+      if (request.body.components === null && !request.bot) {
+        throw new AppError(400, 'components_bots_only', 'Only bots can change buttons');
+      }
+      return messages.edit(request.user, request.params.id, request.body.content, {
+        clearComponents: request.body.components === null,
+      });
+    },
   );
 
   app.delete(
