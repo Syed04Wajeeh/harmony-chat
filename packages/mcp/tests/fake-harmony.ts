@@ -81,6 +81,15 @@ export class FakeHarmony {
     headers?: Record<string, string>;
   }[] = [];
   refuseWebSocket = false;
+  /** Panels by `channelId/key`, as the server would keep them (latest view wins). */
+  panels = new Map<
+    string,
+    { channelId: string; key: string; view: unknown; botId: string; updatedAt: string }
+  >();
+  panelWrites: { channelId: string; key: string; view: PanelViewLike; at: number }[] = [];
+  /** New panels beyond this many answer 409 panel_limit. */
+  panelLimit = 20;
+  private interactionWaiters = new Map<string, (response: unknown) => void>();
   private muted = false;
   private nextId = 1000;
   private readonly http: Server;
@@ -178,6 +187,62 @@ export class FakeHarmony {
     }
   }
 
+  /**
+   * A person clicks a button. Delivers `interaction.create` to the bot's newest socket, as the
+   * server does, and resolves with what the bot answered (or `unreachable` when it has no socket).
+   */
+  click(
+    target: { messageId: string } | { panelKey: string; channelId: string },
+    actionId: string,
+    user: FakeUser = ADA,
+    timeoutMs = 2000,
+  ): Promise<{ unreachable: true } | { timeout: true } | { response: Record<string, unknown> }> {
+    const sockets = [...this.subscribers.keys()].filter((ws) => ws.readyState === ws.OPEN);
+    const ws = sockets.at(-1);
+    if (!ws) return Promise.resolve({ unreachable: true });
+    const id = String(this.nextId++);
+    const channelId = 'messageId' in target ? this.channelOf(target.messageId) : target.channelId;
+    const payload = {
+      id,
+      token: `tok-${id}`,
+      type: 'action',
+      action: {
+        id: actionId,
+        source:
+          'messageId' in target
+            ? { kind: 'message', messageId: target.messageId }
+            : { kind: 'panel', panelId: '5', key: target.panelKey },
+      },
+      guildId: '1',
+      channelId,
+      user: { id: user.id, login: user.login, displayName: user.displayName },
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.interactionWaiters.delete(id);
+        resolve({ timeout: true });
+      }, timeoutMs);
+      this.interactionWaiters.set(id, (response) => {
+        clearTimeout(timer);
+        resolve({ response: response as Record<string, unknown> });
+      });
+      ws.send(JSON.stringify({ type: 'interaction.create', interaction: payload }));
+    });
+  }
+
+  private channelOf(messageId: string): string {
+    for (const [channelId, list] of this.messages) {
+      if (list.some((m) => m.id === messageId)) return channelId;
+    }
+    return '11';
+  }
+
+  message(id: string): Message | undefined {
+    return [...this.messages.values()].flat().find((m) => m.id === id);
+  }
+
   dropSockets(): void {
     for (const ws of this.subscribers.keys()) ws.terminate();
     this.subscribers.clear();
@@ -213,6 +278,12 @@ export class FakeHarmony {
         channelId: string;
         lastSeenId?: string;
       };
+      if (frame.type === 'interaction.respond') {
+        const reply = frame as unknown as { interactionId: string; response: unknown };
+        this.interactionWaiters.get(reply.interactionId)?.(reply.response);
+        this.interactionWaiters.delete(reply.interactionId);
+        return;
+      }
       if (frame.type !== 'subscribe') return;
       if (!this.channels.some((c) => c.id === frame.channelId)) {
         ws.send(
@@ -281,7 +352,7 @@ export class FakeHarmony {
         const all = this.store(channelId).filter((m) => !before || BigInt(m.id) < BigInt(before));
         return { status: 200, body: { messages: all.slice(-limit), hasMore: all.length > limit } };
       }
-      const input = body as { content: string; replyToId?: string };
+      const input = body as { content: string; replyToId?: string; components?: unknown };
       const replyTo = input.replyToId
         ? this.store(channelId).find((m) => m.id === input.replyToId)
         : undefined;
@@ -289,6 +360,7 @@ export class FakeHarmony {
         return { status: 400, body: { code: 'invalid_reply', message: 'Reply target not found' } };
       }
       const message = this.post(channelId, BOT, input.content, {
+        ...(input.components !== undefined && { components: input.components as never }),
         replyTo: replyTo
           ? {
               id: replyTo.id,
@@ -299,6 +371,54 @@ export class FakeHarmony {
           : null,
       });
       return { status: 201, body: message };
+    }
+    const edit = /^\/api\/messages\/(\d+)$/.exec(url.pathname);
+    if (req.method === 'PATCH' && edit?.[1]) {
+      const target = this.message(edit[1]);
+      if (!target) return { status: 404, body: { code: 'message_not_found', message: 'Gone' } };
+      const patch = body as { content: string; components?: null };
+      target.content = patch.content;
+      target.editedAt = new Date().toISOString();
+      if (patch.components === null) delete (target as { components?: unknown }).components;
+      return { status: 200, body: target };
+    }
+    const panelRoute = /^\/api\/channels\/(\d+)\/panels(?:\/([a-z0-9_-]+))?$/.exec(url.pathname);
+    if (panelRoute?.[1]) {
+      const [, channelId, key] = panelRoute;
+      if (req.method === 'GET' && !key) {
+        const panels = [...this.panels.values()]
+          .filter((p) => p.channelId === channelId)
+          .map((p) => this.panelOut(p));
+        return { status: 200, body: { panels } };
+      }
+      if (req.method === 'PUT' && key) {
+        const id = `${channelId}/${key}`;
+        if (
+          !this.panels.has(id) &&
+          [...this.panels.values()].filter((p) => p.channelId === channelId).length >=
+            this.panelLimit
+        ) {
+          return {
+            status: 409,
+            body: { code: 'panel_limit', message: 'A channel holds at most 20 panels' },
+          };
+        }
+        const view = (body as { view: PanelViewLike }).view;
+        const row = {
+          channelId: channelId ?? '',
+          key,
+          view,
+          botId: BOT_ID,
+          updatedAt: new Date(Date.now() + this.panelWrites.length).toISOString(),
+        };
+        this.panels.set(id, row);
+        this.panelWrites.push({ channelId: channelId ?? '', key, view, at: Date.now() });
+        return { status: 200, body: this.panelOut(row) };
+      }
+      if (req.method === 'DELETE' && key) {
+        this.panels.delete(`${channelId}/${key}`);
+        return { status: 204 };
+      }
     }
     const reaction = /^\/api\/messages\/(\d+)\/reactions\/(.+)$/.exec(url.pathname);
     if (req.method === 'PUT' && reaction) return { status: 204 };
@@ -316,6 +436,27 @@ export class FakeHarmony {
     return { status: 404, body: { code: 'not_found', message: 'No such route' } };
   }
 
+  private panelOut(p: {
+    channelId: string;
+    key: string;
+    view: unknown;
+    botId: string;
+    updatedAt: string;
+  }) {
+    return {
+      id: '5',
+      channelId: p.channelId,
+      botId: p.botId,
+      key: p.key,
+      view: p.view,
+      version: 1,
+      pinned: false,
+      position: 0,
+      createdAt: p.updatedAt,
+      updatedAt: p.updatedAt,
+    };
+  }
+
   private summary(c: FakeChannel) {
     return {
       ...c,
@@ -329,6 +470,11 @@ export class FakeHarmony {
       lastReadMessageId: null,
     };
   }
+}
+
+export interface PanelViewLike {
+  title?: string;
+  blocks: { type: string; id?: string; [key: string]: unknown }[];
 }
 
 type IncomingMessageHeaders = IncomingMessage['headers'];

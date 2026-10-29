@@ -1,4 +1,12 @@
-import { ChannelSummary, GuildSummary, Message } from '@harmony/shared';
+import {
+  ChannelSummary,
+  GuildSummary,
+  Message,
+  Panel,
+  type InteractionPayload,
+  type MessageComponents,
+  type PanelView,
+} from '@harmony/shared';
 import { z } from 'zod';
 import WebSocket from 'ws';
 
@@ -43,6 +51,21 @@ export interface WaitResult {
   cancelled: boolean;
 }
 
+/** What a bot answers to an interaction (a subset of the protocol's `InteractionResponse`). */
+export type InteractionAnswer =
+  { type: 'message'; content: string; ephemeral: boolean } | { type: 'deferred' };
+
+export type InteractionHandler = (
+  interaction: InteractionPayload,
+) => InteractionAnswer | Promise<InteractionAnswer>;
+
+interface ControlHandle {
+  refs: number;
+  stop: () => void;
+  isOpen: () => boolean;
+}
+
+const PanelsResponse = z.object({ panels: z.array(Panel) });
 const MessagesPage = z.object({ messages: z.array(Message), hasMore: z.boolean() });
 const GuildsResponse = z.object({ guilds: z.array(GuildSummary) });
 const ChannelsResponse = z.object({ channels: z.array(ChannelSummary) });
@@ -164,12 +187,46 @@ export class HarmonyClient {
 
   async sendMessage(
     channelId: string,
-    input: { content: string; replyToId?: string },
+    input: { content: string; replyToId?: string; components?: MessageComponents },
   ): Promise<Message> {
     const body = await this.request('POST', `/api/channels/${channelId}/messages`, {
-      body: { content: input.content, replyToId: input.replyToId },
+      body: {
+        content: input.content,
+        replyToId: input.replyToId,
+        ...(input.components && { components: input.components }),
+      },
     });
     return this.parse(Message, body);
+  }
+
+  /** Edits one of the bot's own messages; `clearComponents` removes its buttons. */
+  async editMessage(
+    messageId: string,
+    content: string,
+    options: { clearComponents?: boolean } = {},
+  ): Promise<Message> {
+    const body = await this.request('PATCH', `/api/messages/${messageId}`, {
+      body: { content, ...(options.clearComponents && { components: null }) },
+    });
+    return this.parse(Message, body);
+  }
+
+  async putPanel(channelId: string, key: string, view: PanelView): Promise<Panel> {
+    const body = await this.request('PUT', `/api/channels/${channelId}/panels/${key}`, {
+      body: { view },
+    });
+    return this.parse(Panel, body);
+  }
+
+  async deletePanel(channelId: string, key: string): Promise<void> {
+    await this.request('DELETE', `/api/channels/${channelId}/panels/${key}`);
+  }
+
+  async listPanels(channelId: string): Promise<Panel[]> {
+    return this.parse(
+      PanelsResponse,
+      await this.request('GET', `/api/channels/${channelId}/panels`),
+    ).panels;
   }
 
   async addReaction(messageId: string, emoji: string): Promise<void> {
@@ -185,6 +242,129 @@ export class HarmonyClient {
       MessagesPage,
       await this.request('GET', '/api/search', { query: { q, ...query } }),
     );
+  }
+
+  private interactionHandler: InteractionHandler | undefined;
+  private control: ControlHandle | undefined;
+
+  /** Where `interaction.create` frames (button clicks) are answered; see `holdGateway`. */
+  setInteractionHandler(handler: InteractionHandler | undefined): void {
+    this.interactionHandler = handler;
+  }
+
+  /** Answers an `interaction.create` frame on the socket it arrived on. Never throws. */
+  private answerInteraction(ws: WebSocket, interaction: InteractionPayload): void {
+    const handler = this.interactionHandler;
+    const reply = (response: InteractionAnswer) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(
+        JSON.stringify({
+          type: 'interaction.respond',
+          interactionId: interaction.id,
+          token: interaction.token,
+          response,
+        }),
+      );
+    };
+    if (!handler) return reply({ type: 'deferred' });
+    Promise.resolve()
+      .then(() => handler(interaction))
+      .then(reply, () =>
+        reply({
+          type: 'message',
+          content: 'Something went wrong in the agent. Try again.',
+          ephemeral: true,
+        }),
+      );
+  }
+
+  /**
+   * Keeps one gateway socket open (reconnecting with backoff) so button clicks reach this
+   * process while something is waiting for them. Reference counted: the socket closes when the
+   * last holder releases. Resolves once connected or after `waitMs`; click delivery before then
+   * simply reports `unreachable` to the person who clicked.
+   */
+  async holdGateway(waitMs = 3000): Promise<() => void> {
+    if (!this.control) this.control = this.openControl();
+    const control = this.control;
+    control.refs += 1;
+    const deadline = Date.now() + waitMs;
+    while (!control.isOpen() && Date.now() < deadline) await sleep(25);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      control.refs -= 1;
+      if (control.refs <= 0) {
+        control.stop();
+        if (this.control === control) this.control = undefined;
+      }
+    };
+  }
+
+  private openControl(): ControlHandle {
+    let stopped = false;
+    let open = false;
+    let current: WebSocket | undefined;
+    let failures = 0;
+    let timer: NodeJS.Timeout | undefined;
+    const connect = () => {
+      if (stopped) return;
+      const ws = new WebSocket(this.wsUrl(), { headers: { authorization: `Bot ${this.token}` } });
+      current = ws;
+      const dropped = () => {
+        if (current !== ws) return;
+        current = undefined;
+        open = false;
+        ws.removeAllListeners();
+        ws.on('error', () => undefined);
+        if (stopped) return;
+        failures += 1;
+        timer = setTimeout(connect, Math.min(500 * 2 ** Math.min(failures, 4), 5000));
+        timer.unref();
+      };
+      ws.on('open', () => {
+        open = true;
+        failures = 0;
+      });
+      ws.on('unexpected-response', (_req, res) => {
+        res.resume();
+        dropped();
+      });
+      ws.on('error', dropped);
+      ws.on('close', dropped);
+      ws.on('message', (data) => {
+        try {
+          const frame = JSON.parse((data as Buffer).toString('utf8')) as {
+            type?: string;
+            interaction?: InteractionPayload;
+          };
+          if (frame.type === 'interaction.create' && frame.interaction) {
+            this.answerInteraction(ws, frame.interaction);
+          }
+        } catch {
+          // Not JSON: ignore.
+        }
+      });
+    };
+    connect();
+    return {
+      refs: 0,
+      isOpen: () => open,
+      stop: () => {
+        stopped = true;
+        clearTimeout(timer);
+        const ws = current;
+        current = undefined;
+        open = false;
+        if (ws) {
+          ws.removeAllListeners();
+          ws.on('error', () => undefined);
+          if (ws.readyState === WebSocket.CONNECTING) ws.terminate();
+          else ws.close();
+        }
+      },
+    };
   }
 
   private wsUrl(): string {
@@ -342,6 +522,7 @@ export class HarmonyClient {
       ws.on('message', (data) => {
         let frame: {
           type?: string;
+          interaction?: InteractionPayload;
           code?: string;
           message?: unknown;
           messages?: unknown;
@@ -350,6 +531,11 @@ export class HarmonyClient {
         try {
           frame = JSON.parse((data as Buffer).toString('utf8')) as typeof frame;
         } catch {
+          return;
+        }
+        if (frame.type === 'interaction.create' && frame.interaction) {
+          // The gateway hands clicks to the bot's newest socket, which may be this short-lived one.
+          this.answerInteraction(ws, frame.interaction);
           return;
         }
         if (frame.type === 'error') {

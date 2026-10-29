@@ -13,6 +13,9 @@ export async function connect(
     defaultChannel: undefined,
     maxSendsPerMinute: 20,
     allowMassMentions: false,
+    agentChannel: undefined,
+    approvalPermission: 'manage_messages',
+    panelMinIntervalMs: 30,
     ...overrides,
   });
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();

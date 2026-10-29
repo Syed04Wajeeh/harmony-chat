@@ -5,6 +5,12 @@ export interface Config {
   /** Sends (messages, questions) allowed per rolling minute from this process. */
   maxSendsPerMinute: number;
   allowMassMentions: boolean;
+  /** Channel for runs and approvals when a call names none (HARMONY_AGENT_CHANNEL). */
+  agentChannel: string | undefined;
+  /** Permission a person needs to decide an approval or cancel a run. */
+  approvalPermission: string;
+  /** At most one panel write per run in this many milliseconds. */
+  panelMinIntervalMs: number;
 }
 
 export class ConfigError extends Error {}
@@ -34,11 +40,25 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   if (!Number.isInteger(maxSendsPerMinute) || maxSendsPerMinute < 1) {
     throw new ConfigError('HARMONY_MAX_SENDS_PER_MINUTE must be a positive integer.');
   }
+  const approvalPermission = env.HARMONY_APPROVAL_PERMISSION?.trim() || 'manage_messages';
+  if (!/^[a-z][a-z0-9_.]{0,63}$/.test(approvalPermission)) {
+    throw new ConfigError(
+      'HARMONY_APPROVAL_PERMISSION must be a permission key such as manage_messages.',
+    );
+  }
+  const rawInterval = env.HARMONY_PANEL_MIN_INTERVAL_MS?.trim();
+  const panelMinIntervalMs = rawInterval ? Number(rawInterval) : 1000;
+  if (!Number.isInteger(panelMinIntervalMs) || panelMinIntervalMs < 0) {
+    throw new ConfigError('HARMONY_PANEL_MIN_INTERVAL_MS must be a non-negative integer.');
+  }
   return {
     url,
     token,
     defaultChannel: env.HARMONY_DEFAULT_CHANNEL?.trim() || undefined,
     maxSendsPerMinute,
     allowMassMentions: env.HARMONY_ALLOW_MASS_MENTIONS === '1',
+    agentChannel: env.HARMONY_AGENT_CHANNEL?.trim() || undefined,
+    approvalPermission,
+    panelMinIntervalMs,
   };
 }
