@@ -164,29 +164,29 @@ deploy/
   nginx/       user proxy and integrations proxy config
   load/        compose files for the isolated load-test stack
 loadtest/      k6 scenarios, failover and cross-instance scripts, raw results
-examples/      echo bot, Uptime Kuma recipe, curl script for webhooks
+examples/      echo bot, homelab operations bot, Uptime Kuma recipe, curl script for webhooks
 docs/          API, security, performance, modules, permissions, theming, screenshots
 scripts/       deploy.sh, check-links.mjs
 ```
 
 ## Documentation
 
-| Document                                                       | What is in it                                                                                          |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| [docs/codebase-map.md](docs/codebase-map.md)                   | Maintainer's index: where everything lives, recipes for common changes, invariants, testing map        |
-| [CLAUDE.md](CLAUDE.md)                                         | Short brief for AI coding assistants: commands, invariants, conventions, safety                        |
-| [docs/api/protocol.md](docs/api/protocol.md)                   | REST endpoints, WebSocket frames, bot and webhook API                                                  |
-| [docs/security/trust-model.md](docs/security/trust-model.md)   | Why header auth is safe here, Origin checks, bots, SSRF, custom CSS, the desktop bridge                |
-| [docs/performance.md](docs/performance.md)                     | Every measurement with its conditions, the investigations, how to reproduce                            |
-| [docs/modules.md](docs/modules.md)                             | The module contract and a guide to writing one                                                         |
-| [docs/permissions.md](docs/permissions.md)                     | Roles, overwrites, resolution order, hierarchy                                                         |
-| [docs/theming.md](docs/theming.md)                             | Design tokens, themes as data, custom CSS                                                              |
-| [docs/customization.md](docs/customization.md)                 | What users, server managers and admins can change                                                      |
-| [docs/integrations.md](docs/integrations.md)                   | The machine ingress for webhooks and bots                                                              |
-| [examples/](examples/uptime-kuma.md)                           | [Uptime Kuma](examples/uptime-kuma.md), [echo bot](examples/echo-bot/README.md), `post-from-script.sh` |
-| [apps/desktop/README.md](apps/desktop/README.md)               | Building, releasing and signing the desktop app                                                        |
-| [NOTES.md](NOTES.md)                                           | Dated design decisions with rejected alternatives, measured results, problems solved                   |
-| [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) | Contributing and reporting vulnerabilities                                                             |
+| Document                                                       | What is in it                                                                                                                                         |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [docs/codebase-map.md](docs/codebase-map.md)                   | Maintainer's index: where everything lives, recipes for common changes, invariants, testing map                                                       |
+| [CLAUDE.md](CLAUDE.md)                                         | Short brief for AI coding assistants: commands, invariants, conventions, safety                                                                       |
+| [docs/api/protocol.md](docs/api/protocol.md)                   | REST endpoints, WebSocket frames, bot and webhook API                                                                                                 |
+| [docs/security/trust-model.md](docs/security/trust-model.md)   | Why header auth is safe here, Origin checks, bots, SSRF, custom CSS, the desktop bridge                                                               |
+| [docs/performance.md](docs/performance.md)                     | Every measurement with its conditions, the investigations, how to reproduce                                                                           |
+| [docs/modules.md](docs/modules.md)                             | The module contract and a guide to writing one                                                                                                        |
+| [docs/permissions.md](docs/permissions.md)                     | Roles, overwrites, resolution order, hierarchy                                                                                                        |
+| [docs/theming.md](docs/theming.md)                             | Design tokens, themes as data, custom CSS                                                                                                             |
+| [docs/customization.md](docs/customization.md)                 | What users, server managers and admins can change                                                                                                     |
+| [docs/integrations.md](docs/integrations.md)                   | The machine ingress for webhooks and bots                                                                                                             |
+| [examples/](examples/uptime-kuma.md)                           | [Uptime Kuma](examples/uptime-kuma.md), [echo bot](examples/echo-bot/README.md), [homelab bot](examples/homelab-bot/README.md), `post-from-script.sh` |
+| [apps/desktop/README.md](apps/desktop/README.md)               | Building, releasing and signing the desktop app                                                                                                       |
+| [NOTES.md](NOTES.md)                                           | Dated design decisions with rejected alternatives, measured results, problems solved                                                                  |
+| [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) | Contributing and reporting vulnerabilities                                                                                                            |
 
 ## Desktop app
 
