@@ -28,6 +28,8 @@ import type { AuthPolicy } from './auth/policy.js';
 import { UserStore } from './auth/user-store.js';
 import { channelRoutes } from './channels/routes.js';
 import { ChannelService } from './channels/service.js';
+import { InviteCardService } from './guilds/invite-cards.js';
+import { inviteCardRoutes } from './guilds/invite-routes.js';
 import { guildRoutes } from './guilds/routes.js';
 import { GuildService } from './guilds/service.js';
 import type { Config } from './config.js';
@@ -207,6 +209,13 @@ export async function buildApp({
   presence.useLocalTopics((userId) => hub.presenceTopicsOf(userId));
   hub.onPresenceTopicsJoined = (userId, topics) => presence.announceTo(userId, topics);
   const guilds = new GuildService(db, events, channels, presence, files, domain, perms);
+  const inviteCards = new InviteCardService(
+    db,
+    guilds,
+    channels,
+    messages,
+    limiter('invite-cards', 10, 60),
+  );
   const roles = new RoleService(db, events, perms, channels, guilds);
   const typing = new TypingService(redis, events, channels, perms);
   const allowlist = parseAllowlist(config.OUTBOUND_PRIVATE_ALLOWLIST);
@@ -297,6 +306,7 @@ export async function buildApp({
       await api.register(perkRoutes, { perks });
       await api.register(settingsRoutes, { settings: new SettingsService(db, events, perks) });
       await api.register(guildRoutes, { guilds, channels });
+      await api.register(inviteCardRoutes, { cards: inviteCards });
       await api.register(roleRoutes, { roles, guilds, perms });
       await api.register(channelRoutes, { channels });
       await api.register(messageRoutes, { channels, messages });

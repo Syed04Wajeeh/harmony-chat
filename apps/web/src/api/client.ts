@@ -1,5 +1,8 @@
 import {
   Attachment,
+  DirectoryResponse,
+  LobbyResponse,
+  SendInvitesResponse,
   Bot,
   CreatedBot,
   CreatedWebhook,
@@ -53,6 +56,7 @@ import {
   type UpdateGuildBody,
   type UpdateGuildModuleBody,
   type SettingsPatch,
+  type DirectoryQuery,
   type ThemeInput,
   type UpdateProfileBody,
   type Perk,
@@ -127,6 +131,25 @@ export const api = {
     request(`/api/me/themes/${id}`, { method: 'PUT', body, schema: CustomTheme }),
   deleteTheme: (id: string) => request(`/api/me/themes/${id}`, { method: 'DELETE' }),
   users: (signal?: AbortSignal) => request('/api/users', { schema: ListUsersResponse, signal }),
+  directory: (
+    query: Partial<Omit<DirectoryQuery, 'limit' | 'offset'>> & { limit?: number; offset?: number },
+    signal?: AbortSignal,
+  ) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    return request(`/api/directory?${params.toString()}`, { schema: DirectoryResponse, signal });
+  },
+  lobby: () => request('/api/admin/lobby', { schema: LobbyResponse }),
+  setLobby: (guildId: string | null) =>
+    request('/api/admin/lobby', { method: 'PUT', body: { guildId }, schema: LobbyResponse }),
+  sendInvites: (guildId: string, userIds: string[]) =>
+    request(`/api/guilds/${guildId}/invites/send`, {
+      method: 'POST',
+      body: { userIds },
+      schema: SendInvitesResponse,
+    }),
   profile: (userId: string, guildId?: string, signal?: AbortSignal) =>
     request(`/api/users/${userId}/profile${guildId ? `?guildId=${guildId}` : ''}`, {
       schema: UserProfileResponse,

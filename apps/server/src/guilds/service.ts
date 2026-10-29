@@ -411,6 +411,59 @@ export class GuildService {
     };
   }
 
+  /**
+   * A never-expiring, unlimited invite of the actor's for sharing in DMs: the newest one they
+   * already made, or a new one. Needs the same permission as creating any invite.
+   */
+  async shareableInvite(
+    actor: Actor,
+    guildId: string,
+  ): Promise<{ code: string; guildName: string }> {
+    await this.perms.require(actor, guildId, 'create_invites');
+    const guild = await this.load(guildId);
+    const existing = await this.db
+      .selectFrom('guild_invites')
+      .select('code')
+      .where('guild_id', '=', guildId)
+      .where('created_by', '=', actor.id)
+      .where('expires_at', 'is', null)
+      .where('max_uses', 'is', null)
+      .orderBy('created_at', 'desc')
+      .limit(1)
+      .executeTakeFirst();
+    const code = existing?.code ?? (await this.createInvite(actor, guildId, {})).code;
+    return { code, guildName: guild.name };
+  }
+
+  /** The lobby guild: where every new user lands on first sign-in. Null when there is none. */
+  async lobby(): Promise<string | null> {
+    const row = await this.db
+      .selectFrom('guilds')
+      .select('id')
+      .where('is_default', '=', true)
+      .executeTakeFirst();
+    return row?.id ?? null;
+  }
+
+  /** Instance admins only (checked by the route). The unique index keeps it to one guild. */
+  async setLobby(guildId: string | null): Promise<void> {
+    await this.db.transaction().execute(async (trx) => {
+      await trx
+        .updateTable('guilds')
+        .set({ is_default: false })
+        .where('is_default', '=', true)
+        .execute();
+      if (guildId === null) return;
+      const updated = await trx
+        .updateTable('guilds')
+        .set({ is_default: true })
+        .where('id', '=', guildId)
+        .returning('id')
+        .executeTakeFirst();
+      if (!updated) throw notFound();
+    });
+  }
+
   async previewInvite(user: Actor, code: string): Promise<InvitePreview> {
     const invite = await this.db
       .selectFrom('guild_invites')

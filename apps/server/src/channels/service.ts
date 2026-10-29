@@ -405,20 +405,26 @@ export class ChannelService {
     }
     const other = await this.db
       .selectFrom('users')
-      .select('id')
+      .select(['id', 'kind'])
       .where('id', '=', otherId)
       .executeTakeFirst();
     if (!other) throw new AppError(404, 'user_not_found', 'User not found');
 
-    const shared = await this.db
-      .selectFrom('guild_members as theirs')
-      .innerJoin('guild_members as mine', 'mine.guild_id', 'theirs.guild_id')
-      .select('theirs.guild_id')
-      .where('theirs.user_id', '=', otherId)
-      .where('mine.user_id', '=', actor.id)
-      .limit(1)
-      .executeTakeFirst();
-    if (!shared) throw new AppError(403, 'forbidden', 'You share no guild with that user');
+    // Anyone who signed in can be messaged (the members directory lists them all); bots are only
+    // reachable from a guild they are in.
+    const shared =
+      other.kind === 'bot' &&
+      (await this.db
+        .selectFrom('guild_members as theirs')
+        .innerJoin('guild_members as mine', 'mine.guild_id', 'theirs.guild_id')
+        .select('theirs.guild_id')
+        .where('theirs.user_id', '=', otherId)
+        .where('mine.user_id', '=', actor.id)
+        .limit(1)
+        .executeTakeFirst());
+    if (other.kind === 'bot' && !shared) {
+      throw new AppError(403, 'forbidden', 'You share no guild with that bot');
+    }
 
     const [low, high] =
       BigInt(actor.id) < BigInt(otherId) ? [actor.id, otherId] : [otherId, actor.id];

@@ -19,6 +19,7 @@ import { ModulesPage } from './components/settings/ModulesPage.js';
 import { MembersPage } from './components/settings/MembersPage.js';
 import { OverviewPage } from './components/settings/OverviewPage.js';
 import { EmojiPage } from './components/settings/EmojiPage.js';
+import { LobbyPage } from './components/settings/LobbyPage.js';
 import { PerksPage } from './components/settings/PerksPage.js';
 import { ProfilePage } from './components/settings/ProfilePage.js';
 import { RolesPage } from './components/settings/RolesPage.js';
@@ -90,6 +91,7 @@ export function App() {
           <Route path="/settings/user" element={<UserSettingsLayout />}>
             <Route path="profile" element={<ProfilePage />} />
             <Route path="perks" element={<PerksPage />} />
+            <Route path="lobby" element={<LobbyPage />} />
             <Route path="appearance" element={<AppearancePage />} />
             <Route path="themes" element={<ThemesPage />} />
             <Route path="themes/:ref" element={<ThemeEditorPage />} />

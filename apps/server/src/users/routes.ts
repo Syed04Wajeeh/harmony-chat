@@ -1,5 +1,12 @@
 import type { FastifyPluginCallbackZod } from 'fastify-type-provider-zod';
-import { ListUsersResponse, Me, PresenceResponse, UpdateMeBody } from '@harmony/shared';
+import {
+  DirectoryQuery,
+  DirectoryResponse,
+  ListUsersResponse,
+  Me,
+  PresenceResponse,
+  UpdateMeBody,
+} from '@harmony/shared';
 import type { UserStore } from '../auth/user-store.js';
 import type { ProfileService } from '../profiles/service.js';
 import type { PresenceService } from '../presence/service.js';
@@ -36,6 +43,23 @@ export const userRoutes: FastifyPluginCallbackZod<UserRoutesOptions> = (
     async (request) => {
       const visible = await users.listVisibleTo(request.user.id);
       return { users: visible, profiles: await profiles.summaries(visible.map((u) => u.id)) };
+    },
+  );
+
+  app.get(
+    '/directory',
+    {
+      config: { humanOnly: true },
+      schema: { querystring: DirectoryQuery, response: { 200: DirectoryResponse } },
+    },
+    async (request) => {
+      const { users: page, total } = await users.directory(request.user.id, request.query);
+      const ids = page.map((u) => u.id);
+      const [profileSummaries, online] = await Promise.all([
+        profiles.summaries(ids),
+        presence.statusesOf(ids),
+      ]);
+      return { users: page, profiles: profileSummaries, presence: online, total };
     },
   );
 

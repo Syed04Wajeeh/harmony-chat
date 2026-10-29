@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DirectoryUser, Id } from './chat.js';
+import { DirectoryUser, Id, PresenceEntry } from './chat.js';
 import { isValidEmoji } from './emoji.js';
 
 export const MAX_BIO_LENGTH = 190;
@@ -201,3 +201,24 @@ export const ListUsersResponse = z.object({
   profiles: z.record(Id, ProfileSummary),
 });
 export type ListUsersResponse = z.infer<typeof ListUsersResponse>;
+
+export const DIRECTORY_PAGE_MAX = 100;
+export const DirectoryQuery = z.object({
+  /** Matches display name or login, case-insensitively. */
+  q: z.string().trim().max(100).optional(),
+  kind: z.enum(['human', 'bot']).default('human'),
+  /** Only people who are not in this guild (to invite them); you must be a member of it. */
+  notInGuild: Id.optional(),
+  limit: z.coerce.number().int().min(1).max(DIRECTORY_PAGE_MAX).default(50),
+  offset: z.coerce.number().int().min(0).max(100_000).default(0),
+});
+export type DirectoryQuery = z.infer<typeof DirectoryQuery>;
+export const DirectoryResponse = z.object({
+  users: z.array(DirectoryUser),
+  profiles: z.record(Id, ProfileSummary),
+  /** Online, idle and dnd users among `users`, whether or not you share a guild with them. */
+  presence: z.array(PresenceEntry),
+  /** Everyone matching, not just this page. */
+  total: z.number().int(),
+});
+export type DirectoryResponse = z.infer<typeof DirectoryResponse>;

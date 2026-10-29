@@ -234,6 +234,25 @@ export const InvitePreview = z.object({
 });
 export type InvitePreview = z.infer<typeof InvitePreview>;
 
+/** Most people one "send invite" call can address; one DM message each. */
+export const SEND_INVITES_MAX = 20;
+export const SendInvitesBody = z.object({
+  userIds: z.array(Id).min(1).max(SEND_INVITES_MAX),
+});
+export type SendInvitesBody = z.infer<typeof SendInvitesBody>;
+export const SendInvitesResponse = z.object({
+  /** The invite behind the cards: reused when you already made a never-expiring one. */
+  code: z.string(),
+  sent: z.array(z.object({ userId: Id, channelId: Id, messageId: Id })),
+  skipped: z.array(z.object({ userId: Id, reason: z.enum(['already_member', 'unavailable']) })),
+});
+export type SendInvitesResponse = z.infer<typeof SendInvitesResponse>;
+
+/** The guild every new user joins on first sign-in; `null` means newcomers join nothing. */
+export const LobbyResponse = z.object({ guildId: Id.nullable() });
+export type LobbyResponse = z.infer<typeof LobbyResponse>;
+export const SetLobbyBody = LobbyResponse;
+
 export const UpdateChannelBody = z
   .object({
     name: ChannelName.optional(),

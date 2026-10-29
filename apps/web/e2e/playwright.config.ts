@@ -8,6 +8,7 @@ const iPhone =
 
 export default defineConfig({
   testDir: '.',
+  globalSetup: './global-setup.ts',
   fullyParallel: false,
   workers: 1,
   retries: process.env['CI'] ? 1 : 0,
@@ -29,12 +30,13 @@ export default defineConfig({
             'roles.spec.ts',
             'customization.spec.ts',
             'profiles.spec.ts',
+            'directory.spec.ts',
           ],
           use: { viewport: { width: 1280, height: 800 } },
         },
         {
           name: 'mobile',
-          testMatch: ['mobile.spec.ts', 'integrations.mobile.spec.ts'],
+          testMatch: ['mobile.spec.ts', 'integrations.mobile.spec.ts', 'directory.mobile.spec.ts'],
           use: {
             viewport: { width: 390, height: 844 },
             deviceScaleFactor: 3,
