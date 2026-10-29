@@ -60,6 +60,12 @@ const ConfigSchema = z
     ACTION_RATE_MAX: z.coerce.number().int().min(1).default(10),
     ACTION_RATE_WINDOW_SECONDS: z.coerce.number().int().min(1).default(10),
     INTERACTION_DEADLINE_MS: z.coerce.number().int().min(10).default(3000),
+    /** Gateway bots: concurrent sockets per bot, presence lifetime and refresh, inbound frame budget. */
+    GATEWAY_MAX_CONNECTIONS: z.coerce.number().int().min(1).default(3),
+    GATEWAY_PRESENCE_TTL_MS: z.coerce.number().int().min(100).default(30_000),
+    GATEWAY_HEARTBEAT_MS: z.coerce.number().int().min(10).default(10_000),
+    GATEWAY_FRAME_BURST: z.coerce.number().int().min(1).default(100),
+    GATEWAY_FRAME_REFILL_PER_SECOND: z.coerce.number().positive().default(20),
     /** Hostnames, IPs or CIDRs that bots owned by an instance admin may reach on private networks. */
     OUTBOUND_PRIVATE_ALLOWLIST: csv,
 
@@ -125,6 +131,19 @@ const WorkerConfigSchema = z.object({
   MODULES_DISABLED: csv,
   OUTBOUND_PRIVATE_ALLOWLIST: csv,
   HEARTBEAT_FILE: z.string().min(1).default('/tmp/worker-heartbeat'),
+  /** The worker publishes gateway events through Redis; without it only HTTP bots are served. */
+  REDIS_URL: z.string().min(1).optional(),
+  GATEWAY_PRESENCE_TTL_MS: z.coerce.number().int().min(100).default(30_000),
+  /** An event sent to a gateway bot and not acknowledged by now is sent again. */
+  GATEWAY_ACK_TIMEOUT_MS: z.coerce.number().int().min(10).default(30_000),
+  /** Unacknowledged gateway events older than this are dead-lettered. */
+  GATEWAY_EVENT_TTL_MS: z.coerce
+    .number()
+    .int()
+    .min(100)
+    .default(24 * 60 * 60 * 1000),
+  /** Open gateway events kept per bot; the oldest beyond this are dead-lettered. */
+  GATEWAY_BACKLOG_MAX: z.coerce.number().int().min(1).default(10_000),
   WORKER_POLL_MS: z.coerce.number().int().min(10).default(5000),
   /** After a NOTIFY wake-up, wait this long so a burst of events is fanned out as one batch. */
   WORKER_BATCH_WINDOW_MS: z.coerce.number().int().min(0).default(50),

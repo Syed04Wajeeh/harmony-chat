@@ -404,6 +404,27 @@ export class BotService {
   }
 }
 
+/** No URL means the gateway: the bot connects out instead of being called. */
+function deliveryModes(row: {
+  scopes: string[];
+  interactions_url: string | null;
+  events_url: string | null;
+  event_types: string[];
+}): Bot['delivery'] {
+  const interactions = !row.scopes.includes('commands')
+    ? 'off'
+    : row.interactions_url
+      ? 'http'
+      : 'gateway';
+  const events =
+    !row.scopes.includes('events') || row.event_types.length === 0
+      ? 'off'
+      : row.events_url
+        ? 'http'
+        : 'gateway';
+  return { interactions, events };
+}
+
 function toBot(row: {
   id: string;
   display_name: string;
@@ -425,6 +446,7 @@ function toBot(row: {
     interactionsUrl: row.interactions_url,
     eventsUrl: row.events_url,
     eventTypes: row.event_types as EventType[],
+    delivery: deliveryModes(row),
     createdAt: row.created_at.toISOString(),
     lastUsedAt: row.last_used_at?.toISOString() ?? null,
   };
