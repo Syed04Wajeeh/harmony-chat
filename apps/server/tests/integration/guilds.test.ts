@@ -494,7 +494,8 @@ describe('default guild migration', () => {
         .selectAll()
         .where('login', '=', 'first@example.com')
         .executeTakeFirstOrThrow();
-      expect(guild).toMatchObject({ name: 'Harmony', is_default: true, owner_id: first.id });
+      // 0018 later clears the flag: no guild is a lobby until an admin picks one.
+      expect(guild).toMatchObject({ name: 'Harmony', is_default: false, owner_id: first.id });
       expect(first.is_admin).toBe(true);
 
       const members = await db
@@ -523,6 +524,9 @@ describe('default guild migration', () => {
       expect(access).toHaveLength(2);
       expect(access.every((row) => row.last_read_message_id !== null)).toBe(true);
 
+      await sql`insert into guilds (name, owner_id, is_default) values ('Lobby', ${first.id}, true)`.execute(
+        db,
+      );
       await expect(
         sql`insert into guilds (name, owner_id, is_default) values ('Another', ${first.id}, true)`.execute(
           db,

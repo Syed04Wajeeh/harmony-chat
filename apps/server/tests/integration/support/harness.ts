@@ -13,7 +13,6 @@ import { buildApp } from '../../../src/app.js';
 import { loadConfig, type Config } from '../../../src/config.js';
 import { createDb } from '../../../src/db.js';
 import type { Database } from '../../../src/db/schema.js';
-import { createGuildWithGeneral } from '../../../src/guilds/membership.js';
 import { modules as defaultModules } from '../../../src/modules/index.js';
 import type { HarmonyModule } from '../../../src/modules/types.js';
 import { createRedis } from '../../../src/redis.js';
@@ -253,18 +252,6 @@ export async function createGuild(
     .executeTakeFirstOrThrow();
   for (const login of [ownerLogin, ...members]) await addGuildMember(db, guild.id, login);
   return guild.id;
-}
-
-/** Mirrors what the first real user's arrival does: a default guild with a `general` channel. */
-export async function ensureDefaultGuild(db: Kysely<Database>): Promise<void> {
-  const existing = await db
-    .selectFrom('guilds')
-    .select('id')
-    .where('is_default', '=', true)
-    .executeTakeFirst();
-  if (existing) return;
-  const owner = await ensureUser(db, 'default-owner@example.com');
-  await db.transaction().execute((trx) => createGuildWithGeneral(trx, 'Harmony', owner, true));
 }
 
 export async function addGuildMember(db: Kysely<Database>, guildId: string, login: string) {

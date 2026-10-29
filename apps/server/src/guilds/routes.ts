@@ -11,10 +11,13 @@ import {
   Invite,
   InviteParams,
   InvitePreview,
+  LobbyResponse,
+  SetLobbyBody,
   ListChannelsResponse,
   ListGuildsResponse,
   UpdateGuildBody,
 } from '@harmony/shared';
+import { AppError } from '../errors.js';
 import type { ChannelService } from '../channels/service.js';
 import type { GuildService } from './service.js';
 
@@ -129,6 +132,32 @@ export const guildRoutes: FastifyPluginCallbackZod<GuildRoutesOptions> = (
       schema: { params: InviteParams, response: { 200: GuildSummary } },
     },
     (request) => guilds.acceptInvite(request.user, request.params.code),
+  );
+
+  const adminOnly = (isAdmin: boolean) => {
+    if (!isAdmin) throw new AppError(403, 'forbidden', 'Instance admins only');
+  };
+
+  app.get(
+    '/admin/lobby',
+    { config: { humanOnly: true }, schema: { response: { 200: LobbyResponse } } },
+    async (request) => {
+      adminOnly(request.user.isAdmin);
+      return { guildId: await guilds.lobby() };
+    },
+  );
+
+  app.put(
+    '/admin/lobby',
+    {
+      config: { humanOnly: true },
+      schema: { body: SetLobbyBody, response: { 200: LobbyResponse } },
+    },
+    async (request) => {
+      adminOnly(request.user.isAdmin);
+      await guilds.setLobby(request.body.guildId);
+      return { guildId: request.body.guildId };
+    },
   );
   done();
 };

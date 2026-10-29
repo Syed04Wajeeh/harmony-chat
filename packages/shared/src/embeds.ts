@@ -61,7 +61,14 @@ const embedShape = <T extends z.ZodType<string>>(timestamp: T) => ({
 });
 
 /** The stored and served shape: timestamps are already normalized to ISO 8601. */
-export const Embed = z.object(embedShape(z.iso.datetime({ offset: true })));
+export const Embed = z.object({
+  ...embedShape(z.iso.datetime({ offset: true })),
+  /**
+   * Marks an invite card: the client renders the guild behind `code` with a Join button. Only the
+   * server sets it (when a member sends invites), so it is not part of `EmbedInput`.
+   */
+  invite: z.object({ code: z.string().min(1).max(64) }).optional(),
+});
 export type Embed = z.infer<typeof Embed>;
 
 /** What senders may submit; accepts Uptime Kuma's timestamp format and normalizes it. */

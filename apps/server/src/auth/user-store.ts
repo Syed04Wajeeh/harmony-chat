@@ -1,4 +1,4 @@
-import { sql, type Kysely, type Selectable } from 'kysely';
+import { sql, type ExpressionBuilder, type Kysely, type Selectable } from 'kysely';
 import type { DirectoryUser, Me, UserStatus } from '@harmony/shared';
 import type { Database } from '../db/schema.js';
 import { addGuildMember, createGuildWithGeneral } from '../guilds/membership.js';
@@ -109,9 +109,50 @@ export class UserStore {
     return rows.map(toDirectoryUser);
   }
 
+  /** Everyone who has signed in to this instance, a page at a time. Bots only when asked for. */
+  async directory(query: {
+    q?: string | undefined;
+    kind: 'human' | 'bot';
+    limit: number;
+    offset: number;
+  }): Promise<{ users: DirectoryUser[]; total: number }> {
+    // `%` and `_` are plain characters in a search box.
+    const pattern = query.q ? `%${query.q.replace(/[\\%_]/g, '\\$&')}%` : null;
+    const where = (eb: ExpressionBuilder<Database, 'users'>) =>
+      eb.and([
+        eb('users.kind', '=', query.kind),
+        ...(pattern
+          ? [
+              eb.or([
+                eb('users.display_name', 'ilike', pattern),
+                eb('users.login', 'ilike', pattern),
+              ]),
+            ]
+          : []),
+      ]);
+    const [rows, count] = await Promise.all([
+      this.db
+        .selectFrom('users')
+        .selectAll()
+        .where(where)
+        .orderBy(sql`lower(display_name)`)
+        .orderBy('id')
+        .limit(query.limit)
+        .offset(query.offset)
+        .execute(),
+      this.db
+        .selectFrom('users')
+        .select((eb) => eb.fn.countAll<string>().as('n'))
+        .where(where)
+        .executeTakeFirstOrThrow(),
+    ]);
+    return { users: rows.map(toDirectoryUser), total: Number(count.n) };
+  }
+
   /**
-   * The first user ever created becomes admin; new users join the default guild. Both happen in the
-   * insert transaction, under an advisory lock so "no users yet" cannot be observed twice.
+   * The first user ever created becomes admin and gets a starter guild; later users join only the
+   * lobby guild (`is_default`), if an admin chose one. All of it happens in the insert transaction,
+   * under an advisory lock so "no users yet" cannot be observed twice.
    */
   private async upsert(identity: Identity): Promise<Selectable<Database['users']>> {
     let joinedGuildId: string | undefined;
@@ -131,17 +172,17 @@ export class UserStore {
       const row = rows[0];
       if (!row) throw new Error('user upsert returned no row');
       if (row.inserted) {
-        // Newcomers land in the default guild. The very first user also creates it.
-        const fallback = await trx
+        const lobby = await trx
           .selectFrom('guilds')
           .select('id')
           .where('is_default', '=', true)
           .executeTakeFirst();
-        if (fallback) {
-          await addGuildMember(trx, fallback.id, row.id);
-          joinedGuildId = fallback.id;
+        if (lobby) {
+          await addGuildMember(trx, lobby.id, row.id);
+          joinedGuildId = lobby.id;
         } else if (row.is_admin) {
-          joinedGuildId = (await createGuildWithGeneral(trx, 'Harmony', row.id, true)).guildId;
+          // So a fresh install is not empty; an ordinary guild, not the lobby.
+          joinedGuildId = (await createGuildWithGeneral(trx, 'Harmony', row.id)).guildId;
         }
       }
       return row;

@@ -11,7 +11,6 @@ import {
   createChannel,
   createGuild,
   createInfra,
-  ensureDefaultGuild,
   ensureUser,
   insertMessages,
   settle,
@@ -36,7 +35,6 @@ describe('membership and authorization', () => {
   beforeAll(async () => {
     infra = createInfra();
     target = await infra.startApp({ MESSAGE_RATE_MAX: '1000', RATE_LIMIT_MAX: '10000' });
-    await ensureDefaultGuild(infra.db);
   });
 
   afterAll(async () => {
@@ -94,16 +92,6 @@ describe('membership and authorization', () => {
     expect(res.status).toBe(404);
   });
 
-  it('lands new users in the default guild with its channels', async () => {
-    const login = unique('newbie');
-    const channels = (await api(target, login)('/api/channels')).body as {
-      channels: ChannelSummary[];
-    };
-    expect(channels.channels.map((c) => c.name)).toContain('general');
-    const guilds = (await api(target, login)('/api/guilds')).body as { guilds: { name: string }[] };
-    expect(guilds.guilds.map((g) => g.name)).toContain('Harmony');
-  });
-
   describe('first user becomes admin atomically', () => {
     it('promotes exactly one of several simultaneous first logins', async () => {
       const postgres = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -125,10 +113,11 @@ describe('membership and authorization', () => {
           .selectFrom('channel_members')
           .select((eb) => eb.fn.countAll<string>().as('n'))
           .executeTakeFirstOrThrow();
-        expect(Number(counts.n)).toBe(6);
+        // Only the first user's starter guild exists; nobody else joined anything.
+        expect(Number(counts.n)).toBe(1);
         const guilds = await db.selectFrom('guilds').selectAll().execute();
         expect(guilds).toHaveLength(1);
-        expect(guilds[0]).toMatchObject({ name: 'Harmony', is_default: true });
+        expect(guilds[0]).toMatchObject({ name: 'Harmony', is_default: false });
         expect(users.find((u) => u.id === guilds[0]?.owner_id)?.isAdmin).toBe(true);
         const later = await new UserStore(db).resolve({
           login: 'later@example.com',
@@ -344,8 +333,18 @@ describe('membership and authorization', () => {
       expect(
         (await call('/api/dms', { method: 'POST', body: { userId: '999999999' } })).status,
       ).toBe(404);
-      const stranger = await ensureUser(infra.db, unique('stranger'));
-      expect((await call('/api/dms', { method: 'POST', body: { userId: stranger } })).status).toBe(
+      // Bots can only be reached from a guild they are in; people can be reached from anywhere.
+      const bot = await infra.db
+        .insertInto('users')
+        .values({
+          login: `lonely-${Math.random().toString(36).slice(2, 8)}@bots.harmony.invalid`,
+          display_name: 'Lonely bot',
+          avatar_url: null,
+          kind: 'bot',
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      expect((await call('/api/dms', { method: 'POST', body: { userId: bot.id } })).status).toBe(
         403,
       );
       const dms = (await call('/api/dms')).body as { channels: ChannelSummary[] };
