@@ -29,28 +29,25 @@ describe('bot schedules', () => {
   let infra: Infra;
   /** No scheduler loop: REST behaviour and manual ticks. */
   let quiet: TestApp;
-  /** Two instances that both run the scheduler, with the shortest interval allowed. */
+  /**
+   * Two instances that both run the scheduler, with the shortest interval allowed. They exist only
+   * while the delivery tests run: a ticking instance claims every due row in the shared database,
+   * so alongside the claiming tests it would steal rows between `makeDue` and their manual tick.
+   */
   let a: TestApp;
   let b: TestApp;
+  const baseEnv = {
+    PANEL_COALESCE_MS: '0',
+    PANEL_RATE_MAX: '1000',
+    MESSAGE_RATE_MAX: '1000',
+    OUTBOUND_PRIVATE_ALLOWLIST: '127.0.0.1',
+  };
   const receivers: Receiver[] = [];
   const sockets: TestSocket[] = [];
 
   beforeAll(async () => {
     infra = createInfra();
-    const env = {
-      PANEL_COALESCE_MS: '0',
-      PANEL_RATE_MAX: '1000',
-      MESSAGE_RATE_MAX: '1000',
-      OUTBOUND_PRIVATE_ALLOWLIST: '127.0.0.1',
-    };
-    quiet = await infra.startApp(env);
-    const ticking = {
-      ...env,
-      SCHEDULER_TICK_MS: '100',
-      SCHEDULE_MIN_EVERY_SECONDS: '1',
-      INTERACTION_DEADLINE_MS: '1500',
-    };
-    [a, b] = await Promise.all([infra.startApp(ticking), infra.startApp(ticking)]);
+    quiet = await infra.startApp(baseEnv);
   });
   afterEach(async () => {
     await Promise.all(sockets.splice(0).map((socket) => socket.close()));
@@ -403,6 +400,19 @@ describe('bot schedules', () => {
   });
 
   describe('delivery', () => {
+    beforeAll(async () => {
+      const ticking = {
+        ...baseEnv,
+        SCHEDULER_TICK_MS: '100',
+        SCHEDULE_MIN_EVERY_SECONDS: '1',
+        INTERACTION_DEADLINE_MS: '1500',
+      };
+      [a, b] = await Promise.all([infra.startApp(ticking), infra.startApp(ticking)]);
+    });
+    afterAll(async () => {
+      await Promise.all([a.app.close(), b.app.close()]);
+    });
+
     it('sends a signed refresh to the interactions URL, once, across two running instances', async () => {
       const receiver = await receiverFor();
       const w = await world({ interactionsUrl: `${receiver.url}/interactions` });

@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { DevApi } from './support/dev-api.js';
 import { emojiPng, scenePng } from './support/png.js';
@@ -334,23 +335,64 @@ test('desktop', async ({ browser }) => {
   await invite.context.close();
 });
 
+/**
+ * The outbox worker is a separate process in a real deployment and the dev server does not start
+ * one, so the shots that need delivery results start it themselves unless one is already running.
+ */
+function startWorker(): ChildProcess {
+  const worker = spawn('pnpm', ['--filter', '@harmony/server', 'exec', 'tsx', 'src/worker.ts'], {
+    env: {
+      ...process.env,
+      NODE_ENV: 'development',
+      DATABASE_URL: process.env['DATABASE_URL'] ?? 'postgres://harmony:dev@127.0.0.1:15432/harmony',
+      REDIS_URL: process.env['REDIS_URL'] ?? 'redis://127.0.0.1:16379',
+      OUTBOUND_PRIVATE_ALLOWLIST: 'localhost,127.0.0.1',
+      HEARTBEAT_FILE: path.join(os.tmpdir(), `harmony-shots-worker-${String(process.pid)}`),
+      WORKER_POLL_MS: '500',
+      DELIVERY_BACKOFF_BASE_MS: '500',
+      LOG_LEVEL: 'warn',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+  });
+  worker.stderr?.on('data', (chunk: Buffer) => console.log(`worker: ${chunk.toString().trim()}`));
+  return worker;
+}
+
+/** `pnpm` and `tsx` sit between us and the node process, so signal the whole group. */
+function stopWorker(worker: ChildProcess | undefined) {
+  if (worker?.pid) {
+    try {
+      process.kill(-worker.pid, 'SIGTERM');
+    } catch {
+      // already gone
+    }
+  }
+}
+
 test.describe('integrations', () => {
   let home: IntegrationsSeed;
+  let worker: ChildProcess | undefined;
 
   test.beforeAll(async () => {
+    test.setTimeout(120_000);
+    worker = startWorker();
     const { ada, linus, grace } = seeded.api;
     home = await seedIntegrations(baseURL, ada, [linus, grace]);
     await generateEvents(ada, home.channels.general, 6);
     // The worker delivers events in the background (`tsx src/worker.ts`); wait for its first results.
     await expect
       .poll(async () => (await ada.deliveries(home.botId)).some((d) => d.status === 'failed'), {
-        timeout: 30_000,
+        timeout: 60_000,
         message: 'no failed delivery: is the worker running?',
       })
       .toBe(true);
   });
 
-  test.afterAll(async () => home.stop());
+  test.afterAll(async () => {
+    stopWorker(worker);
+    await home.stop();
+  });
 
   const forms = [
     ['mobile', PHONE],

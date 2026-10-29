@@ -1,6 +1,6 @@
 # Harmony
 
-A self-hosted team chat with servers, channels, DMs, roles, polls and a bot API. Sign-in is your Tailscale identity, so there are no passwords, and it runs as two app instances over Redis pub/sub.
+A self-hosted team chat with servers, channels, DMs, roles, polls, a bot and webhook platform, and an AI agent hub. Sign-in is your Tailscale identity, so there are no passwords, and it runs as two app instances over Redis pub/sub.
 
 [![CI](https://github.com/Syed04Wajeeh/harmony-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/Syed04Wajeeh/harmony-chat/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -21,11 +21,17 @@ A self-hosted team chat with servers, channels, DMs, roles, polls and a bot API.
     <td><img src="docs/screenshots/desktop-profile-popover.png" alt="Profile card"><br><sub>Profile card</sub></td>
     <td><img src="docs/screenshots/desktop-delivery-log.png" alt="Bot event delivery log"><br><sub>Bot delivery log</sub></td>
   </tr>
+  <tr>
+    <td><img src="docs/screenshots/desktop-dashboard.png" alt="A dashboard channel with stats, a chart, a status list and buttons"><br><sub>Dashboard channel</sub></td>
+    <td><img src="docs/screenshots/desktop-agent-run.png" alt="A live agent run panel waiting for approval, with a Cancel button"><br><sub>Agent run panel</sub></td>
+    <td><img src="docs/screenshots/desktop-agent-approval.png" alt="An approval request message with Approve and Deny buttons"><br><sub>Approval request</sub></td>
+    <td><img src="docs/screenshots/mobile-dashboard.png" alt="The dashboard on a phone" width="200"><br><sub>Dashboard on a phone</sub></td>
+  </tr>
 </table>
 
 ## What it is
 
-Harmony is a chat server for a small group, such as a family, a team or a homelab. People sign in with the Tailscale identity their device already has; the app checks it behind a reverse proxy and never stores a password. It has the usual features (servers, public and private channels, DMs, replies, reactions, mentions, search, uploads, unread counts, presence) plus roles, per-user themes, a bot and webhook platform, and an optional desktop app. It was built to learn and to show the engineering around a realtime system: scaling it out, measuring it, and writing down what is trusted and why.
+Harmony is a chat server for a small group, such as a family, a team or a homelab. People sign in with the Tailscale identity their device already has; the app checks it behind a reverse proxy and never stores a password. It has the usual features (servers, public and private channels, DMs, replies, reactions, mentions, search, uploads, unread counts, presence) plus roles, per-user themes, a bot and webhook platform with dashboards, an agent hub, and an optional desktop app. It was built to learn and to show the engineering around a realtime system: scaling it out, measuring it, and writing down what is trusted and why.
 
 ## Highlights
 
@@ -36,11 +42,17 @@ Harmony is a chat server for a small group, such as a family, a team or a homela
    - _Regression:_ adding roles dropped a 900 msg/s run to 741 to 815.6 msg/s with p50 around 1 s, with an unchanged statement count and a good `EXPLAIN ANALYZE`. A/B runs against `main` and `pg_stat_statements` with planning time on showed the extra joins in one query cost 1.361 ms of planning per send (the driver sends it unprepared). Serving nicknames from the permission cache restored 897.2 to 898.1 msg/s at p95 11 to 12 ms.
    - _Presence:_ broadcasting presence to every socket was quadratic. Scoping it to guilds and DMs and batching it over one second took 10,000 concurrent connections from stopping at 5,151 (1.00 % failures, handshake p95 10,995 ms) to 10,000 connected with 0 failures (handshake p95 29 ms), and presence frames received from 96,328/s to 2,942/s.
    - All of these are one host with the load generator on the same machine; conditions are in [docs/performance.md](docs/performance.md).
-4. **A bot and integration platform.** Bots are users with scoped tokens (only a hash is stored). Incoming webhooks accept Discord's payload, checked against Uptime Kuma's source ([recipe](examples/uptime-kuma.md)), and convert Forgejo, GitHub, Alertmanager, Grafana, Watchtower or any JSON through presets and safe declarative templates, with optional signature checks and a live preview ([guide](docs/integrations.md#webhook-presets-and-templates)). Slash commands go to the bot as signed requests (HMAC with a timestamp inside the MAC). Outgoing events use a transactional outbox with at-least-once, retried delivery (exponential backoff with jitter, then `dead`). Requests to user-supplied URLs go through an SSRF guard that pins the resolved address. [API](docs/api/protocol.md), [security](docs/security/trust-model.md#bots-and-integrations), [ingress](docs/integrations.md), [echo bot](examples/echo-bot/README.md). **Gateway bots**: a bot with no URL connects out over the WebSocket and receives slash commands, button clicks and numbered, acknowledged, resumable events, so it can run anywhere that can reach Harmony ([guide](docs/integrations.md#building-a-gateway-bot)). **Panels and buttons**: bots publish declarative dashboards (stats, charts, tables, status lists, buttons) into dashboard channels or pinned above a text channel, rendered natively with theme tokens ([guide](docs/integrations.md#panels-and-buttons)). An [MCP server](packages/mcp/README.md) lets agents such as Claude Code read, post and ask people questions through a bot token. **Bot channels**: managers assign bots to a channel (header chips, their commands first) and can make it a bot feed where only bots and moderators post; bots register schedules (interval or cron) and get a signed `refresh` to update their panels ([guide](docs/integrations.md#scheduling-refreshes)). **Agent hub**: agents ask for approval with Approve/Deny buttons, show live run panels with a Cancel button, and Claude Code hooks route risky commands to a person; bot-to-bot loops are capped ([guide](docs/agents.md)).
-5. **A module system.** Reactions, pins, search, uploads, polls, custom emoji and a coin flip are modules: a folder that registers routes, WebSocket frames, slash commands, migrations, message data and settings through a typed context, with a test that the send path costs the same with and without them. Polls are the vertical-slice example (server, tables, UI). [Modules](docs/modules.md).
-6. **Roles and permissions.** Roles with positions, per-channel overwrites, and one pure function shared by server and client tests to resolve them, with a worked example and hierarchy rules. [Permissions](docs/permissions.md).
-7. **Customization.** Themes are validated data over an allowlist of tokens, with a contrast checker and auto-fix; custom CSS is opt-in and sanitized on both server and client; plus profiles, custom emoji, server branding and admin-granted perks. [Customization](docs/customization.md), [theming](docs/theming.md).
-8. **A desktop app.** Tauri v2 shell that loads your server's own origin, so identity and Origin checks are unchanged. Its IPC capability for your server is a short, fixed list (notify, set badge, window controls for the custom Windows title bar, disconnect). [Desktop](apps/desktop/README.md), [bridge security](docs/security/trust-model.md#desktop-app).
+4. **A bot and integration platform.** Bots are users with scoped tokens (only a hash is stored).
+   - _Webhooks:_ incoming webhooks accept Discord's payload (checked against Uptime Kuma's source, [recipe](examples/uptime-kuma.md)) and convert Forgejo, GitHub, Alertmanager, Grafana, Watchtower or any JSON through presets and safe declarative templates, with optional signature checks and a live preview ([guide](docs/integrations.md#webhook-presets-and-templates)).
+   - _Commands and events:_ slash commands reach a bot as signed requests (HMAC with the timestamp inside the MAC); outgoing events use a transactional outbox with at-least-once, retried delivery (exponential backoff with jitter, then `dead`). A bot with no URL is a gateway bot: it connects out over the WebSocket and receives commands, button clicks and numbered, acknowledged, resumable events ([guide](docs/integrations.md#building-a-gateway-bot)). Requests to user-supplied URLs go through an SSRF guard that pins the resolved address.
+   - _Dashboards:_ bots publish declarative panels (stats, charts, tables, status lists, buttons) into dashboard channels or pinned above a text channel, rendered natively with theme tokens ([guide](docs/integrations.md#panels-and-buttons)).
+   - _Bot channels:_ managers assign bots to a channel and can make it a bot feed where only bots and moderators post; bots register interval or cron schedules and get a signed `refresh` to update their panels ([guide](docs/integrations.md#scheduling-refreshes)).
+   - Reference: [API](docs/api/protocol.md), [security](docs/security/trust-model.md#bots-and-integrations), [ingress](docs/integrations.md), [echo bot](examples/echo-bot/README.md), [homelab bot](examples/homelab-bot/README.md) (Docker, game servers and monitors behind a locked-down socket proxy).
+5. **An AI agent hub.** An [MCP server](packages/mcp/README.md) lets agents such as Claude Code read, post and ask people questions through a bot token. Agents request approval with Approve and Deny buttons, show live run panels with a Cancel button, and a Claude Code hook routes risky commands to a person; bot-to-bot reply chains are capped. [Guide](docs/agents.md).
+6. **A module system.** Reactions, pins, search, uploads, polls, custom emoji and a coin flip are modules: a folder that registers routes, WebSocket frames, slash commands, migrations, message data and settings through a typed context, with a test that the send path costs the same with and without them. Polls are the vertical-slice example (server, tables, UI). [Modules](docs/modules.md).
+7. **Roles and permissions.** Roles with positions, per-channel overwrites, and one pure function shared by server and client tests to resolve them, with a worked example and hierarchy rules. [Permissions](docs/permissions.md).
+8. **Customization.** Themes are validated data over an allowlist of tokens, with a contrast checker and auto-fix; custom CSS is opt-in and sanitized on both server and client; plus profiles, custom emoji, server branding and admin-granted perks. [Customization](docs/customization.md), [theming](docs/theming.md).
+9. **A desktop app.** Tauri v2 shell that loads your server's own origin, so identity and Origin checks are unchanged. Its IPC capability for your server is a short, fixed list (notify, set badge, window controls for the custom Windows title bar, disconnect). [Desktop](apps/desktop/README.md), [bridge security](docs/security/trust-model.md#desktop-app).
 
 ## Architecture
 
@@ -142,12 +154,12 @@ Open http://localhost:5173. In development a `dev_login=name@example.com` cookie
 
 ### Tests
 
-| Command                 | Covers                                                                                                                                                                                            | Count                                          |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| `pnpm test:unit`        | Pure logic, permissions, theme and CSS sanitizing, SSRF rules, the web store and components (Vitest, Testing Library), desktop page                                                               | 1051 (716 server, 265 web, 27 desktop, 43 mcp) |
-| `pnpm test:integration` | Real Postgres, Redis and nginx via Testcontainers (needs Docker): migrations, REST, the hub with two instances, webhooks, bots, the worker, modules                                               | 403                                            |
-| `pnpm test:e2e`         | Playwright against the dev stack: two users, mobile drawer and long-press sheet, uploads, polls, roles, profiles, webhooks, bots; needs `playwright install chromium`                             | specs in `apps/web/e2e`, run in CI             |
-| `pnpm load:test`        | k6 and Node scripts against an isolated two-instance stack (`pnpm load:up` first, `pnpm load:down` after); also `pnpm load:failover`. Steps: [docs/performance.md](docs/performance.md#reproduce) | see [performance](docs/performance.md)         |
+| Command                 | Covers                                                                                                                                                                                            | Count                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `pnpm test:unit`        | Pure logic, permissions, theme and CSS sanitizing, SSRF rules, the web store and components (Vitest, Testing Library), desktop page                                                               | 1172 (732 server, 276 web, 27 desktop, 74 mcp, 63 homelab bot) |
+| `pnpm test:integration` | Real Postgres, Redis and nginx via Testcontainers (needs Docker): migrations, REST, the hub with two instances, webhooks, bots, the worker, modules                                               | 470                                                            |
+| `pnpm test:e2e`         | Playwright against the dev stack: two users, mobile drawer and long-press sheet, uploads, polls, roles, profiles, webhooks, bots; needs `playwright install chromium`                             | specs in `apps/web/e2e`, run in CI                             |
+| `pnpm load:test`        | k6 and Node scripts against an isolated two-instance stack (`pnpm load:up` first, `pnpm load:down` after); also `pnpm load:failover`. Steps: [docs/performance.md](docs/performance.md#reproduce) | see [performance](docs/performance.md)                         |
 
 The unit and integration counts are from running both commands on this checkout. CI also runs `pnpm lint`, `pnpm typecheck`, `pnpm build`, a link check (`node scripts/check-links.mjs`), a Docker image build, and the desktop app's `cargo fmt`, `clippy` and `cargo test`.
 
@@ -182,7 +194,9 @@ scripts/       deploy.sh, check-links.mjs
 | [docs/permissions.md](docs/permissions.md)                     | Roles, overwrites, resolution order, hierarchy                                                                                                        |
 | [docs/theming.md](docs/theming.md)                             | Design tokens, themes as data, custom CSS                                                                                                             |
 | [docs/customization.md](docs/customization.md)                 | What users, server managers and admins can change                                                                                                     |
-| [docs/integrations.md](docs/integrations.md)                   | The machine ingress for webhooks and bots                                                                                                             |
+| [docs/integrations.md](docs/integrations.md)                   | The machine ingress, webhook presets and templates, gateway bots, panels, schedules                                                                   |
+| [docs/agents.md](docs/agents.md)                               | The MCP server, approvals, run panels, the Claude Code hook and bot loop limits                                                                       |
+| [CHANGELOG.md](CHANGELOG.md)                                   | What changed in each release, with migration notes                                                                                                    |
 | [examples/](examples/uptime-kuma.md)                           | [Uptime Kuma](examples/uptime-kuma.md), [echo bot](examples/echo-bot/README.md), [homelab bot](examples/homelab-bot/README.md), `post-from-script.sh` |
 | [apps/desktop/README.md](apps/desktop/README.md)               | Building, releasing and signing the desktop app                                                                                                       |
 | [NOTES.md](NOTES.md)                                           | Dated design decisions with rejected alternatives, measured results, problems solved                                                                  |
@@ -207,10 +221,12 @@ The installers are not code-signed. Windows SmartScreen shows "Unknown publisher
 
 ## Roadmap
 
-- Maintained unread counters, if the measured unread cost starts to matter.
-- Measure presence for DMs and delivery to larger channels under load; neither was part of the load worlds.
-- Code-signing for the desktop installers.
+- SDKs and a CLI for bots and scripts.
+- A developer console and an OpenAPI description of the REST API.
+- ChatOps workflows.
+- Sandboxed scripting (webhook templates are data only today).
 - Voice and video.
+- Maintained unread counters, if the measured unread cost starts to matter.
 
 ## License
 

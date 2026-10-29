@@ -35,6 +35,13 @@ export const DashboardIcon = (p: P) => (
     <rect x="4" y="14" width="7" height="6" rx="1.5" />
   </Icon>
 );
+export const FeedIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M5 12a7 7 0 0 1 14 0M8.5 12a3.5 3.5 0 0 1 7 0" />
+    <circle cx="12" cy="12" r="1" />
+    <path d="M12 13v7" />
+  </Icon>
+);
 export const LockIcon = (p: P) => (
   <Icon {...p}>
     <rect x="5" y="11" width="14" height="10" rx="2" />
