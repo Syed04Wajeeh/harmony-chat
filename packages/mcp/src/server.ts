@@ -18,5 +18,7 @@ export function createHarmonyMcpServer(config: Config): McpServer {
   );
   const client = new HarmonyClient({ url: config.url, token: config.token });
   registerTools(server, createTools(client, config));
+  // The client went away: nothing is left to wait for, so drop the gateway socket at once.
+  server.server.onclose = () => client.closeGateway();
   return server;
 }

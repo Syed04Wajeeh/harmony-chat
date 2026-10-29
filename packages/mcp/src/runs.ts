@@ -370,8 +370,8 @@ export class RunManager {
   private release(run: Run): void {
     const hold = this.holds.get(run.id);
     this.holds.delete(run.id);
-    // A moment later: the answer to the click that ended the run still has to leave the socket.
-    if (hold) setTimeout(hold, 1000).unref();
+    // The gateway socket closes a moment after the last hold goes, so this click's answer leaves first.
+    hold?.();
   }
 
   /** A person pressed Cancel: stop the run, tell everything waiting on it, show it on the panel. */

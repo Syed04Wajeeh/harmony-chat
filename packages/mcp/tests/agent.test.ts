@@ -149,6 +149,56 @@ describe('agent hub tools', () => {
     });
   });
 
+  describe('one gateway socket', () => {
+    it('is shared by concurrent waits, a pending approval and a run with Cancel', async () => {
+      const upgradesBefore = fake.wsHeaders.length;
+      await call(client, 'start_run', { title: 'Shared socket' });
+      const approval = call(client, 'request_approval', { title: 'Push', timeoutSeconds: 30 });
+      const first = call(client, 'wait_for_reply', { channel: '11', timeoutSeconds: 30 });
+      const second = call(client, 'wait_for_reply', { channel: '12', timeoutSeconds: 30 });
+      const third = call(client, 'wait_for_reply', { channel: '12', timeoutSeconds: 30 });
+      const message = await until(approvalMessage);
+      await sleep(200);
+      expect(fake.socketCount).toBe(1);
+      expect(fake.wsHeaders.length - upgradesBefore).toBe(1);
+
+      // Replies reach every waiter, and the click is answered, all on that one socket.
+      fake.post('11', ADA, 'one');
+      fake.post('12', ADA, 'two');
+      expect((await first).data).toMatchObject({ status: 'replied' });
+      expect((await second).data).toMatchObject({ status: 'replied' });
+      expect((await third).data).toMatchObject({ status: 'replied' });
+      expect(fake.socketCount).toBe(1);
+      await fake.click({ messageId: message.id }, 'approve');
+      expect((await approval).data).toMatchObject({ decision: 'approved' });
+      expect(fake.wsHeaders.length - upgradesBefore).toBe(1);
+      await call(client, 'finish_run', { status: 'done' });
+      await until(() => fake.socketCount === 0);
+    });
+
+    it('resumes after a drop: a missed reply is backfilled, a click in the gap is unreachable, the approval keeps waiting', async () => {
+      const upgradesBefore = fake.wsHeaders.length;
+      const approval = call(client, 'request_approval', { title: 'Gap', timeoutSeconds: 30 });
+      const waiting = call(client, 'wait_for_reply', { channel: '11', timeoutSeconds: 30 });
+      const message = await until(approvalMessage);
+      await sleep(200);
+      fake.dropSockets();
+      const missed = fake.postQuietly('11', ADA, 'sent during the gap');
+      expect(await fake.click({ messageId: message.id }, 'approve')).toEqual({ unreachable: true });
+
+      const reply = await waiting;
+      expect(reply.data).toMatchObject({ status: 'replied' });
+      expect((reply.data?.message as { id: string }).id).toBe(missed.id);
+      // The approval was not lost with the socket; once reconnected the same click works.
+      await until(() => fake.socketCount === 1, 8000);
+      expect(fake.wsHeaders.length - upgradesBefore).toBe(2);
+      expect(await fake.click({ messageId: message.id }, 'approve')).toMatchObject({
+        response: { ephemeral: true },
+      });
+      expect((await approval).data).toMatchObject({ decision: 'approved' });
+    }, 15_000);
+  });
+
   describe('runs', () => {
     const latest = () => {
       const row = [...fake.panels.values()].at(-1);

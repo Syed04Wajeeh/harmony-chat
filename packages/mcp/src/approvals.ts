@@ -192,7 +192,7 @@ export class Approvals {
   }
 }
 
-export function personOf(interaction: InteractionPayload): Person {
+export function personOf(interaction: Extract<InteractionPayload, { type: 'action' }>): Person {
   return {
     id: interaction.user.id,
     login: interaction.user.login,

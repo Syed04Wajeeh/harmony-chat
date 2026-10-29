@@ -14,6 +14,7 @@ describe('HarmonyClient.waitForMessage', () => {
     await fake.stop();
   });
   afterEach(() => {
+    client.closeGateway();
     fake.refuseWebSocket = false;
     fake.messages.clear();
   });

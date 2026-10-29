@@ -20,6 +20,8 @@ Harmony as a control plane for AI agents: an agent works through a bot, people s
 
 **Claude Code.** `harmony-hook` (second bin of the MCP package) turns Claude Code's own `PreToolUse`, `Notification` and `Stop` hooks into the same flow: a `git push` or `rm -rf` becomes an approval message, and the person's click becomes the hook's `allow` or `deny`. It fails safe to `ask` (Claude Code's normal terminal prompt) on any error and never runs past a hard timeout. Setup and the verified hook schema are in the [package README](../packages/mcp/README.md#claude-code-hook-harmony-hook).
 
+**One connection per process.** The MCP server keeps one WebSocket to Harmony for waits, approvals and Cancel together (reconnecting, resubscribing and catching up after a drop). The hook is short-lived and opens its own for each approval, and Harmony delivers a click to a bot's newest connection, so keep **one approval-waiting process per bot** at a time; give concurrent Claude Code sessions their own bots.
+
 ## Agent-to-agent safety
 
 Bots reading each other's messages can loop. Harmony limits this on the server, in the bot path of the message service, so the human send path is unchanged (still six statements, `modules-hotpath.test.ts`):
