@@ -283,6 +283,38 @@ Residual risk: an admin's bot can reach allowlisted internal services with fixed
 POSTs, which is the point of the allowlist. Responses are not shown to users beyond the
 delivery log's status code and a short error string.
 
+### Gateway delivery: bots that connect out
+
+A bot with no `interactionsUrl` / `eventsUrl` is served over its own WebSocket instead of by a
+request from the server.
+
+- **Authentication** is the bot token on the upgrade, exactly as for REST: the token alone decides,
+  Tailscale headers and the Origin are ignored, a wrong token is `401`. Interactions and events are
+  only ever published to the connection of the bot they belong to (the topic is a random per-connection
+  id that is never shown to anyone), and the interaction `token` in a response is checked against the
+  stored hash and the answering bot, so one bot cannot answer another's interaction even if it learned
+  an id.
+- **Scopes still decide.** `interaction.respond` needs `commands`; `event.ack` and `resume` need
+  `events`; events of messages and reactions still need `messages.read`, and channel membership still
+  decides what a bot hears, as on the HTTP path. People cannot send gateway frames (`bot_only`).
+- **Why no URL is safer.** The server makes no outbound request on the bot's behalf, so there is no
+  SSRF surface for that half (no URL to validate, resolve, pin or allowlist, and no allowlist entry that
+  widens what an admin's bot can reach), and the bot opens no inbound port, so nothing is exposed to the
+  tailnet or the internet and nothing needs the signing secret. The HTTP mode keeps its guard
+  unchanged.
+- **What it does not remove.** The token is still a bearer credential: anyone holding it can connect as
+  the bot, take the interactions (it receives the interaction token) and read the events its scopes
+  allow. Rotating the token ends use of the old one on the next connection, but a socket that is
+  already open stays open until it closes (as with a REST request in flight); closing sockets on
+  rotation is not implemented.
+- **Resource limits.** At most 3 sockets per bot, counted in Redis across instances, a separate
+  inbound frame budget, 16 KiB per frame, a pending-interaction marker in Redis that expires with the
+  deadline, and an event backlog per bot that is capped and aged out. A bot that connects and never
+  answers costs the invoker one deadline; one that never connects costs nothing, because the server
+  fails the invocation immediately.
+- **Redis is trusted.** Presence and routing live in Redis, like every other realtime delivery; anyone
+  who can write to Redis could redirect frames, but Redis publishes no ports.
+
 ### Webhook and interaction endpoints are unauthenticated by design
 
 `POST /api/webhooks/:id/:token` and `POST /api/interactions/:id/:token/followup` skip the
