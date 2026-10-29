@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { Id } from './chat.js';
 import { MessageComponents, PanelSlug } from './components.js';
-import { EmbedsInput } from './embeds.js';
+import { Embed, EmbedsInput } from './embeds.js';
 import { PanelView } from './panels.js';
+import { MAX_WEBHOOK_CONTENT, MAX_WEBHOOK_SECRET, WebhookFormat } from './webhook-format.js';
+import { WebhookTemplate } from './webhook-template.js';
 
 export const BOT_SCOPES = [
   'messages.read',
@@ -29,7 +31,6 @@ export const EventType = z.enum(EVENT_TYPES);
 export type EventType = z.infer<typeof EventType>;
 
 export const BOT_NAME_MAX = 32;
-export const MAX_WEBHOOK_CONTENT = 2000;
 export const MAX_BOT_RESPONSE_CONTENT = 4000;
 
 const BotName = z.string().trim().min(1).max(BOT_NAME_MAX);
@@ -291,17 +292,46 @@ export const Webhook = z.object({
   channelId: Id,
   name: z.string(),
   avatarUrl: z.string().nullable(),
+  format: WebhookFormat,
+  template: WebhookTemplate.nullable(),
+  /** Whether a signature secret is set. The secret itself is never served. */
+  hasSecret: z.boolean(),
   createdBy: Id,
   createdAt: z.iso.datetime(),
 });
 export type Webhook = z.infer<typeof Webhook>;
 export const CreatedWebhook = Webhook.extend({ url: z.string() });
 export const ListWebhooksResponse = z.object({ webhooks: z.array(Webhook) });
+const WebhookSecret = z.string().trim().min(8).max(MAX_WEBHOOK_SECRET);
+const WebhookFormatFields = z.object({
+  format: WebhookFormat.optional(),
+  template: WebhookTemplate.nullable().optional(),
+  /** HMAC secret for senders that sign (GitHub, Forgejo); null removes it. */
+  secret: WebhookSecret.nullable().optional(),
+});
 export const CreateWebhookBody = z.object({
   name: WebhookName,
   avatarAttachmentId: z.uuid().optional(),
+  ...WebhookFormatFields.shape,
 });
 export type CreateWebhookBody = z.infer<typeof CreateWebhookBody>;
+export const UpdateWebhookBody = WebhookFormatFields.extend({ name: WebhookName.optional() });
+export type UpdateWebhookBody = z.infer<typeof UpdateWebhookBody>;
+/** Renders a sample without posting. `format` and `template` default to the saved ones. */
+export const PreviewWebhookBody = z.object({
+  body: z.unknown(),
+  headers: z.record(z.string().max(100), z.string().max(1000)).optional(),
+  format: WebhookFormat.optional(),
+  template: WebhookTemplate.optional(),
+});
+export type PreviewWebhookBody = z.infer<typeof PreviewWebhookBody>;
+export const PreviewWebhookResponse = z.object({
+  /** Null when the preset or template yields nothing to post (the live endpoint answers 204). */
+  message: z
+    .object({ content: z.string(), embeds: z.array(Embed), username: z.string().optional() })
+    .nullable(),
+});
+export type PreviewWebhookResponse = z.infer<typeof PreviewWebhookResponse>;
 export const WebhookParams = z.object({ id: Id });
 export const WebhookExecuteParams = z.object({ id: Id, token: z.string().min(1).max(100) });
 export const WebhookExecuteQuery = z.object({ wait: z.enum(['true', 'false']).optional() });
@@ -332,11 +362,8 @@ export const WebhookExecuteBody = z
     path: ['content'],
   });
 export type WebhookExecuteBody = z.output<typeof WebhookExecuteBody>;
-
-/** Keeps `@everyone` and `@here` from ever becoming mass pings, now or when they exist. */
-export function stripMassMentions(content: string): string {
-  return content.replace(/@(everyone|here)\b/gi, '@​$1');
-}
+/** Largest body a non-Discord webhook accepts, matching the proxy's 1m limit. */
+export const MAX_WEBHOOK_BODY_BYTES = 1_000_000;
 
 /* Event delivery */
 
