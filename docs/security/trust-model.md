@@ -485,3 +485,31 @@ to its origin by the webview.
   project's releases page.
 - The updater private key lives in GitHub Actions secrets and on the maintainer's machine; whoever
   holds it can ship an update to every installed app.
+
+## Panels and buttons
+
+**Why views are declarative.** A bot is code Harmony does not control, and a panel is shown to
+everyone in a channel. If a bot could ship HTML, CSS, an iframe or a script, it would run in the
+origin of the signed-in user, where it could use the user's session (the proxy identity and the
+same-origin API) to act as them. So a panel is data: a closed set of block types with size limits,
+validated by one zod schema on the server (`PanelView`) and rendered by Harmony's own components.
+Text is rendered as text or through the existing safe Markdown component; colors come from theme
+tokens and the chart palette, never from the bot; there are no image or link URLs in the blocks.
+A view is at most 64 KiB, a channel holds at most 20 panels, and a bot may write at most
+`PANEL_RATE_MAX` times per window.
+
+**Who may publish.** Only a bot with the `panels.write` scope that is a member of the guild and
+holds `send_messages` in the channel, and only to panels it owns (the key is per bot). People cannot
+use the publishing routes. Pinning and deleting a panel need `manage_channels` or being the
+channel's creator.
+
+**Button authorization.** A button is not a capability: the client may show a button as disabled,
+but the server decides on every click. It checks that the caller is in the channel, that the button
+exists in the panel or message _as it is now_ (a stale click on a removed button is refused), and
+the button's `requiredPermission` through the permission service. A bot cannot name a permission to
+grant itself anything; the key only restricts who may click. Clicks use the interaction pipeline of
+slash commands: the request to the bot is signed, goes through the SSRF-guarded fetch, and has a
+deadline; the interaction token only lets the bot answer that click. The bot's `update_panel`
+answer can only replace the panel the click came from, and is validated like any other write.
+Buttons on messages can only be set by bots, never by people. Residual risk: the bot sees the
+clicking user's id, login and display name, as it does for slash commands.

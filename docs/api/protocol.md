@@ -230,7 +230,9 @@ admins), archived channels excluded.
 
 ### `POST /api/guilds/:id/channels`
 
-Needs `create_channels`. Body `{ "name": "dev-chat", "topic"?: string (<=256), "isPrivate"?: boolean }`;
+Needs `create_channels`. Body `{ "name": "dev-chat", "topic"?: string (<=256), "isPrivate"?: boolean, "kind"?: "text" | "dashboard" }`
+(`kind` defaults to `text`; a `dashboard` channel shows panels instead of messages and refuses
+messages with `400 dashboard_channel`);
 `name` matches `^[a-z0-9-]{1,32}$` and is unique within the guild. Response `201` ChannelSummary.
 A public channel appears for every member who holds `view_channel` (`channel.joined`); a private one
 is created with an @everyone deny and an allow for you, and appears for you, the owner and instance
@@ -512,6 +514,96 @@ Needs `manage_messages` or `pins.pin` in the channel (@everyone has `pins.pin` b
 Members only. Response `200` `{ "messages": Message[] }`, newest pin first, at most 50.
 Pinning is provided by the `pins` module: `404 module_disabled` in guilds that switched it off.
 
+## Panels and buttons
+
+A panel is a declarative JSON view that a bot publishes into a channel. Harmony renders it itself
+with theme tokens; a view never carries HTML, CSS, scripts or URLs for styling. A guild channel of
+kind `dashboard` shows its panels instead of a message list; in a text channel the pinned panels sit
+in a strip above the messages. Guide with examples: [integrations](../integrations.md#panels-and-buttons).
+
+`Panel` = `{id, channelId, botId, key, view, version, pinned, position, createdAt, updatedAt}`.
+`version` starts at 1 and grows with every change. `PanelView` = `{title?: string (<=100), blocks: Block[] (1..24)}`,
+the whole view at most 64 KiB serialized. Every block has an optional `id` (slug, unique in the view)
+and `span` (`1`, `2` or `"full"`). Block types: `stat`, `chart`, `table`, `status`, `progress`, `kv`,
+`markdown` and `actions`; the limits are in `PANEL_LIMITS` in
+[`panels.ts`](../../packages/shared/src/panels.ts). A `Button` = `{id (slug), label (<=40), style?: primary | secondary | danger, confirm?: {title, body?, confirmLabel?}, requiredPermission?: <permission key>}`.
+
+### Bot endpoints (scope `panels.write`)
+
+The bot must be in the guild and may send messages in the channel (`send_messages`); it is the only
+writer of its own panels. People get `403 bots_only`. Per-bot limit: `PANEL_RATE_MAX` writes per
+`PANEL_RATE_WINDOW_SECONDS` (10 per second), then `429` with `Retry-After`.
+
+| Endpoint                                    | Behavior                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PUT /api/channels/:id/panels/:key`         | Body `{view, pinned?}`. Creates or replaces the bot's panel `key` (a slug); `200 Panel`, version +1. At most 20 panels per channel (`409 panel_limit`).                                                                                                                                                                                                                                    |
+| `POST /api/channels/:id/panels/:key/points` | Body `{blockId, series, points: [{x, y}] (1..100)}`. Appends to a series of the chart block `blockId` (the series is created if the chart has room), keeps the newest 500 points per series, and drops the oldest points of the longest series if the view would pass 64 KiB. Done under a row lock, so concurrent appends do not lose points. `400 invalid_chart`, `404 panel_not_found`. |
+| `DELETE /api/channels/:id/panels/:key`      | `204`; `panel.deleted` follows.                                                                                                                                                                                                                                                                                                                                                            |
+
+### User endpoints
+
+| Endpoint                       | Behavior                                                                                                                        |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/channels/:id/panels` | `{panels: Panel[]}` in display order; needs membership of the channel (`view_channel`). Bots with `channels.read` may read too. |
+| `PATCH /api/panels/:panelId`   | `{pinned}`; `manage_channels` or the channel's creator.                                                                         |
+| `DELETE /api/panels/:panelId`  | Same rule; `204`.                                                                                                               |
+
+### Frames
+
+Published on the channel topic through Redis like messages, so sockets subscribed to the channel
+get them on every instance.
+
+```json
+{ "type": "panel.updated", "channelId": "11", "panel": { "id": "4", "key": "host", "version": 7 } }
+{ "type": "panel.deleted", "channelId": "11", "panelId": "4" }
+```
+
+Rows are written at once; only the frame is coalesced. Per panel and per server instance, the first
+change in a window is sent immediately and later changes in the window are held and sent as one
+frame carrying the newest version when the window ends (`PANEL_COALESCE_MS`, default 1000, `0`
+turns it off). Clients ignore a frame whose `version` is not above the one they hold, and refetch
+the panels they have cached after a reconnect.
+
+### Buttons
+
+`POST /api/interactions/actions` (humans only; also the `action.invoke` frame) takes
+`{source: {panelId} | {messageId}, actionId, nonce?}` and answers `202 {interactionId}`. The server
+checks, in order: the rate limit (`ACTION_RATE_MAX` per `ACTION_RATE_WINDOW_SECONDS`), that the
+panel or message exists, that the caller is in the channel and may `view_channel`, that the button
+exists **in the current version** of the panel or message (`404 unknown_action`), and the button's
+`requiredPermission` if any (`403 missing_permission`). It then stores an `interactions` row with
+`type = 'action'` and calls the bot's interactions URL exactly as for a command (signed, 3 s
+deadline, deferred answers and follow-ups through the interaction token). The bot needs the
+`commands` scope for the URL to be accepted.
+
+Bots attach buttons to messages with `components: {buttons: Button[] (1..5)}` on
+`POST /api/channels/:id/messages` and in interaction answers and follow-ups. People get
+`400 components_bots_only`; the field is on `Message` as `components`.
+
+`InteractionPayload` is a union on `type`. `command` is unchanged. For `action`:
+
+```json
+{
+  "id": "5",
+  "token": "…",
+  "type": "action",
+  "action": { "id": "restart", "source": { "kind": "panel", "panelId": "4", "key": "host" } },
+  "guildId": "1",
+  "channelId": "11",
+  "user": { "id": "7", "login": "ada@example.com", "displayName": "Ada" },
+  "createdAt": "…",
+  "expiresAt": "…"
+}
+```
+
+`source` is `{ "kind": "message", "messageId": "…" }` for a button under a message. The bot answers
+with `message` (ephemeral allowed), `deferred`, or `{ "type": "update_panel", "view": PanelView }`,
+which replaces the panel it owns (valid only for panel buttons; the view is validated like a PUT).
+The caller's socket then gets `interaction.ephemeral`, `interaction.pending` or `interaction.failed`
+(with `kind: "action"`, and `command` set to the button's label), or `interaction.completed`
+(`{interactionId, channelId, nonce?}`) after a public message or a panel update, so a button can
+stop its spinner; all carry the click's `nonce`.
+
 ## Profiles, custom emoji and perks
 
 ```ts
@@ -754,6 +846,7 @@ frames the server closes the socket with code 1008. Typing pings are further thr
 | `read`           | `channelId`, `messageId`                                        | Same as `POST /channels/:id/read`. Answered with `read.updated` to all your sessions.                                          |
 | `typing`         | `channelId`                                                     | Relays `typing` to subscribers. Members only; ignored if you sent one for this channel in the last 2 seconds.                  |
 | `presence.set`   | `status` (`online`, `idle`, `dnd`, `invisible`)                 | Same as `PATCH /api/me`. No reply.                                                                                             |
+| `action.invoke`  | `source` (`{panelId}` or `{messageId}`), `actionId`, `nonce?`   | Press a button (humans only); same as `POST /api/interactions/actions`. See Panels and buttons.                                |
 | `command.invoke` | `channelId`, `name`, `options?`, `nonce?`                       | Run a slash command (humans only); the outcome arrives as a message or an `interaction.*` frame. See Slash commands.           |
 
 ```json
@@ -909,7 +1002,7 @@ Authorization: Bot hb_<botId>_<43 base64url characters>
 - The token is shown once, when the bot is created or the token is rotated, and only a SHA-256
   hash is stored. Rotating (`POST /api/bots/:id/token`) revokes the previous token immediately.
 - **Scopes** are chosen per bot: `messages.read`, `messages.write`, `reactions.write`,
-  `channels.read`, `commands`, `events`. A route needs one scope; without it the answer is
+  `channels.read`, `commands`, `events`, `panels.write`. A route needs one scope; without it the answer is
   `403 missing_scope`. Humans are never subject to scopes.
 
 | Scope             | Allows                                                                                                         |

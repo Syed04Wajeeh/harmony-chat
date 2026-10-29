@@ -225,3 +225,11 @@ always can, and `pins.pin` lets a server open pinning to everyone (as it was) or
 
 Messages from incoming webhooks skip the membership and permission checks, as before: the webhook
 token is the authorization, and creating a webhook needs `manage_guild`.
+
+## Panels and buttons
+
+Panels add no permission keys. Publishing needs the `panels.write` bot scope plus `send_messages`
+in the channel; pinning and deleting a panel need `manage_channels` (or being the channel's
+creator); a button may name any permission key in `requiredPermission`, and the server checks it
+for the user who clicks. Dashboard channels follow the same `view_channel` rules and channel
+overwrites as text channels.
