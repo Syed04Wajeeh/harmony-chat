@@ -123,6 +123,8 @@ describe('migrations', () => {
   it('can be undone: down() removes what up() added', async () => {
     const db = await freshDb();
     await migrateAll(db, modules);
+    // 0022 only resets stored statuses, so there is nothing to see; step over it.
+    expect((await createMigrator(db).migrateDown()).error).toBeUndefined();
     const formats = await createMigrator(db).migrateDown();
     expect(formats.error).toBeUndefined();
     const webhookColumns = await sql<{ column_name: string }>`

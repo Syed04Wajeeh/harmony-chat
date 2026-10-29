@@ -1,4 +1,5 @@
 import * as Popover from '@radix-ui/react-popover';
+import { ownShownStatus } from '../lib/presence.js';
 import type { UserProfileResponse } from '@harmony/shared';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
@@ -29,9 +30,7 @@ const LABELS = {
 export function usePresenceOf(userId: string) {
   return useApp((state) =>
     state.me?.id === userId
-      ? state.me.status === 'invisible'
-        ? 'offline'
-        : state.me.status
+      ? ownShownStatus(state.me.status, state.presence[userId])
       : (state.presence[userId] ?? 'offline'),
   );
 }

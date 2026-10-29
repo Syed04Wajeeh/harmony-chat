@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { ownShownStatus } from '../lib/presence.js';
 import type { Role } from '@harmony/shared';
 import { memberColor } from '../hooks/usePermission.js';
 import { roleColorStyle } from '../lib/roleColor.js';
@@ -60,11 +61,7 @@ export function MemberList({ guildId, channelId }: { guildId: string; channelId:
 
   const ids = (isPrivate ? channelMembers : guildMembers) ?? [];
   const statusOf = (id: string) =>
-    id === me?.id
-      ? me.status === 'invisible'
-        ? 'offline'
-        : me.status
-      : (presence[id] ?? 'offline');
+    id === me?.id ? ownShownStatus(me.status, presence[id]) : (presence[id] ?? 'offline');
   const nameOf = (id: string) => info?.[id]?.nickname || users[id]?.displayName || '';
   const sorted = ids.filter((id) => users[id]).sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
 

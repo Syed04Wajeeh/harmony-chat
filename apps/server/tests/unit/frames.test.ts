@@ -54,10 +54,12 @@ describe('new client frames', () => {
     expect(parseClientFrame('{"type":"read","channelId":"1","messageId":"9"}')).not.toBeNull();
     expect(parseClientFrame('{"type":"typing","channelId":"1"}')).not.toBeNull();
     expect(parseClientFrame('{"type":"presence.set","status":"dnd"}')).not.toBeNull();
+    expect(parseClientFrame('{"type":"presence.activity","idle":true}')).not.toBeNull();
   });
 
   it.each([
     ['unknown status', '{"type":"presence.set","status":"offline"}'],
+    ['activity without a flag', '{"type":"presence.activity"}'],
     ['read without message', '{"type":"read","channelId":"1"}'],
     ['typing without channel', '{"type":"typing"}'],
   ])('rejects %s', (_name, raw) => {

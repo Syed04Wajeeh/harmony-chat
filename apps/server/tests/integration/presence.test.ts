@@ -584,4 +584,133 @@ describe('presence', () => {
       ).toBe(400);
     });
   });
+
+  describe('automatic idleness is per connection', () => {
+    /** A watcher, and a user with the given sockets, all in one guild. */
+    const setup = async (name: string) => {
+      const login = unique(name);
+      const watcherLogin = unique('watcher');
+      const userId = await ensureUser(infra.db, login);
+      await guildOf([watcherLogin, login]);
+      const watcher = await connect(a, watcherLogin);
+      const first = await connect(a, login);
+      await until(() => mine(watcher, userId).length === 1);
+      const second = await connect(b, login);
+      await settle(2 * BATCH_MS);
+      return { login, userId, watcher, first, second, watcherLogin };
+    };
+    const seenAs = (watcher: TestSocket, userId: string) => mine(watcher, userId).at(-1);
+
+    it('is idle only when every connection is idle, and any activity brings them back', async () => {
+      const { userId, watcher, first, second, login } = await setup('auto');
+      expect(mine(watcher, userId)).toEqual(['online']);
+
+      first.send({ type: 'presence.activity', idle: true });
+      await settle(3 * BATCH_MS);
+      expect(mine(watcher, userId)).toEqual(['online']);
+
+      second.send({ type: 'presence.activity', idle: true });
+      await until(() => seenAs(watcher, userId) === 'idle');
+      // The chosen status is untouched: automatic idleness is never persisted.
+      expect(((await api(a, login)('/api/me')).body as Me).status).toBe('online');
+
+      first.send({ type: 'presence.activity', idle: false });
+      await until(() => seenAs(watcher, userId) === 'online');
+      expect(mine(watcher, userId)).toEqual(['online', 'idle', 'online']);
+    });
+
+    it('keeps a chosen dnd whatever the connections report', async () => {
+      const { userId, watcher, first, second } = await setup('dnd');
+      first.send({ type: 'presence.set', status: 'dnd' });
+      await until(() => seenAs(watcher, userId) === 'dnd');
+      first.send({ type: 'presence.activity', idle: true });
+      second.send({ type: 'presence.activity', idle: true });
+      second.send({ type: 'presence.activity', idle: false });
+      await settle(3 * BATCH_MS);
+      expect(seenAs(watcher, userId)).toBe('dnd');
+
+      // Back to online with both idle flags set: now the automatic part applies.
+      first.send({ type: 'presence.activity', idle: true });
+      second.send({ type: 'presence.activity', idle: true });
+      first.send({ type: 'presence.set', status: 'online' });
+      await until(() => seenAs(watcher, userId) === 'idle');
+    });
+
+    it('turns idle when the only active connection closes, and a new one is active', async () => {
+      const { userId, watcher, first, second, login } = await setup('close');
+      first.send({ type: 'presence.activity', idle: true });
+      await settle(3 * BATCH_MS);
+      expect(seenAs(watcher, userId)).toBe('online');
+
+      await second.close();
+      await until(() => seenAs(watcher, userId) === 'idle');
+
+      // A reconnect is active until it says otherwise, so no stale idle survives it.
+      const third = await connect(b, login);
+      await until(() => seenAs(watcher, userId) === 'online');
+      third.send({ type: 'presence.activity', idle: true });
+      await until(() => seenAs(watcher, userId) === 'idle');
+      third.send({ type: 'presence.activity', idle: false });
+      await until(() => seenAs(watcher, userId) === 'online');
+    });
+
+    it('still accepts the old presence.set idle as a chosen status', async () => {
+      const { userId, watcher, first, second, login } = await setup('legacy');
+      first.send({ type: 'presence.set', status: 'idle' });
+      await until(() => seenAs(watcher, userId) === 'idle');
+      expect(((await api(a, login)('/api/me')).body as Me).status).toBe('idle');
+      // Activity does not undo a chosen idle.
+      second.send({ type: 'presence.activity', idle: false });
+      await settle(3 * BATCH_MS);
+      expect(seenAs(watcher, userId)).toBe('idle');
+      first.send({ type: 'presence.set', status: 'online' });
+      await until(() => seenAs(watcher, userId) === 'online');
+    });
+
+    it('a new connection replaces a stale cached chosen status with the database one', async () => {
+      const login = unique('stale');
+      const userId = await ensureUser(infra.db, login);
+      const guildId = (await createGuildVia(login)).id;
+      await listen(guildId);
+      const presence = new PresenceService(
+        infra.redis,
+        infra.db,
+        new EventBus(infra.redis),
+        { ttlMs: 60_000, sweepMs: 60_000 },
+        noLog,
+      );
+      await presence.touch(userId, 'old', { status: 'idle' });
+      await presence.touch(userId, 'new', { status: 'online' });
+      await settle();
+      expect(busEvents(guildId, userId).map((e) => e.status)).toEqual(['idle', 'online']);
+    });
+
+    it('scores the service script directly: only changes publish', async () => {
+      const { userId, guildId } = await (async () => {
+        const login = unique('script');
+        const userId = await ensureUser(infra.db, login);
+        const guildId = (await createGuildVia(login)).id;
+        await listen(guildId);
+        return { userId, guildId };
+      })();
+      const presence = new PresenceService(
+        infra.redis,
+        infra.db,
+        new EventBus(infra.redis),
+        { ttlMs: 60_000, sweepMs: 60_000 },
+        noLog,
+      );
+      await presence.touch(userId, 'c1', { status: 'online' });
+      await presence.touch(userId, 'c2', { status: 'online' });
+      await presence.activity(userId, 'c1', true);
+      await presence.activity(userId, 'c1', true);
+      await presence.activity(userId, 'nope', true);
+      await presence.activity(userId, 'c2', true);
+      await presence.activity(userId, 'c2', true);
+      await presence.disconnect(userId, 'c2');
+      await presence.activity(userId, 'c1', false);
+      await settle();
+      expect(busEvents(guildId, userId).map((e) => e.status)).toEqual(['online', 'idle', 'online']);
+    });
+  });
 });

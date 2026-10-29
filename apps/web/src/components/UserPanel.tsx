@@ -5,6 +5,7 @@ import { changeStatus } from '../store/actions.js';
 import { useApp } from '../store/store.js';
 import { Avatar, StatusDot } from './Avatar.js';
 import { SettingsIcon } from './Icons.js';
+import { ownShownStatus } from '../lib/presence.js';
 import { useProfiles } from '../store/profiles.js';
 import { EmojiValue } from './Emoji.js';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from './Menu.js';
@@ -26,11 +27,13 @@ const STATUSES: { value: UserStatus; label: string; hint?: string }[] = [
 
 export function UserPanel() {
   const me = useApp((state) => state.me);
+  const live = useApp((state) => (state.me ? state.presence[state.me.id] : undefined));
   const summary = useProfiles((state) => (me ? state.summaries[me.id] : undefined));
   const [editing, setEditing] = useState(false);
   if (!me) return null;
   const custom = summary?.statusEmoji || summary?.statusText;
   const current = STATUSES.find((status) => status.value === me.status);
+  const shown = ownShownStatus(me.status, live);
 
   return (
     <div className="user-panel" data-harmony="user-panel">
@@ -39,7 +42,7 @@ export function UserPanel() {
           className="user-panel-button"
           aria-label={`Status: ${current?.label ?? ''}. Change status`}
         >
-          <Avatar user={me} size={36} status={me.status === 'dnd' ? 'dnd' : me.status} />
+          <Avatar user={me} size={36} status={shown} />
           <span className="user-panel-text">
             <span className="user-panel-name">{me.displayName}</span>
             <span className="user-panel-status">
@@ -59,6 +62,7 @@ export function UserPanel() {
             <MenuItem
               key={status.value}
               icon={<StatusDot status={status.value === 'invisible' ? 'offline' : status.value} />}
+              checked={status.value === me.status}
               onSelect={() => void changeStatus(status.value)}
             >
               {status.label}
