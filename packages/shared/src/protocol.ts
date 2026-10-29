@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { InteractionFailureReason, InvokeCommandBody } from './bots.js';
+import { InteractionFailureReason, InvokeActionBody, InvokeCommandBody } from './bots.js';
 import { Embeds } from './embeds.js';
 import { ModuleId } from './modules.js';
+import { Panel } from './panels.js';
 import {
   ChannelSummary,
   Channel,
@@ -39,6 +40,7 @@ export const ClientFrame = z.discriminatedUnion('type', [
   z.object({ type: z.literal('typing'), channelId: Id }),
   z.object({ type: z.literal('presence.set'), status: UserStatus }),
   z.object({ type: z.literal('command.invoke'), channelId: Id, ...InvokeCommandBody.shape }),
+  z.object({ type: z.literal('action.invoke'), ...InvokeActionBody.shape }),
 ]);
 export type ClientFrame = z.infer<typeof ClientFrame>;
 
@@ -61,6 +63,8 @@ const channelEvents = [
     userId: Id,
   }),
   z.object({ type: z.literal('typing'), channelId: Id, userId: Id }),
+  z.object({ type: z.literal('panel.updated'), channelId: Id, panel: Panel }),
+  z.object({ type: z.literal('panel.deleted'), channelId: Id, panelId: Id }),
 ] as const;
 
 const userEvents = [
@@ -109,6 +113,8 @@ const userEvents = [
     interactionId: Id,
     channelId: Id,
     command: z.string(),
+    /** `action` when a button was clicked; `command` is then the button's label. */
+    kind: z.enum(['command', 'action']).optional(),
     botId: Id.nullable(),
     source: z.string().optional(),
     content: z.string(),
@@ -120,6 +126,8 @@ const userEvents = [
     interactionId: Id,
     channelId: Id,
     command: z.string(),
+    /** `action` when a button was clicked; `command` is then the button's label. */
+    kind: z.enum(['command', 'action']).optional(),
     botId: Id.nullable(),
     source: z.string().optional(),
     expiresAt: z.iso.datetime(),
@@ -130,6 +138,8 @@ const userEvents = [
     interactionId: Id,
     channelId: Id,
     command: z.string(),
+    /** `action` when a button was clicked; `command` is then the button's label. */
+    kind: z.enum(['command', 'action']).optional(),
     botId: Id.nullable(),
     source: z.string().optional(),
     reason: InteractionFailureReason,

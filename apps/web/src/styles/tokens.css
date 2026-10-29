@@ -144,6 +144,16 @@
   --color-tone-6: var(--palette-tone-6);
   --color-tone-contrast: var(--palette-neutral-0);
 
+  /* Categorical series colors for charts, in the order series are assigned. */
+  --color-chart-1: var(--palette-jade-500);
+  --color-chart-2: var(--palette-blue-400);
+  --color-chart-3: var(--palette-apricot-400);
+  --color-chart-4: var(--palette-violet-400);
+  --color-chart-5: var(--palette-red-400);
+  --color-chart-6: var(--palette-amber-400);
+  --color-chart-7: var(--palette-green-400);
+  --color-chart-8: var(--palette-rose-400);
+
   --color-switch-thumb: var(--palette-neutral-0);
   --color-viewer-bg: color-mix(in srgb, var(--palette-neutral-1000) 92%, transparent);
   --color-viewer-text: var(--palette-neutral-100);
@@ -201,6 +211,15 @@
     --color-status-dnd: var(--palette-red-600);
     --color-status-offline: var(--palette-neutral-500);
 
+    --color-chart-1: var(--palette-jade-700);
+    --color-chart-2: var(--palette-blue-600);
+    --color-chart-3: var(--palette-apricot-600);
+    --color-chart-4: var(--palette-violet-600);
+    --color-chart-5: var(--palette-red-600);
+    --color-chart-6: var(--palette-amber-600);
+    --color-chart-7: var(--palette-green-600);
+    --color-chart-8: var(--palette-rose-600);
+
     --color-switch-thumb: var(--palette-neutral-0);
     --color-viewer-bg: color-mix(in srgb, var(--palette-neutral-1000) 92%, transparent);
     --color-viewer-text: var(--palette-neutral-100);
@@ -255,6 +274,15 @@
   --color-status-idle: var(--palette-amber-600);
   --color-status-dnd: var(--palette-red-600);
   --color-status-offline: var(--palette-neutral-500);
+
+  --color-chart-1: var(--palette-jade-700);
+  --color-chart-2: var(--palette-blue-600);
+  --color-chart-3: var(--palette-apricot-600);
+  --color-chart-4: var(--palette-violet-600);
+  --color-chart-5: var(--palette-red-600);
+  --color-chart-6: var(--palette-amber-600);
+  --color-chart-7: var(--palette-green-600);
+  --color-chart-8: var(--palette-rose-600);
 
   --color-switch-thumb: var(--palette-neutral-0);
   --color-viewer-bg: color-mix(in srgb, var(--palette-neutral-1000) 92%, transparent);
