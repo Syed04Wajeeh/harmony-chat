@@ -18,6 +18,53 @@ interface Props {
   onCancel: () => void;
 }
 
+/** true / false / unset as two chips; pressing the chosen one again clears it. */
+function TriState({
+  name,
+  description,
+  required,
+  invalid,
+  describedBy,
+  autoFocus,
+  value,
+  onChange,
+}: {
+  name: string;
+  description: string;
+  required: boolean;
+  invalid: boolean;
+  describedBy: string | undefined;
+  autoFocus: boolean;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <span
+      className="command-toggle"
+      role="group"
+      aria-label={name}
+      aria-required={required}
+      aria-invalid={invalid || undefined}
+      aria-describedby={describedBy}
+      title={description}
+    >
+      {(['true', 'false'] as const).map((choice, index) => (
+        <button
+          key={choice}
+          type="button"
+          className="command-toggle-chip"
+          aria-pressed={value === choice}
+          autoFocus={autoFocus && index === 0}
+          data-enter-submits=""
+          onClick={() => onChange(value === choice ? '' : choice)}
+        >
+          {choice}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 function OptionInput({
   option,
   value,
@@ -49,11 +96,16 @@ function OptionInput({
   switch (option.type) {
     case 'boolean':
       return (
-        <select {...common} onChange={(event) => onChange(event.target.value)}>
-          <option value="" />
-          <option value="true">true</option>
-          <option value="false">false</option>
-        </select>
+        <TriState
+          name={option.name}
+          description={option.description}
+          required={option.required}
+          invalid={invalid}
+          describedBy={describedBy}
+          autoFocus={autoFocus}
+          value={value}
+          onChange={onChange}
+        />
       );
     case 'user':
       return (
@@ -115,6 +167,14 @@ export function CommandFields({ active, members, channels, onChange, onSubmit, o
     if (event.key === 'Escape') {
       event.preventDefault();
       onCancel();
+    } else if (
+      event.key === 'Enter' &&
+      event.target instanceof HTMLElement &&
+      event.target.hasAttribute('data-enter-submits')
+    ) {
+      // Space toggles a chip; Enter runs the command like it does from a text field.
+      event.preventDefault();
+      onSubmit();
     }
   };
 
@@ -134,8 +194,15 @@ export function CommandFields({ active, members, channels, onChange, onSubmit, o
       {command.options.map((option, index) => {
         const error = errors[option.name];
         const errorId = `${id}-${option.name}`;
+        // A label would forward clicks on its text to the first chip.
+        const Field = option.type === 'boolean' ? 'div' : 'label';
         return (
-          <label key={option.name} className="command-option" data-invalid={error ? '' : undefined}>
+          <Field
+            key={option.name}
+            className="command-option"
+            data-type={option.type}
+            data-invalid={error ? '' : undefined}
+          >
             <span className="command-option-name">
               {option.name}
               {option.required && <abbr title="required">*</abbr>}
@@ -155,7 +222,7 @@ export function CommandFields({ active, members, channels, onChange, onSubmit, o
                 {error}
               </span>
             )}
-          </label>
+          </Field>
         );
       })}
       {errors[FORM_ERROR] && (

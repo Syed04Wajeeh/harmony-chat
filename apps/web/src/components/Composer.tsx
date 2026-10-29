@@ -393,7 +393,7 @@ export function Composer({
           <strong>{active.command.botName}</strong> · {active.command.description}
         </p>
       )}
-      <div className="composer-box">
+      <div className="composer-box" data-command={active ? '' : undefined}>
         {showCommands && (
           <ul id={listId} className="command-list" role="listbox" aria-label="Slash commands">
             {commandMatches.map((command, index) => (
