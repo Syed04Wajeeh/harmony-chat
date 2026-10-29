@@ -1,4 +1,4 @@
-import { DevApi } from './support/dev-api.js';
+import { ADMIN_LOGIN, DevApi } from './support/dev-api.js';
 
 const baseURL = process.env['E2E_BASE_URL'] ?? 'http://localhost:15173';
 
@@ -9,7 +9,7 @@ const baseURL = process.env['E2E_BASE_URL'] ?? 'http://localhost:15173';
  * database the setting is whatever it was.
  */
 export default async function globalSetup(): Promise<void> {
-  const admin = new DevApi(baseURL, 'dev@example.com');
+  const admin = new DevApi(baseURL, ADMIN_LOGIN);
   const me = await admin.request<{ isAdmin: boolean }>('GET', '/api/me');
   if (!me.isAdmin) return;
   const lobby = await admin.request<{ guildId: string | null }>('GET', '/api/admin/lobby');

@@ -17,6 +17,7 @@ import {
   type MessageComponents,
 } from '@harmony/shared';
 import { SIGNATURE_HEADER, TIMESTAMP_HEADER, sign } from '@harmony/shared/signature';
+import type { GatewayInteractions } from '../gateway/interactions.js';
 import { generateSecret, hashSecret, verifySecret } from '../bots/token.js';
 import type { ChannelService } from '../channels/service.js';
 import type { Database } from '../db/schema.js';
@@ -51,6 +52,28 @@ interface Target {
 
 const DUMMY_HASH = Buffer.alloc(32);
 
+/** Where an interaction goes: a signed POST to the bot's URL, or a frame to its gateway socket. */
+type Route =
+  { kind: 'http'; url: string; secret: string; ownerIsAdmin: boolean } | { kind: 'gateway' };
+
+/** A bot with a URL is called there; one without but with the commands scope uses the gateway. */
+function routeFor(bot: {
+  interactions_url: string | null;
+  scopes: string[];
+  signing_secret: string;
+  owner_is_admin: boolean | null;
+}): Route | null {
+  if (bot.interactions_url) {
+    return {
+      kind: 'http',
+      url: bot.interactions_url,
+      secret: bot.signing_secret,
+      ownerIsAdmin: bot.owner_is_admin ?? false,
+    };
+  }
+  return bot.scopes.includes('commands') ? { kind: 'gateway' } : null;
+}
+
 /** Runs slash command invocations: validate, record, call the bot, relay its answer. */
 export class InteractionService {
   private readonly inflight = new Set<Promise<void>>();
@@ -68,6 +91,7 @@ export class InteractionService {
     private readonly perms: PermissionService,
     private readonly panels: PanelService,
     private readonly actionLimiter: RateLimiter,
+    private readonly gateway: GatewayInteractions | null = null,
   ) {}
 
   /** Waits for in-flight bot calls; used on shutdown and by tests. */
@@ -106,6 +130,7 @@ export class InteractionService {
         'c.bot_id',
         'c.options',
         'b.interactions_url',
+        'b.scopes',
         'b.signing_secret',
         'owner.is_admin as owner_is_admin',
       ])
@@ -113,9 +138,8 @@ export class InteractionService {
       .where('c.name', '=', body.name)
       .executeTakeFirst();
     if (!command) throw new AppError(404, 'unknown_command', `Unknown command /${body.name}`);
-    if (!command.interactions_url) {
-      throw new AppError(409, 'bot_unavailable', 'This bot cannot receive commands');
-    }
+    const route = routeFor(command);
+    if (!route) throw new AppError(409, 'bot_unavailable', 'This bot cannot receive commands');
 
     const definitions = command.options as CommandOption[];
     const checked = validateCommandOptions(definitions, body.options);
@@ -161,11 +185,7 @@ export class InteractionService {
       createdAt: row.created_at.toISOString(),
       expiresAt: expiresAt.toISOString(),
     };
-    const run = this.dispatch(target, payload, {
-      url: command.interactions_url,
-      secret: command.signing_secret,
-      ownerIsAdmin: command.owner_is_admin,
-    })
+    const run = this.dispatch(target, payload, route)
       .catch((err: unknown) => this.log.warn({ err }, 'interaction dispatch failed'))
       .finally(() => this.inflight.delete(run));
     this.inflight.add(run);
@@ -226,12 +246,16 @@ export class InteractionService {
       .selectFrom('bots as b')
       .innerJoin('users as bu', 'bu.id', 'b.user_id')
       .innerJoin('users as owner', 'owner.id', 'bu.bot_owner_id')
-      .select(['b.interactions_url', 'b.signing_secret', 'owner.is_admin as owner_is_admin'])
+      .select([
+        'b.interactions_url',
+        'b.scopes',
+        'b.signing_secret',
+        'owner.is_admin as owner_is_admin',
+      ])
       .where('b.user_id', '=', botId)
       .executeTakeFirst();
-    if (!bot?.interactions_url) {
-      throw new AppError(409, 'bot_unavailable', 'This bot cannot receive button clicks');
-    }
+    const route = bot && routeFor(bot);
+    if (!route) throw new AppError(409, 'bot_unavailable', 'This bot cannot receive button clicks');
 
     const token = generateSecret();
     const now = new Date();
@@ -282,11 +306,7 @@ export class InteractionService {
       createdAt: row.created_at.toISOString(),
       expiresAt: expiresAt.toISOString(),
     };
-    const run = this.dispatch(target, payload, {
-      url: bot.interactions_url,
-      secret: bot.signing_secret,
-      ownerIsAdmin: bot.owner_is_admin,
-    })
+    const run = this.dispatch(target, payload, route)
       .catch((err: unknown) => this.log.warn({ err }, 'interaction dispatch failed'))
       .finally(() => this.inflight.delete(run));
     this.inflight.add(run);
@@ -382,40 +402,14 @@ export class InteractionService {
     );
   }
 
-  private async dispatch(
-    target: Target,
-    payload: InteractionPayload,
-    bot: { url: string; secret: string; ownerIsAdmin: boolean },
-  ): Promise<void> {
-    const body = JSON.stringify(payload);
-    const timestamp = Math.floor(Date.now() / 1000);
-    let result;
-    try {
-      result = await safeFetch(bot.url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'user-agent': 'Harmony-Interactions/1',
-          [TIMESTAMP_HEADER]: String(timestamp),
-          [SIGNATURE_HEADER]: sign(bot.secret, timestamp, body),
-        },
-        body,
-        timeoutMs: this.options.deadlineMs,
-        ownerIsAdmin: bot.ownerIsAdmin,
-        allowlist: this.options.allowlist,
-      });
-    } catch (error) {
-      return this.fail(target, failureReason(error));
-    }
-    if (result.status < 200 || result.status >= 300) return this.fail(target, 'bad_status');
+  private async dispatch(target: Target, payload: InteractionPayload, route: Route): Promise<void> {
+    const raw =
+      route.kind === 'http'
+        ? await this.callHttp(payload, route)
+        : await this.callGateway(target, payload);
+    if (raw.failure) return this.fail(target, raw.failure);
 
-    let response;
-    try {
-      if (result.truncated) throw new Error('response too large');
-      response = InteractionResponse.safeParse(JSON.parse(result.body.toString('utf8')));
-    } catch {
-      return this.fail(target, 'invalid_response');
-    }
+    const response = InteractionResponse.safeParse(raw.body);
     if (!response.success) return this.fail(target, 'invalid_response');
 
     const answer = response.data;
@@ -454,6 +448,50 @@ export class InteractionService {
       this.log.warn({ err: error }, 'could not post interaction response');
       await this.fail(target, 'post_failed');
     }
+  }
+
+  /** POSTs the signed payload and returns the parsed JSON body, or why that did not work. */
+  private async callHttp(
+    payload: InteractionPayload,
+    bot: { url: string; secret: string; ownerIsAdmin: boolean },
+  ): Promise<{ body: unknown; failure?: undefined } | { failure: InteractionFailureReason }> {
+    const body = JSON.stringify(payload);
+    const timestamp = Math.floor(Date.now() / 1000);
+    let result;
+    try {
+      result = await safeFetch(bot.url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'user-agent': 'Harmony-Interactions/1',
+          [TIMESTAMP_HEADER]: String(timestamp),
+          [SIGNATURE_HEADER]: sign(bot.secret, timestamp, body),
+        },
+        body,
+        timeoutMs: this.options.deadlineMs,
+        ownerIsAdmin: bot.ownerIsAdmin,
+        allowlist: this.options.allowlist,
+      });
+    } catch (error) {
+      return { failure: failureReason(error) };
+    }
+    if (result.status < 200 || result.status >= 300) return { failure: 'bad_status' };
+    try {
+      if (result.truncated) throw new Error('response too large');
+      return { body: JSON.parse(result.body.toString('utf8')) as unknown };
+    } catch {
+      return { failure: 'invalid_response' };
+    }
+  }
+
+  /** Sends the payload to the bot's gateway socket (any instance) and waits for its answer. */
+  private async callGateway(
+    target: Target,
+    payload: InteractionPayload,
+  ): Promise<{ body: unknown; failure?: undefined } | { failure: InteractionFailureReason }> {
+    if (!this.gateway) return { failure: 'unreachable' };
+    const result = await this.gateway.ask(target.botId, payload, this.options.deadlineMs);
+    return result.ok ? { body: result.response } : { failure: result.reason };
   }
 
   private async post(author: DirectoryUser, channelId: string, message: BotMessage) {

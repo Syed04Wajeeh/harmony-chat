@@ -42,7 +42,9 @@ import { panelRoutes } from './panels/routes.js';
 import { PanelService } from './panels/service.js';
 import { PresenceService } from './presence/service.js';
 import { RateLimiter } from './rate-limit.js';
-import { EventBus } from './realtime/events.js';
+import { EventBus, REVOKED_CLOSE_CODE, REVOKE_TOPIC } from './realtime/events.js';
+import { GatewayBus } from './gateway/bus.js';
+import { GatewayInteractions } from './gateway/interactions.js';
 import { Hub } from './realtime/hub.js';
 import { realtimeRoutes } from './realtime/routes.js';
 import { TypingService } from './realtime/typing.js';
@@ -257,6 +259,24 @@ export async function buildApp({
     config.PANEL_COALESCE_MS,
     app.log,
   );
+  const gatewayBus = new GatewayBus(redis, {
+    ttlMs: config.GATEWAY_PRESENCE_TTL_MS,
+    maxConnections: config.GATEWAY_MAX_CONNECTIONS,
+  });
+  const gatewayInteractions = new GatewayInteractions(redis, gatewayBus, db, config.INSTANCE_ID);
+  gatewayInteractions
+    .listen(hub)
+    .catch((err: unknown) => app.log.warn({ err }, 'gateway reply subscribe failed'));
+  hub
+    .listen(REVOKE_TOPIC, (raw) => {
+      try {
+        const { botId, reason } = JSON.parse(raw) as { botId: string; reason: string };
+        hub.closeBot(botId, REVOKED_CLOSE_CODE, reason);
+      } catch (err) {
+        app.log.warn({ err }, 'malformed gateway revoke');
+      }
+    })
+    .catch((err: unknown) => app.log.warn({ err }, 'gateway revoke subscribe failed'));
   const commandRegistry = new CommandRegistry(db, host.commands, moduleState);
   const interactions = new InteractionService(
     db,
@@ -271,6 +291,7 @@ export async function buildApp({
     perms,
     panels,
     limiter('actions', config.ACTION_RATE_MAX, config.ACTION_RATE_WINDOW_SECONDS),
+    gatewayInteractions,
   );
   const webhooks = new WebhookService(
     db,
@@ -337,6 +358,14 @@ export async function buildApp({
         presence,
         typing,
         interactions,
+        gateway: {
+          db,
+          bus: gatewayBus,
+          interactions: gatewayInteractions,
+          heartbeatMs: config.GATEWAY_HEARTBEAT_MS,
+          frameBurst: config.GATEWAY_FRAME_BURST,
+          frameRefillPerSecond: config.GATEWAY_FRAME_REFILL_PER_SECOND,
+        },
         frames: host.frames,
         instanceId: config.INSTANCE_ID,
         presenceHeartbeatMs: config.PRESENCE_HEARTBEAT_MS,

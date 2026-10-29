@@ -139,6 +139,10 @@ export class BotService {
           .execute();
       }
     });
+    // A socket keeps the scopes it connected with, so dropping one ends the connection; the bot
+    // reconnects with what it still holds.
+    const lost = current.scopes.some((scope) => !scopes.includes(scope as BotScope));
+    if (lost) await this.events.revokeBot(botId, 'scopes reduced');
     return this.load(botId);
   }
 
@@ -154,6 +158,7 @@ export class BotService {
       return guildIds;
     });
     await Promise.all(removed.map((guildId) => this.announceLeft(guildId, botId)));
+    await this.events.revokeBot(botId, 'bot deleted');
   }
 
   /** The old token stops working immediately: authentication looks the hash up on every request. */
@@ -165,6 +170,7 @@ export class BotService {
       .set({ token_hash: hashSecret(secret), token_rotated_at: new Date() })
       .where('user_id', '=', botId)
       .execute();
+    await this.events.revokeBot(botId, 'token rotated');
     return formatBotToken(botId, secret);
   }
 
@@ -404,6 +410,27 @@ export class BotService {
   }
 }
 
+/** No URL means the gateway: the bot connects out instead of being called. */
+function deliveryModes(row: {
+  scopes: string[];
+  interactions_url: string | null;
+  events_url: string | null;
+  event_types: string[];
+}): Bot['delivery'] {
+  const interactions = !row.scopes.includes('commands')
+    ? 'off'
+    : row.interactions_url
+      ? 'http'
+      : 'gateway';
+  const events =
+    !row.scopes.includes('events') || row.event_types.length === 0
+      ? 'off'
+      : row.events_url
+        ? 'http'
+        : 'gateway';
+  return { interactions, events };
+}
+
 function toBot(row: {
   id: string;
   display_name: string;
@@ -425,6 +452,7 @@ function toBot(row: {
     interactionsUrl: row.interactions_url,
     eventsUrl: row.events_url,
     eventTypes: row.event_types as EventType[],
+    delivery: deliveryModes(row),
     createdAt: row.created_at.toISOString(),
     lastUsedAt: row.last_used_at?.toISOString() ?? null,
   };

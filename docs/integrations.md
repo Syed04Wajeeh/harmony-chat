@@ -41,6 +41,33 @@ Host firewalls often drop traffic from containers to ports published on the host
 is why attaching to the network is the recommended route for containers, rather than
 `host.docker.internal:8471`.
 
+## Building a gateway bot
+
+A bot that runs on a laptop, behind NAT or in a container nobody can dial does not need any URL.
+Leave `interactionsUrl` and `eventsUrl` empty, give it the `commands` and/or `events` scopes (and
+`eventTypes` for events) and let it connect out:
+
+1. Open `ws(s)://<host>/api/ws` with the header `Authorization: Bot <token>`. Use the ingress
+   (`127.0.0.1:8471`, or the public URL from a tailnet device) for the `/api/ws` path; it only forwards
+   requests that carry a bot token. Wait for `hello`.
+2. Send `resume {lastSeq}` with the highest event `seq` you have handled (0 the first time).
+3. On `interaction.create`, answer with `interaction.respond` inside the deadline (3 s by default).
+   For slow work answer `{type: "deferred"}` and use the REST follow-up with the interaction `token`.
+4. On `event`, handle it, remember `seq`, send `event.ack {seq}`. Skip a `seq` you already handled.
+5. When the socket closes, reconnect with backoff and go back to step 1. Keep the last handled `seq`
+   somewhere durable if events must survive a restart of the bot.
+
+[`examples/echo-bot`](../examples/echo-bot/bot.ts) does exactly this with `HARMONY_MODE=gateway` (and
+no `HARMONY_SIGNING_SECRET`, no `PORT`), including the demo dashboard button. The frames, resume
+semantics and limits are in [the protocol](api/protocol.md#gateway-bots-no-url).
+
+What changes compared with HTTP: nothing needs to be reachable, so there is no
+`OUTBOUND_PRIVATE_ALLOWLIST` entry to maintain and no signature to verify (the socket is
+authenticated by the bot token); in exchange the bot must be connected when an interaction happens,
+or the user sees `interaction.failed` (`unreachable`) immediately. Events are not lost while it is
+away, within the retention limits above. Follow-ups, panels and messages still use the REST API, so
+the bot must reach Harmony over HTTP as well.
+
 ## Panels and buttons
 
 Bots can publish dashboards: panels of stats, charts, tables and buttons that Harmony renders

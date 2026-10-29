@@ -5,6 +5,8 @@ import { topicChangeFor } from '../presence/scope.js';
 import {
   CHANNEL_TOPIC_PREFIX,
   ChannelEvent,
+  GATEWAY_TOPIC_PREFIX,
+  GatewayFrame,
   ModuleFrame,
   PRESENCE_TOPIC_PREFIX,
   PresenceEvent,
@@ -24,6 +26,8 @@ export interface HubClient {
   readonly presenceTopics: Set<string>;
   /** While set, user events wait behind it so membership changes apply in order. */
   gate: Promise<unknown> | null;
+  /** Set for a bot's gateway connection: the topic that carries interactions and events to it. */
+  gatewayTopic?: string;
   alive: boolean;
   /** Resolves once the client's per-user topic is live, so no event addressed to it is missed. */
   ready: Promise<unknown>;
@@ -114,6 +118,12 @@ export class Hub {
     await this.enter(channelTopic(channelId), client);
   }
 
+  /** Resolves once frames published to this gateway connection's topic will reach the socket. */
+  joinGateway(client: HubClient, topic: string): Promise<unknown> {
+    client.gatewayTopic = topic;
+    return this.enter(topic, client);
+  }
+
   leave(client: HubClient, channelId: string): void {
     client.channels.delete(channelId);
     this.exit(channelTopic(channelId), client);
@@ -125,6 +135,7 @@ export class Hub {
     // presenceTopics stays as it was: the connection reads it to say where "offline" goes.
     for (const topic of client.presenceTopics) this.exit(topic, client);
     this.exit(userTopic(client.user.id), client);
+    if (client.gatewayTopic) this.exit(client.gatewayTopic, client);
   }
 
   /**
@@ -189,6 +200,13 @@ export class Hub {
     if (client.socket.readyState === WebSocket.OPEN) client.socket.send(json);
   }
 
+  /** Closes this instance's sockets of one bot (credentials or scopes changed). */
+  closeBot(botId: string, code: number, reason: string): void {
+    for (const client of this.clients) {
+      if (client.user.isBot && client.user.id === botId) client.socket.close(code, reason);
+    }
+  }
+
   closeAll(code: number, reason: string): void {
     clearInterval(this.heartbeat);
     this.batcher.stop();
@@ -237,6 +255,9 @@ export class Hub {
       if (topic.startsWith(CHANNEL_TOPIC_PREFIX)) {
         // Validated once, serialized once; every local socket gets the same string.
         const out = JSON.stringify(parseChannelFrame(json));
+        for (const client of room.clients) this.sendJson(client, out);
+      } else if (topic.startsWith(GATEWAY_TOPIC_PREFIX)) {
+        const out = JSON.stringify(GatewayFrame.parse(json));
         for (const client of room.clients) this.sendJson(client, out);
       } else if (topic.startsWith(USER_TOPIC_PREFIX)) {
         const core = UserEvent.safeParse(json);

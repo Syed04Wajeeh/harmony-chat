@@ -4,11 +4,17 @@ import type { RawData, WebSocket } from 'ws';
 import {
   BACKFILL_LIMIT,
   ClientFrame,
+  gatewayTopic,
   type BotScope,
   type DirectoryUser,
   type ServerFrame,
 } from '@harmony/shared';
+import type { Kysely } from 'kysely';
 import type { BotPrincipal } from '../bots/auth.js';
+import type { Database } from '../db/schema.js';
+import type { GatewayBus } from '../gateway/bus.js';
+import { ackUpTo, resume } from '../gateway/events.js';
+import type { GatewayInteractions } from '../gateway/interactions.js';
 import type { InteractionService } from '../commands/interactions.js';
 import type { UserStore } from '../auth/user-store.js';
 import type { ChannelService } from '../channels/service.js';
@@ -20,7 +26,19 @@ import type { Hub } from './hub.js';
 import { TokenBucket } from './token-bucket.js';
 import type { TypingService } from './typing.js';
 
+export interface GatewayDeps {
+  db: Kysely<Database>;
+  bus: GatewayBus;
+  interactions: GatewayInteractions;
+  /** How often a gateway connection refreshes its presence entry. */
+  heartbeatMs: number;
+  /** Inbound frame budget for gateway bots, who answer every interaction and ack events. */
+  frameBurst: number;
+  frameRefillPerSecond: number;
+}
+
 export interface ConnectionDeps {
+  gateway: GatewayDeps;
   hub: Hub;
   channels: ChannelService;
   messages: MessageService;
@@ -60,13 +78,32 @@ export function handleConnection(
   const send = (frame: ServerFrame) => hub.send(client, frame);
   const connLog = log.child({ user: user.login, instanceId });
   const connectionId = randomUUID();
-  const bucket = new TokenBucket(deps.frameBurst, deps.frameRefillPerSecond);
+  // A bot with the commands or events scope may be a gateway bot: it receives interactions and
+  // events on this socket while it is connected.
+  const isGateway =
+    bot !== null && (bot.scopes.includes('commands') || bot.scopes.includes('events'));
+  const gw = deps.gateway;
+  let gatewayMember: string | null = null;
+  const bucket = isGateway
+    ? new TokenBucket(gw.frameBurst, gw.frameRefillPerSecond)
+    : new TokenBucket(deps.frameBurst, deps.frameRefillPerSecond);
   let violations = 0;
   connLog.info('websocket connected');
 
   async function handle(frame: ClientFrame): Promise<void> {
     requireFrameAccess(bot, frame);
     switch (frame.type) {
+      case 'interaction.respond':
+        await gw.interactions.respond(user.id, frame);
+        return;
+      case 'event.ack':
+        await ackUpTo(gw.db, user.id, frame.seq);
+        return;
+      case 'resume': {
+        const replayed = await resume(gw.db, gw.bus, user.id, connectionId, frame.lastSeq);
+        send({ type: 'resumed', lastSeq: frame.lastSeq, replayed });
+        return;
+      }
       case 'subscribe': {
         await channels.requireMember(frame.channelId, user.id);
         // Join Redis first, then read Postgres: a message published in between is delivered
@@ -173,6 +210,27 @@ export function handleConnection(
     if (socket.readyState !== socket.OPEN) {
       await presence.disconnect(user.id, connectionId, [...client.presenceTopics]);
     }
+    if (isGateway) {
+      // Subscribe first, then announce: once `hello` is out, frames published for this
+      // connection reach it.
+      await hub.joinGateway(client, gatewayTopic(connectionId));
+      gatewayMember = await gw.bus.connect(user.id, connectionId);
+      if (!gatewayMember) {
+        send({
+          type: 'error',
+          code: 'too_many_connections',
+          message: 'This bot has too many gateway connections',
+        });
+        socket.close(1008, 'too many gateway connections');
+        return;
+      }
+      if (socket.readyState !== socket.OPEN) {
+        // Closed while registering: the close handler ran before there was anything to undo.
+        hub.remove(client);
+        await gw.bus.disconnect(user.id, gatewayMember);
+        gatewayMember = null;
+      }
+    }
     send({ type: 'hello', user: me, instanceId });
   })().catch((err: unknown) => {
     connLog.error({ err }, 'websocket setup failed');
@@ -194,9 +252,24 @@ export function handleConnection(
     });
   }, deps.presenceHeartbeatMs);
   heartbeat.unref();
+  const gatewayBeat = setInterval(() => {
+    if (gatewayMember) {
+      gw.bus.touch(user.id, gatewayMember).catch((err: unknown) => {
+        connLog.warn({ err }, 'gateway heartbeat failed');
+      });
+    }
+  }, gw.heartbeatMs);
+  gatewayBeat.unref();
 
   socket.on('close', (code) => {
     clearInterval(heartbeat);
+    clearInterval(gatewayBeat);
+    if (gatewayMember) {
+      gw.bus.disconnect(user.id, gatewayMember).catch((err: unknown) => {
+        connLog.warn({ err }, 'gateway disconnect failed');
+      });
+      gatewayMember = null;
+    }
     const topics = [...client.presenceTopics];
     hub.remove(client);
     presence.disconnect(user.id, connectionId, topics).catch((err: unknown) => {
@@ -212,9 +285,21 @@ const FRAME_SCOPES: Partial<Record<ClientFrame['type'], BotScope>> = {
   subscribe: 'messages.read',
   'message.send': 'messages.write',
   typing: 'messages.write',
+  'interaction.respond': 'commands',
+  'event.ack': 'events',
+  resume: 'events',
 };
 
+const BOT_ONLY_FRAMES: ReadonlySet<ClientFrame['type']> = new Set([
+  'interaction.respond',
+  'event.ack',
+  'resume',
+]);
+
 function requireFrameAccess(bot: BotPrincipal | null, frame: ClientFrame): void {
+  if (!bot && BOT_ONLY_FRAMES.has(frame.type)) {
+    throw new AppError(403, 'bot_only', 'Only bots can send this frame');
+  }
   if (!bot || frame.type === 'unsubscribe') return;
   const scope = FRAME_SCOPES[frame.type];
   if (!scope) throw new AppError(403, 'human_only', 'Bots cannot send this frame');

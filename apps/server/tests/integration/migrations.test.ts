@@ -123,6 +123,12 @@ describe('migrations', () => {
   it('can be undone: down() removes what up() added', async () => {
     const db = await freshDb();
     await migrateAll(db, modules);
+    const gateway = await createMigrator(db).migrateDown();
+    expect(gateway.error).toBeUndefined();
+    const deliveryColumns = await sql<{ column_name: string }>`
+      select column_name from information_schema.columns where table_name = 'event_deliveries'
+    `.execute(db);
+    expect(deliveryColumns.rows.map((row) => row.column_name)).not.toContain('seq');
     const panels = await createMigrator(db).migrateDown();
     expect(panels.error).toBeUndefined();
     expect(await tables(db)).not.toContain('panels');

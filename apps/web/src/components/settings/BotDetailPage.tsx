@@ -207,7 +207,7 @@ function BotEditor({ bot, onSaved }: { bot: Bot; onSaved: (bot: Bot) => void }) 
 
         <SettingsCard
           title="Interactions URL"
-          description="Harmony sends slash command invocations here as signed POST requests."
+          description="Harmony sends slash command and button invocations here as signed POST requests. Leave it empty for a bot that connects out instead."
         >
           <label className="field">
             <span>URL</span>
@@ -223,16 +223,22 @@ function BotEditor({ bot, onSaved }: { bot: Bot; onSaved: (bot: Bot) => void }) 
               onChange={(event) => set({ interactionsUrl: event.target.value })}
             />
           </label>
-          {!hasCommands && (
+          {!hasCommands ? (
             <p className="field-hint">
               Turn on the Slash commands scope to set an interactions URL.
+            </p>
+          ) : (
+            <p className="field-hint" data-testid="interactions-mode">
+              {draft.interactionsUrl.trim()
+                ? 'Delivery: HTTP. Harmony calls this URL.'
+                : 'Delivery: gateway. The bot receives interactions over its WebSocket connection (Authorization: Bot) and needs no URL.'}
             </p>
           )}
         </SettingsCard>
 
         <SettingsCard
           title="Events URL"
-          description="Selected events are delivered here, signed, at least once."
+          description="Selected events are delivered here, signed, at least once. Leave it empty for a bot that connects out instead."
         >
           <label className="field">
             <span>URL</span>
@@ -248,8 +254,14 @@ function BotEditor({ bot, onSaved }: { bot: Bot; onSaved: (bot: Bot) => void }) 
               onChange={(event) => set({ eventsUrl: event.target.value })}
             />
           </label>
-          {!hasEvents && (
+          {!hasEvents ? (
             <p className="field-hint">Turn on the Events scope to set an events URL.</p>
+          ) : (
+            <p className="field-hint" data-testid="events-mode">
+              {draft.eventsUrl.trim()
+                ? 'Delivery: HTTP. Harmony calls this URL.'
+                : "Delivery: gateway. Events arrive as numbered frames on the bot's WebSocket connection; it acknowledges them and resumes after a disconnect."}
+            </p>
           )}
           <fieldset className="check-fieldset" disabled={!hasEvents}>
             <legend>Event types</legend>

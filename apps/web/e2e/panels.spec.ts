@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import type { Panel } from '@harmony/shared';
-import { DevApi } from './support/dev-api.js';
+import { ADMIN_LOGIN, DevApi } from './support/dev-api.js';
 import { freePort, startEchoBot } from './support/echo-bot.js';
 
 const baseURL = process.env['E2E_BASE_URL'] ?? 'http://localhost:15173';
@@ -14,7 +14,7 @@ const shot = (name: string) => (shotsDir ? { path: path.join(shotsDir, name) } :
 const iPhone =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 
-const login = 'botowner@example.com';
+const login = ADMIN_LOGIN;
 const run = Date.now().toString(36);
 
 const extrasView = {
@@ -92,7 +92,10 @@ test.describe.serial('bot panels', () => {
     api = new DevApi(baseURL, login);
     const me = await api.me();
     // Bots can only reach localhost when their owner is the instance admin (the first user).
-    test.skip(!me.isAdmin, `needs an empty database: ${me.displayName} is not an instance admin`);
+    // Never skip: a silent skip once hid every bot spec from CI.
+    if (!me.isAdmin) {
+      throw new Error(`${me.displayName} is not an instance admin; run against an empty database`);
+    }
     guildName = `Ops ${run}`;
     const guild = await api.createGuild(guildName);
     guildId = guild.id;

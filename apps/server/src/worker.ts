@@ -3,6 +3,8 @@ import { pino } from 'pino';
 import { loadWorkerConfig } from './config.js';
 import { createDb } from './db.js';
 import { EventWorker } from './events/worker.js';
+import { GatewayBus } from './gateway/bus.js';
+import { createRedis } from './redis.js';
 import { modules } from './modules/index.js';
 import { activeModules } from './modules/registry.js';
 import { startWorkerModules } from './modules/worker-host.js';
@@ -28,7 +30,12 @@ const moduleJobs = await startWorkerModules(activeModules(modules, config.MODULE
   env: process.env,
   log,
 });
-const worker = new EventWorker(db, config, log, Math.random, heartbeat);
+// Redis carries events to gateway bots; without it the worker serves HTTP bots only.
+const redis = config.REDIS_URL ? createRedis(config.REDIS_URL) : null;
+const gateway = redis
+  ? new GatewayBus(redis, { ttlMs: config.GATEWAY_PRESENCE_TTL_MS, maxConnections: 1 })
+  : null;
+const worker = new EventWorker(db, config, log, Math.random, heartbeat, gateway);
 const beat = setInterval(heartbeat, 10_000);
 beat.unref();
 
@@ -42,6 +49,7 @@ async function shutdown(signal: string): Promise<void> {
     await worker.stop();
     await moduleJobs.stop();
     await db.destroy();
+    redis?.disconnect();
     process.exit(0);
   } catch (err) {
     log.error({ err }, 'error during shutdown');

@@ -8,6 +8,9 @@ import type {
   UserStatus,
 } from '@harmony/shared';
 
+/** The first user on an empty e2e database, hence the instance admin (see global-setup.ts). */
+export const ADMIN_LOGIN = 'dev@example.com';
+
 /** Talks to a dev-mode server as one user, using the `dev_login` cookie. */
 export class DevApi {
   constructor(

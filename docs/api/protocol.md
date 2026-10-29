@@ -1078,14 +1078,82 @@ Authorization: Bot hb_<botId>_<43 base64url characters>
 | `GET /api/bots/:id/deliveries?status=&before=&limit=` | Event delivery log, newest first: `{deliveries: Delivery[]}`.                                                                                                   |
 | `POST /api/bots/:id/deliveries/:deliveryId/redeliver` | `202`. Resets attempts and queues the delivery again.                                                                                                           |
 
-`Bot` = `{id, name, avatarUrl, ownerId, scopes, interactionsUrl, eventsUrl, eventTypes, createdAt, lastUsedAt}`.
+`Bot` = `{id, name, avatarUrl, ownerId, scopes, interactionsUrl, eventsUrl, eventTypes, delivery, createdAt, lastUsedAt}`.
 `interactionsUrl` requires the `commands` scope; `eventsUrl` and `eventTypes` require `events`.
-If `eventsUrl` is set without `eventTypes`, all event types are subscribed.
+If `eventsUrl` is set without `eventTypes`, all event types are subscribed. A bot without a URL
+gets that half over the WebSocket instead; see [Gateway bots](#gateway-bots-no-url). `delivery` is
+`{interactions, events}`, each `http`, `gateway` or `off` (no scope, or no event types).
 
 URLs must be `http` or `https` and are checked when saved and again on every request: addresses
 in private, loopback, link-local, CGNAT (100.64.0.0/10, which covers tailnet addresses),
 multicast and reserved ranges are refused with `400 url_not_allowed`. Bots owned by an instance
 admin may reach hosts listed in `OUTBOUND_PRIVATE_ALLOWLIST`. Redirects are never followed.
+
+### Gateway bots (no URL)
+
+A bot does not need a reachable URL. If it has the `commands` scope and **no** `interactionsUrl`, its
+slash commands and button clicks go to its WebSocket connection; if it has the `events` scope, event
+types and **no** `eventsUrl`, its events do. `Bot.delivery` says which: `{interactions, events}`, each
+`http`, `gateway` or `off`. Setting a URL switches that half back to signed HTTP; nothing else about the
+bot changes, and the two halves are independent.
+
+Connect to `GET /api/ws` with `Authorization: Bot <token>` (through the integration ingress if the bot
+runs outside the tailnet). A bot with `commands` or `events` is registered as a gateway receiver once
+`hello` has been sent; a bot with neither (a plain chat bot) is not. Frames are the ordinary JSON
+frames of this protocol.
+
+| Direction | Frame                                                  | Scope      | Meaning                                                                                                                                 |
+| --------- | ------------------------------------------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| server    | `interaction.create {interaction}`                     | `commands` | `interaction` is the same `InteractionPayload` an HTTP bot gets, including `id` and `token`.                                            |
+| bot       | `interaction.respond {interactionId, token, response}` | `commands` | `response` is an `InteractionResponse`: `message`, `deferred` or `update_panel`. Answer within `INTERACTION_DEADLINE_MS` (default 3 s). |
+| server    | `event {seq, deliveryId, event}`                       | `events`   | `event` is the `EventEnvelope` an HTTP bot would get; `seq` is per bot, starts at 1 and only grows; `deliveryId` is the idempotency id. |
+| bot       | `event.ack {seq}`                                      | `events`   | Everything up to and including `seq` is handled.                                                                                        |
+| bot       | `resume {lastSeq}`                                     | `events`   | Send after every reconnect: acknowledges up to `lastSeq`, then replays what is still open. Answered by `resumed {lastSeq, replayed}`.   |
+
+Errors arrive as the usual `error {code, message}`: `missing_scope`, `bot_only` (a person sent a gateway
+frame), `invalid_token` (the interaction token is wrong or belongs to another bot),
+`interaction_not_pending` (already answered, or the deadline passed; use the follow-up endpoint),
+`too_many_connections`.
+
+**Interactions.** The server that took the invocation picks the bot's newest live connection (any
+instance), publishes `interaction.create` to that connection's Redis topic and waits for the answer. If
+the bot has no live connection, or the publish reaches nobody, the invoker gets `interaction.failed`
+with `reason: "unreachable"` at once rather than after the deadline. The answer may arrive at a different
+instance from the one waiting; it is routed back through Redis, and the first answer wins. A `deferred`
+answer is finished through the same REST follow-up endpoint as for an HTTP bot
+(`POST /api/interactions/:id/:token/followup`, valid 15 minutes). A frame the bot sends is limited to
+16 KiB, so a very large `update_panel` view should be sent with `PUT /api/channels/:id/panels/:key`
+instead.
+
+**Events.** The outbox and the delivery table are the log. When the worker fans an event out to a gateway
+bot it gives the delivery the bot's next `seq`, handed out under a lock on the bot's row, so numbers
+follow commit order. The worker publishes `event` to the bot's newest connection and leaves the delivery
+open; it stays open until acknowledged:
+
+- `event.ack {seq}` (or the `lastSeq` of a `resume`) closes every open delivery of that bot with
+  `seq` at or below it. Acknowledge in order, after handling.
+- Not acknowledged within `GATEWAY_ACK_TIMEOUT_MS` (30 s): the worker sends it again, up to
+  `DELIVERY_MAX_ATTEMPTS` sends, then the delivery is `dead` like an HTTP one.
+- While the bot has no live connection nothing is sent and no attempt is used; the backlog waits. Open
+  deliveries older than `GATEWAY_EVENT_TTL_MS` (24 h), or beyond the newest `GATEWAY_BACKLOG_MAX`
+  (10 000) per bot, become `dead` during the worker's retention pass, with `lastError` saying why.
+  They appear in `GET /api/bots/:id/deliveries` and can be redelivered.
+- `resume {lastSeq}` replays up to 500 open deliveries after `lastSeq` in order; the rest follow
+  through the normal send loop.
+
+Delivery is **at least once**: a replay, a retry after a lost ack or two instances racing can send
+`seq` 7 twice, and a retry (or the live send that happens when the bot comes online, just before its `resume` replay) can arrive after a higher `seq`. Deduplicate on `seq` (keep the highest one
+handled) or on `deliveryId`. `seq` follows delivery creation, not event ids.
+
+**Several sockets.** At most `GATEWAY_MAX_CONNECTIONS` (3) per bot, counted across all instances; a
+further one gets `error too_many_connections` and is closed with code 1008 before `hello`. All
+interactions and events go to the **newest** connection only (never duplicated across sockets); the
+older ones stay connected as warm standbys and take over when the newest closes. A connection that
+stops refreshing its presence entry (`GATEWAY_HEARTBEAT_MS`, 10 s; expires after
+`GATEWAY_PRESENCE_TTL_MS`, 30 s) is dropped from routing, and the server pings every socket
+(`WS_HEARTBEAT_INTERVAL_MS`) and terminates ones that do not answer. Gateway bots get a larger inbound
+frame budget than people (`GATEWAY_FRAME_BURST` 200, `GATEWAY_FRAME_REFILL_PER_SECOND` 100); frames
+over it get `error rate_limited`, and a socket that keeps flooding is closed.
 
 ### Incoming webhooks
 

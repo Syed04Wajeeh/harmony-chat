@@ -135,8 +135,11 @@ export function BotsPage() {
                   <span className="settings-row-title">{bot.name}</span>
                   <span className="settings-row-meta">
                     {bot.scopes.length} {bot.scopes.length === 1 ? 'scope' : 'scopes'}
-                    {bot.interactionsUrl ? ' · slash commands' : ''}
-                    {bot.eventsUrl ? ' · events' : ''}
+                    {bot.delivery.interactions === 'off' ? '' : ' · slash commands'}
+                    {bot.delivery.events === 'off' ? '' : ' · events'}
+                    {bot.delivery.interactions === 'gateway' || bot.delivery.events === 'gateway'
+                      ? ' · gateway'
+                      : ''}
                   </span>
                 </span>
                 <ChevronRightIcon width={18} height={18} />
