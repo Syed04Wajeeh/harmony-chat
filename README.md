@@ -117,7 +117,7 @@ tailscale serve --bg --https=18470 http://127.0.0.1:8470
 # PUBLIC_ORIGIN=https://chat.example.ts.net:18470
 ```
 
-`ALLOWED_LOGINS` (comma-separated) restricts access to specific tailnet users; empty allows anyone on the tailnet. The first user to sign in becomes the instance admin. To call the API without Serve, send the header it would add: `curl -H 'Tailscale-User-Login: you@example.com' http://127.0.0.1:8470/api/me`.
+`ALLOWED_LOGINS` (comma-separated) restricts access to specific tailnet users; empty allows anyone on the tailnet. The first user to sign in becomes the instance admin and gets a starter server. Newcomers join no server unless the admin picks a lobby server (Settings, Instance); everyone can find everyone under Home, All members, and invite people to a server by direct message. To call the API without Serve, send the header it would add: `curl -H 'Tailscale-User-Login: you@example.com' http://127.0.0.1:8470/api/me`.
 
 For later updates run `scripts/deploy.sh`, which rebuilds, recreates the containers and restarts the proxies only when their bind-mounted config changed (compose does not notice that on its own). The host-local ingress for scripts is `127.0.0.1:8471`; see [docs/integrations.md](docs/integrations.md).
 

@@ -48,7 +48,7 @@ behavior and gives examples.
   private to their two users.
 - **Unread counts** (`unreadCount`, `mentionCount`) never exceed 100; `100` means "100 or more".
   They count messages after `lastReadMessageId` that are not yours and not deleted.
-- **Default guild**: new users are added to the default guild ("Harmony") on their first request.
+- **Lobby guild**: new users join no guild on their first request, unless an instance admin picked a lobby guild (`PUT /api/admin/lobby`); then they join that one. The very first user of an empty instance gets a starter guild ("Harmony") that is not the lobby.
 
 ## Types
 
@@ -146,6 +146,22 @@ Response `200` `{ "users": DirectoryUser[], "profiles": { "<userId>": ProfileSum
 everyone who shares at least one guild with you, ordered by display name. `profiles` holds a
 summary only for users who have something to show (an accent color, a custom status or explicit
 perks). Use for mention autocomplete and starting DMs.
+
+### `GET /api/directory?q=&kind=human|bot&notInGuild=<id>&limit=<1..100, default 50>&offset=`
+
+Everyone who has signed in to this instance, whether or not you share a guild, ordered by display
+name. `q` matches display name or login (case-insensitive substring). `kind` defaults to `human`;
+bots are listed only with `kind=bot`. `notInGuild` keeps only people outside that guild (for the
+invite picker) and needs you to be a member of it (`403` otherwise). Response `200`
+`{ "users": DirectoryUser[], "profiles": {...}, "presence": [{ "userId", "status" }], "total": 12 }`;
+`presence` is the current status of the users on this page (invisible users read as offline), and
+`total` counts all matches. Humans only: the endpoint is not available to bots.
+
+### `GET /api/admin/lobby` and `PUT /api/admin/lobby`
+
+Instance admins only (`403` otherwise). Response `200` `{ "guildId": "3" | null }`. `PUT` takes
+the same body: the guild every new user joins on first sign-in, or `null` for none (the default).
+`404` for an unknown guild. Existing users are not moved.
 
 ### `GET /api/presence`
 
@@ -280,6 +296,27 @@ omit for an unlimited invite). Response `201`:
 }
 ```
 
+### `POST /api/guilds/:id/invites/send`
+
+Needs `create_invites`; rate limited to 10 calls per minute per user (`429`). Body
+`{ "userIds": ["8", "9"] }` (1 to 20 ids). Uses your newest never-expiring, unlimited invite for the
+guild, or creates one, then opens the DM with each person and posts a message carrying an invite
+card. Response `200`:
+
+```json
+{
+  "code": "k3Jq9_xT2a",
+  "sent": [{ "userId": "8", "channelId": "41", "messageId": "977" }],
+  "skipped": [{ "userId": "9", "reason": "already_member" }]
+}
+```
+
+`reason` is `already_member` or `unavailable` (yourself, a bot, an unknown id). The card is a
+normal message whose first embed has `"invite": { "code": "k3Jq9_xT2a" }` plus a `title` (the
+guild name) and a `description`; clients render it by calling `GET /api/invites/:code` and offer
+`POST /api/invites/:code/accept`. Only the server sets `embed.invite`; webhook and bot embeds
+cannot. The send path is unchanged (no extra statements).
+
 ### `GET /api/invites/:code`
 
 Any signed-in user. Response `200`:
@@ -404,7 +441,8 @@ Same shape, DMs only.
 
 Body `{ "userId": "8" }`. Response `200` ChannelSummary (`kind: "dm"`, `dmUser` set). Idempotent:
 the same pair always yields the same channel, whoever starts it. The other user receives
-`channel.joined` the first time. Errors: `400` (yourself), `403` (you share no guild with them),
+`channel.joined` the first time. Any signed-in person can be messaged; bots only when you share a
+guild with them. Errors: `400` (yourself), `403` (a bot you share no guild with),
 `404 user_not_found`.
 
 ### `PATCH /api/channels/:id`
