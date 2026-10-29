@@ -167,4 +167,65 @@ describe('examples/echo-bot', () => {
     await socket.waitFor('panel.updated');
     await socket.close();
   });
+  it('runs in gateway mode with no URL: commands, events and the dashboard button', async () => {
+    const tag = randomUUID().slice(0, 8);
+    const owner = `owner-${tag}@example.com`;
+    await ensureUser(infra.db, owner, { admin: true });
+    const guildId = await createGuild(infra.db, owner);
+    const channelId = await createChannel(infra.db, [owner], {
+      guildId,
+      createdBy: owner,
+      kind: 'dashboard',
+    });
+    const created = await createBot(target, owner, {
+      scopes: ['messages.read', 'messages.write', 'commands', 'events', 'panels.write'],
+      eventTypes: ['message.created'],
+    });
+    expect(created.bot.delivery).toEqual({ interactions: 'gateway', events: 'gateway' });
+    await addBotToGuild(target, owner, guildId, created.bot.id);
+    child?.kill();
+    child = spawn('node', [BOT_FILE], {
+      env: {
+        ...process.env,
+        HARMONY_MODE: 'gateway',
+        HARMONY_URL: target.url,
+        HARMONY_BOT_TOKEN: created.token,
+        HARMONY_GUILD_ID: guildId,
+        HARMONY_DASHBOARD_CHANNEL_ID: channelId,
+        HARMONY_PANEL_INTERVAL_MS: '200',
+      },
+      stdio: 'ignore',
+    });
+
+    const asOwner = api(target, owner);
+    const deadline = Date.now() + 10_000;
+    let panel: Panel | undefined;
+    while (!panel) {
+      const listed = await asOwner(`/api/channels/${channelId}/panels`);
+      panel = (listed.body as { panels: Panel[] }).panels[0];
+      if (!panel && Date.now() > deadline) throw new Error('bot never published its panel');
+      if (!panel) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    const socket = await TestSocket.connect(target, owner);
+    await socket.subscribe(channelId);
+    // The bot publishes its panel before its socket is up; retry until it is reachable.
+    let tries = 0;
+    for (;;) {
+      await asOwner(`/api/channels/${channelId}/commands`, {
+        method: 'POST',
+        body: { name: 'echo', options: { text: 'over the gateway' }, nonce: `e${String(tries)}` },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      if (socket.of('interaction.ephemeral').length > 0 || ++tries > 20) break;
+    }
+    expect(socket.of('interaction.ephemeral')[0]?.content).toBe('over the gateway');
+
+    await asOwner('/api/interactions/actions', {
+      method: 'POST',
+      body: { source: { panelId: panel.id }, actionId: 'refresh', nonce: 'g2' },
+    });
+    await socket.waitFor('interaction.completed');
+    await socket.close();
+  });
 });
