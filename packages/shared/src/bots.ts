@@ -35,6 +35,15 @@ export const MAX_BOT_RESPONSE_CONTENT = 4000;
 const BotName = z.string().trim().min(1).max(BOT_NAME_MAX);
 export const OutboundUrl = z.url({ protocol: /^https?$/ }).max(2048);
 
+/**
+ * How interactions or events reach a bot: `http` (signed POST to its URL), `gateway` (frames over
+ * its WebSocket connection; the bot has the scope but no URL) or `off` (it lacks the scope, or
+ * for events has no event types).
+ */
+export const DELIVERY_MODES = ['http', 'gateway', 'off'] as const;
+export const DeliveryMode = z.enum(DELIVERY_MODES);
+export type DeliveryMode = z.infer<typeof DeliveryMode>;
+
 export const Bot = z.object({
   id: Id,
   name: z.string(),
@@ -44,6 +53,7 @@ export const Bot = z.object({
   interactionsUrl: z.string().nullable(),
   eventsUrl: z.string().nullable(),
   eventTypes: z.array(EventType),
+  delivery: z.object({ interactions: DeliveryMode, events: DeliveryMode }),
   createdAt: z.iso.datetime(),
   lastUsedAt: z.iso.datetime().nullable(),
 });

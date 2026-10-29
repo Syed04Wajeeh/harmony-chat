@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { InteractionFailureReason, InvokeActionBody, InvokeCommandBody } from './bots.js';
+import {
+  EventEnvelope,
+  InteractionFailureReason,
+  InteractionPayload,
+  InvokeActionBody,
+  InvokeCommandBody,
+} from './bots.js';
 import { Embeds } from './embeds.js';
 import { ModuleId } from './modules.js';
 import { Panel } from './panels.js';
@@ -41,6 +47,16 @@ export const ClientFrame = z.discriminatedUnion('type', [
   z.object({ type: z.literal('presence.set'), status: UserStatus }),
   z.object({ type: z.literal('command.invoke'), channelId: Id, ...InvokeCommandBody.shape }),
   z.object({ type: z.literal('action.invoke'), ...InvokeActionBody.shape }),
+  // Bot gateway frames; humans may not send them.
+  z.object({
+    type: z.literal('interaction.respond'),
+    interactionId: Id,
+    token: z.string().min(1).max(100),
+    /** Validated against `InteractionResponse` by the server, as for an HTTP answer. */
+    response: z.unknown(),
+  }),
+  z.object({ type: z.literal('event.ack'), seq: z.number().int().min(0) }),
+  z.object({ type: z.literal('resume'), lastSeq: z.number().int().min(0) }),
 ]);
 export type ClientFrame = z.infer<typeof ClientFrame>;
 
@@ -182,6 +198,26 @@ export type UserEvent = z.infer<typeof UserEvent>;
 export const PresenceEvent = presenceEvent;
 export type PresenceEvent = z.infer<typeof PresenceEvent>;
 
+/** Frames the server pushes to a bot connected to the gateway (see docs/api/protocol.md). */
+export const gatewayFrames = [
+  z.object({ type: z.literal('interaction.create'), interaction: InteractionPayload }),
+  z.object({
+    type: z.literal('event'),
+    /** Per-bot, strictly increasing. Acknowledge with `event.ack`; resume with `resume`. */
+    seq: z.number().int().min(1),
+    /** Same id as the `X-Harmony-Delivery-Id` header of an HTTP delivery. */
+    deliveryId: Id,
+    event: EventEnvelope,
+  }),
+  z.object({
+    type: z.literal('resumed'),
+    lastSeq: z.number().int().min(0),
+    replayed: z.number().int().min(0),
+  }),
+] as const;
+export const GatewayFrame = z.discriminatedUnion('type', [...gatewayFrames]);
+export type GatewayFrame = z.infer<typeof GatewayFrame>;
+
 /**
  * `backfill` doubles as the subscription confirmation: it is always sent once the
  * subscription is live, with an empty list when no `lastSeenId` was given.
@@ -202,6 +238,7 @@ export const ServerFrame = z.discriminatedUnion('type', [
     hasMore: z.boolean(),
   }),
   presenceBatchFrame,
+  ...gatewayFrames,
   ...channelEvents,
   ...userEvents,
 ]);
@@ -212,6 +249,10 @@ export const USER_TOPIC_PREFIX = 'harmony:user:';
 export const PRESENCE_TOPIC_PREFIX = 'harmony:presence:';
 
 export const channelTopic = (channelId: string): string => `${CHANNEL_TOPIC_PREFIX}${channelId}`;
+export const GATEWAY_TOPIC_PREFIX = 'harmony:gateway:conn:';
+/** Where frames for one gateway connection of a bot are published. */
+export const gatewayTopic = (connectionId: string): string =>
+  `${GATEWAY_TOPIC_PREFIX}${connectionId}`;
 export const userTopic = (userId: string): string => `${USER_TOPIC_PREFIX}${userId}`;
 export const presenceGuildTopic = (guildId: string): string =>
   `${PRESENCE_TOPIC_PREFIX}guild:${guildId}`;

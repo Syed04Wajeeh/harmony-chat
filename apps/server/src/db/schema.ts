@@ -146,6 +146,8 @@ export interface BotsTable {
   interactions_url: string | null;
   events_url: string | null;
   event_types: string[];
+  /** Last gateway event number handed out to this bot. */
+  event_seq: Generated<string>;
   created_at: Timestamp;
   token_rotated_at: Generated<Date>;
   last_used_at: Date | null;
@@ -221,6 +223,8 @@ export interface EventDeliveriesTable {
   next_attempt_at: Generated<Date>;
   last_status_code: number | null;
   last_error: string | null;
+  /** Per-bot sequence number for gateway deliveries; null for HTTP ones. */
+  seq: string | null;
   created_at: Timestamp;
   delivered_at: Date | null;
 }
