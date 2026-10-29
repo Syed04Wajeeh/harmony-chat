@@ -70,6 +70,13 @@ test('bot channel settings and a feed channel fit a phone', async ({ browser }) 
   await expect(mobile.getByText(/This channel is a bot feed/)).toBeVisible();
   await expect(mobile.getByRole('button', { name: 'Send message' })).toBeDisabled();
   await expect(mobile.getByRole('list', { name: 'Bots in this channel' })).toBeVisible();
+  // The feed badge is icon-only on a phone and the channel name is not truncated.
+  await expect(mobile.getByRole('listitem', { name: /^Bot feed/ })).toHaveText('');
+  const truncated = await mobile.evaluate(() => {
+    const h1 = document.querySelector('.channel-title h1');
+    return h1 ? h1.scrollWidth > h1.clientWidth : true;
+  });
+  expect(truncated).toBe(false);
   await mobile.screenshot(shot('feed-channel-mobile.png'));
   const memberOverflow = await mobile.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

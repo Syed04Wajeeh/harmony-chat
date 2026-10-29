@@ -36,7 +36,21 @@
   font-weight: var(--weight-heavy);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 599px) {
+  .channel-bots {
+    margin: 0 var(--space-1);
+  }
+
+  .channel-bots-feed {
+    padding: 0;
+    width: 28px;
+    justify-content: center;
+  }
+
+  .channel-bots-more {
+    padding: 0 var(--space-2);
+  }
+
   .channel-bot {
     padding: 0 4px;
   }
