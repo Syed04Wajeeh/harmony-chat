@@ -15,7 +15,12 @@ export function UserSettingsLayout() {
       ? [{ to: '/settings/user/desktop', label: 'Desktop app', group: 'App' }]
       : []),
     { to: '/settings/user/bots', label: 'My bots', group: 'Developer' },
-    ...(isAdmin ? [{ to: '/settings/user/perks', label: 'Perks', group: 'Instance' }] : []),
+    ...(isAdmin
+      ? [
+          { to: '/settings/user/perks', label: 'Perks', group: 'Instance' },
+          { to: '/settings/user/lobby', label: 'Lobby server', group: 'Instance' },
+        ]
+      : []),
     ...webModules.flatMap((module) =>
       module.userSettingsPanel
         ? [

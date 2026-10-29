@@ -2,6 +2,7 @@ import type { Embed } from '@harmony/shared';
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { embedColor, hasVisibleContent, safeHttpUrl } from '../lib/embeds.js';
 import { formatAbsolute, formatTimestamp } from '../lib/time.js';
+import { InviteCard } from './InviteCard.js';
 import { Markdown } from './Markdown.js';
 
 interface Props {
@@ -40,6 +41,7 @@ function MaybeLink({ href, children }: { href: string | null; children: ReactNod
 }
 
 function EmbedCard({ embed, nameOf, meId }: { embed: Embed } & Omit<Props, 'embeds'>) {
+  if (embed.invite) return <InviteCard code={embed.invite.code} />;
   const color = embedColor(embed.color);
   const fields = embed.fields ?? [];
   const thumbnail = safeHttpUrl(embed.thumbnail?.url);

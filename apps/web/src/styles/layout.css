@@ -617,3 +617,150 @@ button.sidebar-header:hover {
   margin-top: var(--space-4);
   width: 100%;
 }
+
+/* Home: members directory */
+.home-tabs {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
+}
+
+.home-tabs .chip {
+  min-height: 36px;
+}
+
+.directory {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.directory-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) var(--space-4) var(--space-1);
+  padding: 0 var(--space-3);
+  min-height: 44px;
+  border-radius: var(--radius-control);
+  background: var(--color-bg-input);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+  color: var(--color-text-muted);
+}
+
+.directory-search:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.directory-search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.directory-search input:focus {
+  outline: none;
+}
+
+.directory-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-2) var(--space-6);
+  overscroll-behavior: contain;
+}
+
+.directory-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.directory-heading span {
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-hover);
+  font-variant-numeric: tabular-nums;
+}
+
+.directory-list {
+  display: grid;
+  gap: 2px;
+}
+
+.directory-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-right: var(--space-2);
+  border-radius: var(--radius-control);
+}
+
+.directory-row:hover {
+  background: var(--color-bg-hover);
+}
+
+.directory-row[data-offline] .avatar {
+  opacity: 0.7;
+}
+
+.directory-person {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  text-align: left;
+  font-weight: var(--weight-medium);
+}
+
+.directory-names {
+  min-width: 0;
+  display: grid;
+}
+
+.directory-names small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.directory-message {
+  flex: none;
+}
+
+.directory-more {
+  margin: var(--space-3) auto 0;
+  display: flex;
+}
+
+@media (max-width: 520px) {
+  .directory-message span {
+    display: none;
+  }
+
+  .directory-message {
+    min-width: var(--tap-min);
+    padding: 0;
+  }
+}
