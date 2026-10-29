@@ -233,10 +233,9 @@ export function ProfilePage() {
                   ? { backgroundImage: `url("${profile.bannerUrl}")` }
                   : profileStyle(null, bannerNumber ?? profile.bannerColor)
               }
-              data-color={profile.bannerUrl ? undefined : ''}
             />
             <div className="profile-head">
-              <Avatar user={{ ...me, avatarUrl: profile.avatarUrl }} size={72} status="online" />
+              <Avatar user={{ ...me, avatarUrl: profile.avatarUrl }} size={80} status="online" />
             </div>
             <div className="profile-body">
               <div className="profile-name">{me.displayName}</div>
