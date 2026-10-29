@@ -156,6 +156,17 @@ describe('invite cards and the members directory', () => {
     expect(((await asViewer('/api/directory?q=%25')).body as Page).total).toBe(0);
     expect((await asViewer('/api/directory?limit=1000')).status).toBe(400);
 
+    // The invite picker asks for people outside a guild, but only guild members may ask.
+    const guild = await guildOf(viewer, 'Picker');
+    const outside = (
+      await asViewer(`/api/directory?notInGuild=${guild.id}&q=${viewer.split('@')[0]}`)
+    ).body as Page;
+    expect(outside.users).toEqual([]);
+    const others = (await asViewer(`/api/directory?notInGuild=${guild.id}&q=ZED-stranger`))
+      .body as Page;
+    expect(others.users.map((u) => u.login)).toEqual([stranger]);
+    expect((await api(target, stranger)(`/api/directory?notInGuild=${guild.id}`)).status).toBe(403);
+
     // Strangers can be messaged straight from the directory.
     const strangerId = found.users[0]?.id;
     const dm = await asViewer('/api/dms', { method: 'POST', body: { userId: strangerId } });

@@ -207,6 +207,8 @@ export const DirectoryQuery = z.object({
   /** Matches display name or login, case-insensitively. */
   q: z.string().trim().max(100).optional(),
   kind: z.enum(['human', 'bot']).default('human'),
+  /** Only people who are not in this guild (to invite them); you must be a member of it. */
+  notInGuild: Id.optional(),
   limit: z.coerce.number().int().min(1).max(DIRECTORY_PAGE_MAX).default(50),
   offset: z.coerce.number().int().min(0).max(100_000).default(0),
 });

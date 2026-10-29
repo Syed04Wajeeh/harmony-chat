@@ -2,6 +2,7 @@ import { sql, type ExpressionBuilder, type Kysely, type Selectable } from 'kysel
 import type { DirectoryUser, Me, UserStatus } from '@harmony/shared';
 import type { Database } from '../db/schema.js';
 import { addGuildMember, createGuildWithGeneral } from '../guilds/membership.js';
+import { AppError } from '../errors.js';
 import type { DomainEvents } from '../modules/domain-events.js';
 import type { Identity } from './policy.js';
 
@@ -110,17 +111,44 @@ export class UserStore {
   }
 
   /** Everyone who has signed in to this instance, a page at a time. Bots only when asked for. */
-  async directory(query: {
-    q?: string | undefined;
-    kind: 'human' | 'bot';
-    limit: number;
-    offset: number;
-  }): Promise<{ users: DirectoryUser[]; total: number }> {
+  async directory(
+    viewerId: string,
+    query: {
+      q?: string | undefined;
+      kind: 'human' | 'bot';
+      notInGuild?: string | undefined;
+      limit: number;
+      offset: number;
+    },
+  ): Promise<{ users: DirectoryUser[]; total: number }> {
     // `%` and `_` are plain characters in a search box.
+    const { notInGuild } = query;
+    if (notInGuild) {
+      const member = await this.db
+        .selectFrom('guild_members')
+        .select('user_id')
+        .where('guild_id', '=', notInGuild)
+        .where('user_id', '=', viewerId)
+        .executeTakeFirst();
+      if (!member) throw new AppError(403, 'forbidden', 'You are not a member of this guild');
+    }
     const pattern = query.q ? `%${query.q.replace(/[\\%_]/g, '\\$&')}%` : null;
     const where = (eb: ExpressionBuilder<Database, 'users'>) =>
       eb.and([
         eb('users.kind', '=', query.kind),
+        ...(notInGuild
+          ? [
+              eb.not(
+                eb.exists(
+                  eb
+                    .selectFrom('guild_members')
+                    .select('guild_members.user_id')
+                    .whereRef('guild_members.user_id', '=', 'users.id')
+                    .where('guild_members.guild_id', '=', notInGuild),
+                ),
+              ),
+            ]
+          : []),
         ...(pattern
           ? [
               eb.or([

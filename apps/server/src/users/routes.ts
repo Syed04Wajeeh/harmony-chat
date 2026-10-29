@@ -53,7 +53,7 @@ export const userRoutes: FastifyPluginCallbackZod<UserRoutesOptions> = (
       schema: { querystring: DirectoryQuery, response: { 200: DirectoryResponse } },
     },
     async (request) => {
-      const { users: page, total } = await users.directory(request.query);
+      const { users: page, total } = await users.directory(request.user.id, request.query);
       const ids = page.map((u) => u.id);
       const [profileSummaries, online] = await Promise.all([
         profiles.summaries(ids),
