@@ -24,6 +24,7 @@ export function CreateChannelDialog({ guildId, open, onOpenChange }: Props) {
   const [name, setName] = useState('');
   const [topic, setTopic] = useState('');
   const [isPrivate, setPrivate] = useState(false);
+  const [kind, setKind] = useState<'text' | 'dashboard'>('text');
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
 
@@ -31,7 +32,12 @@ export function CreateChannelDialog({ guildId, open, onOpenChange }: Props) {
     event.preventDefault();
     setBusy(true);
     const channel = await attempt(
-      api.createChannel(guildId, { name, isPrivate, ...(topic.trim() && { topic: topic.trim() }) }),
+      api.createChannel(guildId, {
+        name,
+        isPrivate,
+        kind,
+        ...(topic.trim() && { topic: topic.trim() }),
+      }),
       'Could not create the channel',
     );
     if (channel) {
@@ -40,6 +46,7 @@ export function CreateChannelDialog({ guildId, open, onOpenChange }: Props) {
       setName('');
       setTopic('');
       setPrivate(false);
+      setKind('text');
       void navigate(channelPath(channel));
     }
     setBusy(false);
@@ -48,6 +55,33 @@ export function CreateChannelDialog({ guildId, open, onOpenChange }: Props) {
   return (
     <Modal open={open} onOpenChange={onOpenChange} title="Create a channel">
       <form onSubmit={(event) => void submit(event)} className="form">
+        <fieldset className="field kind-picker">
+          <legend>Channel type</legend>
+          <label className="kind-option" data-selected={kind === 'text' || undefined}>
+            <input
+              type="radio"
+              name="channel-kind"
+              checked={kind === 'text'}
+              onChange={() => setKind('text')}
+            />
+            <span>
+              <strong>Text</strong>
+              <small>Messages, files and reactions.</small>
+            </span>
+          </label>
+          <label className="kind-option" data-selected={kind === 'dashboard' || undefined}>
+            <input
+              type="radio"
+              name="channel-kind"
+              checked={kind === 'dashboard'}
+              onChange={() => setKind('dashboard')}
+            />
+            <span>
+              <strong>Dashboard</strong>
+              <small>Charts and controls that bots publish.</small>
+            </span>
+          </label>
+        </fieldset>
         <label className="field">
           <span>Channel name</span>
           <input

@@ -26,6 +26,9 @@ import {
   ListGuildsResponse,
   ListMessagesResponse,
   ListUsersResponse,
+  ListPanelsResponse,
+  InvokeCommandResponse,
+  Panel,
   ListEmojiResponse,
   GuildEmoji,
   MyEmojiResponse,
@@ -46,6 +49,7 @@ import {
   type CreateChannelBody,
   type CreateRoleBody,
   type CreateWebhookBody,
+  type InvokeActionBody,
   type PutOverwriteBody,
   type UpdateRoleBody,
   type DELIVERY_STATUSES,
@@ -286,6 +290,18 @@ export const api = {
   unpin: (id: string) => request(`/api/messages/${id}/pin`, { method: 'DELETE', schema: Message }),
   pins: async (channelId: string, signal?: AbortSignal) =>
     (await request(`/api/channels/${channelId}/pins`, { schema: PinsResponse, signal })).messages,
+  panels: async (channelId: string, signal?: AbortSignal) =>
+    (await request(`/api/channels/${channelId}/panels`, { schema: ListPanelsResponse, signal }))
+      .panels,
+  setPanelPinned: (id: string, pinned: boolean) =>
+    request(`/api/panels/${id}`, { method: 'PATCH', body: { pinned }, schema: Panel }),
+  deletePanel: (id: string) => request(`/api/panels/${id}`, { method: 'DELETE' }),
+  invokeAction: (body: InvokeActionBody) =>
+    request('/api/interactions/actions', {
+      method: 'POST',
+      body,
+      schema: InvokeCommandResponse,
+    }),
   guildCommands: async (guildId: string, signal?: AbortSignal) =>
     (await request(`/api/guilds/${guildId}/commands`, { schema: ListCommandsResponse, signal }))
       .commands,

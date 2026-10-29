@@ -12,6 +12,7 @@ import { CreateChannelDialog } from './dialogs/CreateChannelDialog.js';
 import { InviteDialog } from './dialogs/InviteDialog.js';
 import {
   ChevronDownIcon,
+  DashboardIcon,
   HashIcon,
   LinkIcon,
   LockIcon,
@@ -116,7 +117,9 @@ function GuildChannels({
   const access = useGuildAccess(guildId);
   if (!guild) return null;
   const isOwner = guild.ownerId === meId;
-  const list = guildChannels(Object.values(channels), guildId);
+  const all = guildChannels(Object.values(channels), guildId);
+  const list = all.filter((channel) => channel.kind !== 'dashboard');
+  const dashboards = all.filter((channel) => channel.kind === 'dashboard');
 
   async function leave() {
     const left = await attempt(
@@ -209,6 +212,28 @@ function GuildChannels({
             </li>
           ))}
         </ul>
+        {dashboards.length > 0 && (
+          <>
+            <div className="channel-group-header">
+              <span>Dashboards</span>
+            </div>
+            <ul>
+              {dashboards.map((channel) => (
+                <li key={channel.id}>
+                  <NavLink
+                    to={channelPath(channel)}
+                    className="channel-link"
+                    data-harmony="channel-link"
+                    aria-current={channel.id === activeChannelId ? 'page' : undefined}
+                  >
+                    <DashboardIcon width={18} height={18} />
+                    <span className="channel-name">{channel.name}</span>
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </nav>
 
       {dialog === 'invite' && (

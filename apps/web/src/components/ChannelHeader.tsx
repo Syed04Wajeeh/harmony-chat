@@ -5,7 +5,7 @@ import { useApp } from '../store/store.js';
 import { useUi } from '../store/ui.js';
 import { Avatar } from './Avatar.js';
 import { AddMembersDialog } from './dialogs/AddMembersDialog.js';
-import { HashIcon, LockIcon, MenuIcon, SettingsIcon, UsersIcon } from './Icons.js';
+import { DashboardIcon, HashIcon, LockIcon, MenuIcon, SettingsIcon, UsersIcon } from './Icons.js';
 import { ChannelSettingsDialog } from './dialogs/ChannelSettingsDialog.js';
 import { useGuildAccess } from '../hooks/usePermission.js';
 import { ChannelHeaderSlots } from '../modules/slots.js';
@@ -59,7 +59,9 @@ export function ChannelHeader({ channel }: Props) {
           </>
         ) : (
           <>
-            {channel.isPrivate ? (
+            {channel.kind === 'dashboard' ? (
+              <DashboardIcon width={20} height={20} />
+            ) : channel.isPrivate ? (
               <LockIcon width={20} height={20} />
             ) : (
               <HashIcon width={20} height={20} />

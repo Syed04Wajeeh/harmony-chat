@@ -14,6 +14,7 @@ import { Attachments } from './Attachments.js';
 import { Avatar } from './Avatar.js';
 import { AuthorBadge } from './AuthorBadge.js';
 import { Embeds } from './Embeds.js';
+import { MessageButtons } from './panels/MessageButtons.js';
 import { useMessageHandlers } from './chat-context.js';
 import { CopyIcon, EditIcon, MoreIcon, PinIcon, ReplyIcon, TrashIcon } from './Icons.js';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './Menu.js';
@@ -295,6 +296,7 @@ export const MessageItem = memo(function MessageItem({
             <Embeds embeds={message.embeds} nameOf={nameOf} meId={meId} />
           )}
           <Attachments attachments={message.attachments} />
+          {!pending && message.components && <MessageButtons message={message} />}
           {!pending && <MessageAccessories message={message} />}
           {!pending && <MessageFooters message={message} />}
           {pending?.status === 'failed' && (

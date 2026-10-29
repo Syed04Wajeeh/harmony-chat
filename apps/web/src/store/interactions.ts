@@ -7,7 +7,10 @@ interface Base {
   /** Null for built-in commands, which come from a module named by `source`. */
   botId: string | null;
   source?: string;
+  /** The command name, or the label of the button that was clicked. */
   command: string;
+  /** True when a button was clicked rather than a slash command typed. */
+  action?: boolean;
 }
 
 /**

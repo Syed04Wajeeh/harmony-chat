@@ -27,6 +27,8 @@ import { ChannelHeader } from './ChannelHeader.js';
 import { MessageContext, type MessageHandlers } from './chat-context.js';
 import { useGuildAccess } from '../hooks/usePermission.js';
 import { Composer } from './Composer.js';
+import { DashboardView } from './panels/DashboardView.js';
+import { PinnedPanels } from './panels/PinnedPanels.js';
 import { ChannelPanels } from '../modules/slots.js';
 import { MessageList, type PendingMessage } from './MessageList.js';
 import { MessageSheet } from './MessageSheet.js';
@@ -37,7 +39,17 @@ import type { Attachment } from '@harmony/shared';
 
 const NO_INTERACTIONS: readonly LocalInteraction[] = [];
 
+/** Dashboard channels show panels; every other channel is a message list. */
 export function ChannelView({ channelId }: { channelId: string }) {
+  const kind = useApp((state) => state.channels[channelId]?.kind);
+  return kind === 'dashboard' ? (
+    <DashboardView channelId={channelId} />
+  ) : (
+    <TextChannelView channelId={channelId} />
+  );
+}
+
+function TextChannelView({ channelId }: { channelId: string }) {
   const channel = useApp((state) => state.channels[channelId]);
   const access = useGuildAccess(channel?.guildId ?? '', channel?.guildId ? channelId : undefined);
   const readOnly = channel?.guildId != null && access.loaded && !access.has('send_messages');
@@ -242,6 +254,7 @@ export function ChannelView({ channelId }: { channelId: string }) {
       >
         <ChannelHeader channel={channel} />
         <div className="channel-body">
+          <PinnedPanels channelId={channelId} />
           <MessageList
             items={items}
             pending={pending}

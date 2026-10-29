@@ -21,6 +21,11 @@ export const SCOPE_INFO: Record<BotScope, { label: string; description: string }
     label: 'Slash commands',
     description: 'Register commands and answer them. Required for an interactions URL.',
   },
+  'panels.write': {
+    label: 'Panels',
+    description:
+      'Publish dashboards: panels of charts, stats and tables in channels. Buttons on them also need an interactions URL.',
+  },
   events: {
     label: 'Events',
     description:
