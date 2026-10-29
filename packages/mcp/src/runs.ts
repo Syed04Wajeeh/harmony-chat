@@ -88,12 +88,18 @@ export function formatDuration(ms: number): string {
   return `${String(s)}s`;
 }
 
+/** `2026-10-29 19:18 UTC` */
+export const stamp = (at: number | string) =>
+  `${new Date(at).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+
 const clock = (at: number) => new Date(at).toISOString().slice(11, 19);
 
 /** The panel for a run. Everything the agent wrote is clipped to the panel's own limits. */
 export function renderRun(run: Run, options: RunOptions, now: number): PanelView {
   const active = ACTIVE_STATUSES.includes(run.status);
   const elapsed = (run.endedAt ?? now) - run.startedAt;
+  // A finished run has done all it set out to do.
+  const shown = run.status === 'done' && run.totalSteps ? run.totalSteps : run.steps;
   const blocks: Block[] = [
     {
       type: 'stat',
@@ -107,7 +113,7 @@ export function renderRun(run: Run, options: RunOptions, now: number): PanelView
       type: 'stat',
       id: 'steps',
       label: 'Steps',
-      value: run.totalSteps ? `${String(run.steps)} / ${String(run.totalSteps)}` : run.steps,
+      value: run.totalSteps ? `${String(shown)} / ${String(run.totalSteps)}` : run.steps,
       span: 1,
     },
     { type: 'stat', id: 'elapsed', label: 'Elapsed', value: formatDuration(elapsed), span: 1 },
@@ -117,14 +123,14 @@ export function renderRun(run: Run, options: RunOptions, now: number): PanelView
       type: 'progress',
       id: 'progress',
       label: 'Progress',
-      value: Math.min(run.steps, run.totalSteps),
+      value: Math.min(shown, run.totalSteps),
       max: run.totalSteps,
       tone: run.status === 'failed' ? 'bad' : run.status === 'done' ? 'good' : 'neutral',
     });
   }
   const pairs: { key: string; value: string }[] = [
     { key: 'Current step', value: clip(run.step || 'Starting', 300) },
-    { key: 'Started', value: new Date(run.startedAt).toISOString() },
+    { key: 'Started', value: stamp(run.startedAt) },
   ];
   if (run.summary) pairs.push({ key: 'Summary', value: clip(run.summary, 300) });
   if (run.cancelledBy) {

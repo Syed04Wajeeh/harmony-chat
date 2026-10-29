@@ -1,7 +1,7 @@
 import type { InteractionPayload } from '@harmony/shared';
 import type { HarmonyClient, InteractionAnswer } from './client.js';
 import { defuseMassMentions } from './format.js';
-import type { Person } from './runs.js';
+import { stamp, type Person } from './runs.js';
 
 export type Risk = 'low' | 'medium' | 'high';
 export type Decision = 'approved' | 'denied' | 'timeout' | 'cancelled';
@@ -70,7 +70,7 @@ function resolvedContent(
         : decision === 'timeout'
           ? '**Timed out** with no decision'
           : `**Cancelled**${cancelledBy ? ` (run cancelled by ${cancelledBy.displayName})` : ''}`;
-  const lines = [`${head} · ${at}`, `**${request.title}**`];
+  const lines = [`${head} · ${stamp(at)}`, `**${request.title}**`];
   if (request.details) lines.push('', request.details);
   return lines.join('\n');
 }

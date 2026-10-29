@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { DevApi } from './support/dev-api.js';
 import { emojiPng, scenePng } from './support/png.js';
@@ -908,6 +909,84 @@ test.describe('dashboards', () => {
       }
       await page.screenshot({ path: shot(`${prefix}-dashboard`) });
       await context.close();
+    }
+  });
+});
+
+test.describe('agent hub', () => {
+  let agent: ChildProcess | undefined;
+
+  test.afterAll(() => agent?.kill());
+
+  test('a run waiting on an approval, and the approval message', async ({ browser }) => {
+    const build = spawnSync('pnpm', ['--filter', '@harmony/mcp', 'build'], { encoding: 'utf8' });
+    if (build.status !== 0) throw new Error(`mcp build failed: ${build.stdout}${build.stderr}`);
+    const { ada } = seeded.api;
+    const guild = await ada.createGuild('Release Desk');
+    const dashboard = await ada.createChannel(guild.id, 'agents', { kind: 'dashboard' });
+    const approvals = await ada.createChannel(guild.id, 'approvals');
+    const created = await ada.createBot({
+      name: 'Release agent',
+      scopes: ['messages.read', 'messages.write', 'channels.read', 'panels.write', 'commands'],
+    });
+    await ada.addBotToGuild(guild.id, created.bot.id);
+    agent = spawn(process.execPath, ['demo.ts'], {
+      cwd: path.resolve('../../examples/agent-demo'),
+      env: {
+        ...process.env,
+        HARMONY_URL: new URL(baseURL).origin,
+        HARMONY_BOT_TOKEN: created.token,
+        DEMO_DASHBOARD_CHANNEL: dashboard.id,
+        DEMO_APPROVAL_CHANNEL: approvals.id,
+        DEMO_PACE_MS: '1200',
+        DEMO_APPROVAL_SECONDS: '600',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    agent.stdout?.on('data', (chunk: Buffer) => console.log(`agent: ${chunk.toString().trim()}`));
+    agent.stderr?.on('data', (chunk: Buffer) => console.log(`agent: ${chunk.toString().trim()}`));
+
+    for (const [prefix, options] of [
+      ['desktop', DESKTOP],
+      ['mobile', PHONE],
+    ] as const) {
+      const run = await visit(
+        browser,
+        'ada@example.com',
+        options,
+        `/channels/${guild.id}/${dashboard.id}`,
+      );
+      const panel = run.page.getByRole('article', { name: 'Agent run: Release 2.4' });
+      await expect(panel).toContainText('Waiting for approval', { timeout: 30_000 });
+      await run.page.evaluate(() => document.fonts.load('15px "Manrope Variable"'));
+      await run.page.waitForTimeout(400);
+      await run.page.screenshot({ path: shot(`${prefix}-agent-run`) });
+      await run.context.close();
+
+      const chat = await visit(
+        browser,
+        'ada@example.com',
+        options,
+        `/channels/${guild.id}/${approvals.id}`,
+      );
+      await chat.page.getByRole('button', { name: 'Approve' }).waitFor();
+      await chat.page.evaluate(() => document.fonts.load('15px "Manrope Variable"'));
+      await chat.page.waitForTimeout(400);
+      await chat.page.screenshot({ path: shot(`${prefix}-agent-approval`) });
+      await chat.context.close();
+    }
+    // Leave nothing waiting: approve so the demo finishes.
+    const page = (
+      await ada.request<{ messages: { id: string }[] }>(
+        'GET',
+        `/api/channels/${approvals.id}/messages`,
+      )
+    ).messages[0];
+    if (page) {
+      await ada.request('POST', '/api/interactions/actions', {
+        source: { messageId: page.id },
+        actionId: 'approve',
+      });
     }
   });
 });
