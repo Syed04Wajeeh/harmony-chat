@@ -41,6 +41,110 @@ Host firewalls often drop traffic from containers to ports published on the host
 is why attaching to the network is the recommended route for containers, rather than
 `host.docker.internal:8471`.
 
+## Webhook presets and templates
+
+A webhook has a **format** that decides how an incoming body becomes a message. Change it with the
+pencil button on the webhook in **Server settings, Integrations**, which also has a sample box and a
+live preview, so you can see what a payload will look like before the service sends one.
+
+| Format                    | Use it for                                                                              |
+| ------------------------- | --------------------------------------------------------------------------------------- |
+| `discord` (default)       | Senders that already speak Discord webhooks, such as Uptime Kuma's Discord notification |
+| `forgejo`, `github`       | Push, pull request, issue, comment, review, release and workflow or Actions run events  |
+| `alertmanager`, `grafana` | Firing and resolved alert groups                                                        |
+| `watchtower`              | Container update notifications (JSON or plain text)                                     |
+| `generic`                 | Any JSON: well-known keys become the title, text and link, the rest become fields       |
+| `template`                | Any JSON, mapped by a template you write (below)                                        |
+
+Presets answer `204` for events they choose to ignore (for example GitHub's `check_run`, label
+changes, or `created` releases that are followed by `published`), so a noisy sender does not fill the
+channel. Nothing is posted and nothing counts against the limits except the rate limit.
+
+### Setting up each service
+
+Create the webhook, pick the format, then paste its URL (`<webhook URL>` below, shown once when the
+webhook is created; use the address your sender can reach, see [Reaching it](#reaching-it)).
+
+- **Forgejo or Gitea.** Repository, Settings, Webhooks, Add webhook, type **Gitea** (or
+  **Forgejo**). Target URL `<webhook URL>`, content type `application/json`. Choose the events you
+  want: push, pull request, issues, issue comment, release, and on Forgejo the Actions run events.
+  Optionally set a **Secret** here and the same value under _Signing secret_ in Harmony; see
+  [Signatures](#signatures). **Test delivery** sends a sample push, which shows up as a normal push message.
+- **GitHub.** Repository, Settings, Webhooks, Add webhook. Payload URL `<webhook URL>`, content type
+  `application/json` (the form-encoded type also works). Pick individual events. Optional secret as
+  above. GitHub's first `ping` shows as "Webhook connected".
+- **Prometheus Alertmanager.** Add a receiver and route to it:
+
+  ```yaml
+  receivers:
+    - name: harmony
+      webhook_configs:
+        - url: <webhook URL>
+          send_resolved: true
+  ```
+
+  One message per notification group, with up to eight alerts listed, colored by severity and green
+  when resolved.
+
+- **Grafana.** Alerting, Contact points, New, integration **Webhook**, URL `<webhook URL>`, method
+  POST. Unified alerting bodies (with an `alerts` array) use Grafana's own title and message and add
+  dashboard and silence links; the older single-alert body is understood too.
+- **Watchtower.** Point its shoutrrr notification at the generic service, for example
+  `WATCHTOWER_NOTIFICATION_URL=generic+<webhook URL>?template=json` (or without `template=json` for
+  a plain text body). The preset accepts `{message, title}`, plain text, and a report-shaped body
+  with `report` and `entries`.
+- **Home Assistant, cron jobs and anything else.** Use `generic`, or a template to choose exactly
+  what is shown. Home Assistant's `rest_command` can send any JSON.
+
+### Templates
+
+A template is a small JSON document, not code. Strings may contain `{{path | filter}}`
+placeholders that are looked up in the JSON body the service sent:
+
+```json
+{
+  "content": "Backup {{status | upper}} on {{host.name}}",
+  "embed": {
+    "title": "{{name}}",
+    "description": "{{message | default:\"No details\"}}",
+    "url": "{{link}}",
+    "color": "#2ecc71",
+    "fields": [{ "name": "Host", "value": "{{host.name}}", "inline": true }],
+    "footer": "{{finished_at}}"
+  }
+}
+```
+
+- **Paths** are dot separated with array indices: `host.disks[0].label` or `host.disks.0.label`. A
+  path that does not exist, or points at `null`, renders as empty. Objects and arrays render as
+  compact JSON. Names such as `__proto__`, `constructor` and `prototype` are refused when the
+  template is saved, and only the body's own properties are ever read.
+- **Filters** are exactly `upper`, `lower`, `truncate:N`, `default:"text"` and `json`, chained with
+  `|`. There are no loops, conditions, expressions or functions.
+- `color` is a number or text that renders to `#rrggbb` or a decimal number. A `url` that does not
+  render to an `http(s)` address is dropped. A field whose name renders empty is dropped. If
+  nothing is left to post, the webhook answers `204`.
+- Limits: 2000 characters per string (embed fields use the embed limits), 10 fields, 100
+  placeholders per template. The result is clamped to the usual embed limits, and `@everyone` and
+  `@here` are defused wherever they came from.
+- A template is validated when it is saved. `POST /api/webhooks/:id/preview` renders a sample
+  without posting anything; see the [protocol](api/protocol.md#webhook-formats-and-templates).
+
+### Signatures
+
+For `github` and `forgejo` you can set a secret. Harmony then computes the HMAC-SHA256 of the raw
+request body and compares it, in constant time, with `X-Hub-Signature-256` (GitHub, and also sent
+by Forgejo) or `X-Forgejo-Signature` / `X-Gitea-Signature`. A missing or wrong signature is
+`401 invalid_signature` and nothing is posted. The secret is the same string you typed into the
+sender. The path token is still required: the signature adds proof that the body was not changed
+and came from a sender that knows the secret, which matters if a webhook URL leaks into a log.
+
+Other formats cannot be signed, and the settings screen only offers a secret where it works.
+
+Not supported (left out on purpose): panel targets, where a webhook drives a dashboard panel.
+Panels belong to a bot that is a member of the channel, and a webhook's author is not; see the
+decision in `NOTES.md`.
+
 ## Panels and buttons
 
 Bots can publish dashboards: panels of stats, charts, tables and buttons that Harmony renders

@@ -1089,14 +1089,18 @@ admin may reach hosts listed in `OUTBOUND_PRIVATE_ALLOWLIST`. Redirects are neve
 
 ### Incoming webhooks
 
-| Endpoint                          | Notes                                                                                                                                                                                                                   |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/channels/:id/webhooks` | Human with `manage_guild` who can see the channel. `{name, avatarAttachmentId?}` returns `201 {id, channelId, name, avatarUrl, createdBy, createdAt, url}`; `url` is `/api/webhooks/:id/:token` and is shown only once. |
-| `GET /api/channels/:id/webhooks`  | `{webhooks: Webhook[]}` (no tokens).                                                                                                                                                                                    |
-| `DELETE /api/webhooks/:id`        | `204`. Existing messages stay.                                                                                                                                                                                          |
-| `POST /api/webhooks/:id/:token`   | Posts a message. No other authentication; the path token is the credential. `204`, or `200` with the `Message` when `?wait=true`.                                                                                       |
+| Endpoint                          | Notes                                                                                                                                                                                                                                                                             |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/channels/:id/webhooks` | Human with `manage_guild` who can see the channel. `{name, avatarAttachmentId?, format?, template?, secret?}` returns `201 {id, channelId, name, avatarUrl, format, template, hasSecret, createdBy, createdAt, url}`; `url` is `/api/webhooks/:id/:token` and is shown only once. |
+| `GET /api/channels/:id/webhooks`  | `{webhooks: Webhook[]}` (no tokens, no secrets; `hasSecret` says whether one is set).                                                                                                                                                                                             |
+| `PATCH /api/webhooks/:id`         | Same permission. `{name?, format?, template?, secret?}`; `secret: null` removes it. Returns the `Webhook`.                                                                                                                                                                        |
+| `POST /api/webhooks/:id/preview`  | Same permission, human only. `{body, headers?, format?, template?}` returns `{message: {content, embeds, username?} \| null}`. Nothing is posted.                                                                                                                                 |
+| `DELETE /api/webhooks/:id`        | `204`. Existing messages stay.                                                                                                                                                                                                                                                    |
+| `POST /api/webhooks/:id/:token`   | Posts a message. No other authentication; the path token is the credential. `204`, or `200` with the `Message` when `?wait=true`.                                                                                                                                                 |
 
-The execute endpoint accepts a Discord-compatible payload, plus Slack's `text`:
+The execute endpoint accepts a Discord-compatible payload (the default `discord` format), plus
+Slack's `text`. Other formats are described under [Webhook formats and
+templates](#webhook-formats-and-templates):
 
 ```json
 {
@@ -1131,6 +1135,59 @@ The execute endpoint accepts a Discord-compatible payload, plus Slack's `text`:
   should show the override in place of the author's name and avatar.
 - Limited to 30 requests per minute per webhook: `429 rate_limited` with a `Retry-After`
   header (seconds). A wrong or unknown token is `401 invalid_token`.
+
+#### Webhook formats and templates
+
+`format` is one of `discord` (default), `forgejo`, `github`, `alertmanager`, `grafana`,
+`watchtower`, `generic` or `template`. With any format but `discord` the execute endpoint takes the
+sender's own body and converts it; with `template` it uses the webhook's `template`.
+
+- Accepted content types on the execute endpoint: `application/json`, `text/plain` (the body is
+  passed to the converter as a string, which Watchtower's plain notifications use) and
+  `application/x-www-form-urlencoded` with a `payload` field holding JSON (GitHub's older
+  delivery type). The body limit is the same as before (1 MB at the proxy). An unparsable JSON
+  body is `400 invalid_json`.
+- `Discord` bodies are validated exactly as before (`400 invalid_request`). For the other formats
+  the converter never rejects a body; it returns a message or nothing. When nothing is left to post
+  (an ignored event, an empty rendering) the answer is `204`, also with `?wait=true`.
+- Converted output is clamped to the embed limits above, `@everyone` and `@here` are defused, and
+  links that are not `http(s)` are dropped.
+- The converter reads headers: `X-GitHub-Event`, `X-Forgejo-Event`, `X-Gitea-Event`. Without them
+  the Forgejo and GitHub presets guess the event from the body's shape.
+
+**Template** (`format: "template"`; required then, otherwise `null`):
+
+```json
+{
+  "content": "Backup {{status | upper}}",
+  "embed": {
+    "title": "{{name}}",
+    "description": "{{message | default:\"none\"}}",
+    "url": "{{link}}",
+    "color": "#2ecc71",
+    "fields": [{ "name": "Host", "value": "{{host.name}}", "inline": true }],
+    "footer": "{{finished_at}}"
+  }
+}
+```
+
+At least one of `content` and `embed` is required and unknown keys are rejected. Placeholders are
+`{{path}}` or `{{path | filter | filter:arg}}` with dot and `[index]` paths; filters are `upper`,
+`lower`, `truncate:N`, `default:"text"` and `json`. Saving a template with an unknown filter, a bad
+path, an unbalanced `{{`, a path through `__proto__`, `constructor` or `prototype`, more than 100
+placeholders or more than 10 fields is `400 invalid_request`. A template is data that is looked
+up and pasted; nothing in it is evaluated.
+
+**Secret** (`github` and `forgejo` only; 8 to 200 characters; other formats answer
+`400 signature_unsupported`): when set, the execute endpoint requires the HMAC-SHA256 of the raw
+body as lower-case hex in `X-Hub-Signature-256: sha256=<hex>` (GitHub and Forgejo) or
+`X-Forgejo-Signature` / `X-Gitea-Signature` (bare hex). Otherwise `401 invalid_signature`. The
+token is checked first. Moving a webhook to a format that cannot sign removes its secret.
+
+**Preview** takes a sample `body` (any JSON, or a string), optional lower-cased `headers`, and
+optionally an unsaved `format` and `template`; each defaults to the saved value. The result is
+exactly what the execute endpoint would post, or `{"message": null}`. It needs the signed-in
+manager session; the integrations proxy carries no identity, so it is refused there.
 
 `Message` gained four optional fields: `embeds`, `webhookId`, `displayNameOverride`,
 `avatarUrlOverride`. `User` gained optional `isBot`. Older clients can ignore all of them.
