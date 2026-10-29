@@ -298,3 +298,5 @@ a question and wait for the answer. It is one more bot client of this ingress: s
 the same `Authorization: Bot` REST calls and `/api/ws` gateway described above. It has no
 access beyond the bot's scopes and memberships. Setup, scopes per tool and the safety notes
 (chat is untrusted input, rate limit, mass mentions) are in its README.
+
+The same server can ask people for **approval** (a message with Approve and Deny buttons, decided by someone holding a permission), show the agent's work as a live **run panel** with a Cancel button, and run as a Claude Code hook. Those parts use a gateway bot (the `commands` scope, no URL) so clicks reach the agent without an inbound port; see [the agent hub](agents.md).

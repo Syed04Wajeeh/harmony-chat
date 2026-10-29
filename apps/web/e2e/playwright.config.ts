@@ -32,6 +32,7 @@ export default defineConfig({
             'profiles.spec.ts',
             'directory.spec.ts',
             'panels.spec.ts',
+            'agent-hub.spec.ts',
             'webhook-templates.spec.ts',
             'presence.spec.ts',
             'bot-channels.spec.ts',

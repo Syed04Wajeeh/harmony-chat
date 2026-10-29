@@ -1,6 +1,15 @@
-import { ChannelSummary, GuildSummary, Message } from '@harmony/shared';
+import {
+  ChannelSummary,
+  GuildSummary,
+  Message,
+  Panel,
+  type InteractionPayload,
+  type MessageComponents,
+  type PanelView,
+} from '@harmony/shared';
 import { z } from 'zod';
-import WebSocket from 'ws';
+import type WebSocket from 'ws';
+import { GatewayLink } from './gateway.js';
 
 /** An error answer from Harmony (`{code, message}` with an HTTP status) or a transport failure. */
 export class HarmonyError extends Error {
@@ -43,6 +52,15 @@ export interface WaitResult {
   cancelled: boolean;
 }
 
+/** What a bot answers to an interaction (a subset of the protocol's `InteractionResponse`). */
+export type InteractionAnswer =
+  { type: 'message'; content: string; ephemeral: boolean } | { type: 'deferred' };
+
+export type InteractionHandler = (
+  interaction: InteractionPayload,
+) => InteractionAnswer | Promise<InteractionAnswer>;
+
+const PanelsResponse = z.object({ panels: z.array(Panel) });
 const MessagesPage = z.object({ messages: z.array(Message), hasMore: z.boolean() });
 const GuildsResponse = z.object({ guilds: z.array(GuildSummary) });
 const ChannelsResponse = z.object({ channels: z.array(ChannelSummary) });
@@ -164,12 +182,46 @@ export class HarmonyClient {
 
   async sendMessage(
     channelId: string,
-    input: { content: string; replyToId?: string },
+    input: { content: string; replyToId?: string; components?: MessageComponents },
   ): Promise<Message> {
     const body = await this.request('POST', `/api/channels/${channelId}/messages`, {
-      body: { content: input.content, replyToId: input.replyToId },
+      body: {
+        content: input.content,
+        replyToId: input.replyToId,
+        ...(input.components && { components: input.components }),
+      },
     });
     return this.parse(Message, body);
+  }
+
+  /** Edits one of the bot's own messages; `clearComponents` removes its buttons. */
+  async editMessage(
+    messageId: string,
+    content: string,
+    options: { clearComponents?: boolean } = {},
+  ): Promise<Message> {
+    const body = await this.request('PATCH', `/api/messages/${messageId}`, {
+      body: { content, ...(options.clearComponents && { components: null }) },
+    });
+    return this.parse(Message, body);
+  }
+
+  async putPanel(channelId: string, key: string, view: PanelView): Promise<Panel> {
+    const body = await this.request('PUT', `/api/channels/${channelId}/panels/${key}`, {
+      body: { view },
+    });
+    return this.parse(Panel, body);
+  }
+
+  async deletePanel(channelId: string, key: string): Promise<void> {
+    await this.request('DELETE', `/api/channels/${channelId}/panels/${key}`);
+  }
+
+  async listPanels(channelId: string): Promise<Panel[]> {
+    return this.parse(
+      PanelsResponse,
+      await this.request('GET', `/api/channels/${channelId}/panels`),
+    ).panels;
   }
 
   async addReaction(messageId: string, emoji: string): Promise<void> {
@@ -187,6 +239,66 @@ export class HarmonyClient {
     );
   }
 
+  private interactionHandler: InteractionHandler | undefined;
+  private link: GatewayLink | undefined;
+
+  /** The process's single gateway socket, created on first use (see `GatewayLink`). */
+  get gateway(): GatewayLink {
+    this.link ??= new GatewayLink(this.wsUrl(), this.token, (ws, interaction) =>
+      this.answerInteraction(ws, interaction),
+    );
+    return this.link;
+  }
+
+  /** Closes the gateway socket now; used when the MCP client goes away. */
+  closeGateway(): void {
+    this.link?.shutdown();
+  }
+
+  /** Where `interaction.create` frames (button clicks) are answered; see `holdGateway`. */
+  setInteractionHandler(handler: InteractionHandler | undefined): void {
+    this.interactionHandler = handler;
+  }
+
+  /** Answers an `interaction.create` frame on the socket it arrived on. Never throws. */
+  private answerInteraction(ws: WebSocket, interaction: InteractionPayload): void {
+    const handler = this.interactionHandler;
+    const reply = (response: InteractionAnswer) => {
+      if (ws.readyState !== 1) return;
+      ws.send(
+        JSON.stringify({
+          type: 'interaction.respond',
+          interactionId: interaction.id,
+          token: interaction.token,
+          response,
+        }),
+      );
+    };
+    if (!handler) return reply({ type: 'deferred' });
+    Promise.resolve()
+      .then(() => handler(interaction))
+      .then(reply, () =>
+        reply({
+          type: 'message',
+          content: 'Something went wrong in the agent. Try again.',
+          ephemeral: true,
+        }),
+      );
+  }
+
+  /**
+   * Says the gateway socket is needed so button clicks reach this process while something
+   * waits for them (a pending approval, a run with Cancel). Resolves once the socket is open or
+   * after `waitMs`; a click before then reports `unreachable` to the person who made it.
+   */
+  async holdGateway(waitMs = 3000): Promise<() => void> {
+    const link = this.gateway;
+    const release = link.acquire();
+    const deadline = Date.now() + waitMs;
+    while (!link.isOpen && Date.now() < deadline) await sleep(25);
+    return release;
+  }
+
   private wsUrl(): string {
     const url = new URL(this.base + '/api/ws');
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -194,17 +306,15 @@ export class HarmonyClient {
   }
 
   /**
-   * Waits for the first message that `accept` approves, newer than `afterMessageId`. Uses the
-   * gateway (bot auth on the upgrade), re-subscribes with `lastSeenId` after a drop so nothing is
-   * lost, and falls back to polling REST when the socket keeps failing. A timeout is a normal
-   * result (`message: null`), not an error. Auth and permission failures throw.
+   * Waits for the first message that `accept` approves, newer than `afterMessageId`, on the
+   * shared gateway socket. A reconnect resubscribes from the newest id seen, so nothing is lost
+   * across a drop, and when the socket keeps failing it polls REST instead. A timeout is a
+   * normal result (`message: null`), not an error. Auth and permission failures throw.
    */
   async waitForMessage(options: WaitOptions): Promise<WaitResult> {
     const { channelId, signal } = options;
-    const deadline = Date.now() + options.timeoutMs;
     const maxFailures = options.maxSocketFailures ?? 3;
     const pollMs = options.pollIntervalMs ?? 2000;
-    const backoffBase = options.reconnectBaseMs ?? 500;
     const seen = new Set<string>();
 
     let lastSeen =
@@ -212,11 +322,11 @@ export class HarmonyClient {
       (await this.getMessages(channelId, { limit: 1 })).messages.at(-1)?.id ??
       '0';
     const floor = lastSeen;
-    let reconnects = 0;
-    let failures = 0;
+    const link = this.gateway;
+    if (options.reconnectBaseMs !== undefined) link.backoffBaseMs = options.reconnectBaseMs;
+    const reconnectsBefore = link.reconnects;
     let transport: WaitResult['transport'] = 'websocket';
 
-    /** Returns the message when it is the one we are waiting for. */
     const consider = (message: Message): Message | null => {
       if (message.channelId !== channelId || seen.has(message.id)) return null;
       if (!idGreater(message.id, floor)) return null;
@@ -225,167 +335,71 @@ export class HarmonyClient {
       return !message.deleted && options.accept(message) ? message : null;
     };
 
-    const poll = async (): Promise<Message | null> => {
-      const page = await this.getMessages(channelId, { limit: 50 });
-      for (const message of page.messages) {
-        const hit = consider(message);
-        if (hit) return hit;
-      }
-      return null;
-    };
-
-    const result = (message: Message | null, cancelled = false): WaitResult => ({
-      message,
-      transport,
-      reconnects,
-      cancelled,
-    });
-
-    while (Date.now() < deadline) {
-      if (signal?.aborted) return result(null, true);
-      if (failures >= maxFailures) {
-        transport = 'polling';
-        const hit = await poll();
-        if (hit) return result(hit);
-        await sleep(Math.min(pollMs, Math.max(0, deadline - Date.now())), signal);
-        continue;
-      }
-      const session = await this.socketSession({
-        channelId,
-        lastSeenId: lastSeen,
-        deadline,
-        signal,
-        consider,
-        catchUp: poll,
-      });
-      if (session.kind === 'match') return result(session.message);
-      if (session.kind === 'timeout') return result(null);
-      if (session.kind === 'aborted') return result(null, true);
-      failures = session.connected ? 0 : failures + 1;
-      reconnects += 1;
-      const backoff = Math.min(backoffBase * 2 ** Math.min(failures, 4), 5000);
-      await sleep(Math.min(backoff, Math.max(0, deadline - Date.now())), signal);
-    }
-    return result(null);
-  }
-
-  private socketSession(args: {
-    channelId: string;
-    lastSeenId: string;
-    deadline: number;
-    signal: AbortSignal | undefined;
-    consider: (message: Message) => Message | null;
-    catchUp: () => Promise<Message | null>;
-  }): Promise<
-    | { kind: 'match'; message: Message }
-    | { kind: 'timeout' }
-    | { kind: 'aborted' }
-    | { kind: 'closed'; connected: boolean }
-  > {
-    return new Promise((resolve, reject) => {
-      let connected = false;
-      let settled = false;
-      const ws = new WebSocket(this.wsUrl(), { headers: { authorization: `Bot ${this.token}` } });
-
-      const finish = (outcome: Parameters<typeof resolve>[0]) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        args.signal?.removeEventListener('abort', onAbort);
-        ws.removeAllListeners();
-        ws.on('error', () => undefined);
-        if (ws.readyState === WebSocket.CONNECTING) ws.terminate();
-        else ws.close();
-        resolve(outcome);
-      };
-      const fail = (error: unknown) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        args.signal?.removeEventListener('abort', onAbort);
-        ws.removeAllListeners();
-        ws.on('error', () => undefined);
-        ws.terminate();
-        reject(error instanceof Error ? error : new Error(String(error)));
-      };
-      const onAbort = () => finish({ kind: 'aborted' });
-      const timer = setTimeout(
-        () => finish({ kind: 'timeout' }),
-        Math.max(0, args.deadline - Date.now()),
-      );
-      args.signal?.addEventListener('abort', onAbort);
-
-      ws.on('open', () => {
-        ws.send(
-          JSON.stringify({
-            type: 'subscribe',
-            channelId: args.channelId,
-            lastSeenId: args.lastSeenId === '0' ? undefined : args.lastSeenId,
-          }),
-        );
-      });
-      ws.on('unexpected-response', (_req, res) => {
-        res.resume();
-        const status = res.statusCode ?? 0;
-        if (status === 401 || status === 403) {
-          fail(
-            new HarmonyError(
-              status,
-              status === 401 ? 'invalid_token' : 'forbidden',
-              'The gateway refused the bot token.',
-            ),
-          );
-        } else finish({ kind: 'closed', connected });
-      });
-      ws.on('error', () => finish({ kind: 'closed', connected }));
-      ws.on('close', () => finish({ kind: 'closed', connected }));
-      ws.on('message', (data) => {
-        let frame: {
-          type?: string;
-          code?: string;
-          message?: unknown;
-          messages?: unknown;
-          hasMore?: boolean;
+    const release = link.acquire();
+    let unwatch = (): void => undefined;
+    let removeListener = (): void => undefined;
+    let timers: NodeJS.Timeout[] = [];
+    try {
+      return await new Promise<WaitResult>((resolve, reject) => {
+        let settled = false;
+        const result = (message: Message | null, cancelled = false): WaitResult => ({
+          message,
+          transport,
+          reconnects: link.reconnects - reconnectsBefore,
+          cancelled,
+        });
+        const finish = (outcome: WaitResult) => {
+          if (settled) return;
+          settled = true;
+          resolve(outcome);
         };
-        try {
-          frame = JSON.parse((data as Buffer).toString('utf8')) as typeof frame;
-        } catch {
-          return;
-        }
-        if (frame.type === 'error') {
-          const code = frame.code ?? 'error';
-          if (code === 'rate_limited') return;
-          const text = typeof frame.message === 'string' ? frame.message : code;
-          fail(
-            new HarmonyError(
-              code === 'forbidden' || code === 'missing_scope' ? 403 : 400,
-              code,
-              text,
-            ),
-          );
-          return;
-        }
-        if (frame.type === 'backfill') {
-          connected = true;
-          const parsed = z.array(Message).safeParse(frame.messages);
-          for (const message of parsed.success ? parsed.data : []) {
-            const hit = args.consider(message);
-            if (hit) return finish({ kind: 'match', message: hit });
+        const fail = (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          reject(error instanceof Error ? error : new Error(String(error)));
+        };
+        const catchUp = () => {
+          this.getMessages(channelId, { limit: 50 }).then((page) => {
+            for (const message of page.messages) {
+              const hit = consider(message);
+              if (hit) return finish(result(hit));
+            }
+          }, fail);
+        };
+
+        removeListener = link.addListener({
+          channelId,
+          onMessage: (message) => {
+            const hit = consider(message);
+            if (hit) finish(result(hit));
+          },
+          onGap: catchUp,
+          onFatal: (code, message, status) => fail(new HarmonyError(status, code, message)),
+        });
+        const watch = link.watch(channelId, lastSeen);
+        unwatch = watch.unwatch;
+        // Someone else already holds this subscription, so there is no backfill for us.
+        if (watch.already) catchUp();
+
+        // Degraded: the socket never opens, so ask over REST.
+        const poller = setInterval(() => {
+          if (link.failures >= maxFailures) {
+            transport = 'polling';
+            catchUp();
           }
-          if (frame.hasMore) {
-            args
-              .catchUp()
-              .then((hit) => (hit ? finish({ kind: 'match', message: hit }) : undefined), fail);
-          }
-          return;
-        }
-        if (frame.type === 'message.created') {
-          const parsed = Message.safeParse(frame.message);
-          if (!parsed.success) return;
-          const hit = args.consider(parsed.data);
-          if (hit) finish({ kind: 'match', message: hit });
-        }
+        }, pollMs);
+        timers = [poller, setTimeout(() => finish(result(null)), options.timeoutMs)];
+        if (signal?.aborted) finish(result(null, true));
+        signal?.addEventListener('abort', () => finish(result(null, true)), { once: true });
       });
-    });
+    } finally {
+      for (const timer of timers) {
+        clearInterval(timer);
+        clearTimeout(timer);
+      }
+      removeListener();
+      unwatch();
+      release();
+    }
   }
 }

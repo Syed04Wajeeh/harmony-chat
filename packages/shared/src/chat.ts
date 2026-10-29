@@ -328,7 +328,11 @@ export const SendMessageBody = z
   .refine(hasContentOrAttachments, { message: 'Message is empty', path: ['content'] });
 export type SendMessageBody = z.infer<typeof SendMessageBody>;
 
-export const EditMessageBody = z.object({ content: MessageContent });
+export const EditMessageBody = z.object({
+  content: MessageContent,
+  /** Bots only: `null` removes the buttons under their own message. */
+  components: z.null().optional(),
+});
 
 export const UpdateMeBody = z.object({ status: UserStatus });
 

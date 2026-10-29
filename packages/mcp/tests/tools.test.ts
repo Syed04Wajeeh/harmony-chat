@@ -31,12 +31,16 @@ describe('tools', () => {
     expect(names).toEqual(
       [
         'ask_human',
+        'finish_run',
         'list_channels',
         'list_servers',
         'react',
         'read_messages',
+        'request_approval',
         'search_messages',
         'send_message',
+        'start_run',
+        'update_run',
         'wait_for_reply',
       ].sort(),
     );

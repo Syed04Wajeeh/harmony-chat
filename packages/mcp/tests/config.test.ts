@@ -13,6 +13,10 @@ describe('loadConfig', () => {
       defaultChannel: undefined,
       maxSendsPerMinute: 20,
       allowMassMentions: false,
+      agentChannel: undefined,
+      approvalChannel: undefined,
+      approvalPermission: 'manage_messages',
+      panelMinIntervalMs: 1000,
     });
   });
 

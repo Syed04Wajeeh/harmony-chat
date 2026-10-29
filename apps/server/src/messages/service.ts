@@ -60,6 +60,7 @@ export class MessageService {
     private readonly decorators: MessageDecorators,
     private readonly perms: PermissionService,
     private readonly emoji: EmojiService,
+    private readonly botLoop?: { maxHops: number; budget: RateLimiter },
   ) {
     this.reader = new MessageReader(db, (authors) => perms.nicknames(authors), decorators);
   }
@@ -110,16 +111,50 @@ export class MessageService {
     const attachmentIds = [...new Set(input.attachmentIds ?? [])];
     await this.perms.warm(channelId);
     const { message, notify } = await this.db.transaction().execute(async (trx) => {
+      let hops = 0;
+      let botToBot = false;
       if (replyToId) {
         const parent = await trx
           .selectFrom('messages')
-          .select('id')
+          .select(['id', 'hops', 'author_id'])
+          // Only a bot author needs to know whether the parent is a bot's message.
+          .$if(author.isBot === true, (qb) =>
+            qb.select((eb) =>
+              eb
+                .selectFrom('users')
+                .select('users.kind')
+                .whereRef('users.id', '=', 'messages.author_id')
+                .as('author_kind'),
+            ),
+          )
           .where('id', '=', replyToId)
           .where('channel_id', '=', channelId)
           .where('deleted_at', 'is', null)
           .executeTakeFirst();
         if (!parent) throw new AppError(400, 'invalid_reply', 'Cannot reply to that message');
+        if (author.isBot && 'author_kind' in parent && parent.author_kind === 'bot') {
+          // Answering yourself continues a chain without lengthening it.
+          botToBot = parent.author_id !== author.id;
+          hops = parent.hops + (botToBot ? 1 : 0);
+        }
       }
+      if (author.isBot && !source && !botToBot) {
+        const mentioned = parseMentions(content).filter((id) => id !== author.id);
+        if (mentioned.length > 0) {
+          const bot = await trx
+            .selectFrom('users')
+            .select('id')
+            .where('id', 'in', mentioned)
+            .where('kind', '=', 'bot')
+            .limit(1)
+            .executeTakeFirst();
+          if (bot) {
+            botToBot = true;
+            hops = Math.max(hops, 1);
+          }
+        }
+      }
+      if (botToBot) await this.checkBotLoop(channelId, hops);
       if (attachmentIds.length > 0) {
         const owned = await trx
           .selectFrom('attachments')
@@ -144,6 +179,7 @@ export class MessageService {
           channel_id: channelId,
           author_id: author.id,
           content,
+          hops,
           reply_to_id: replyToId ?? null,
           edited_at: null,
           deleted_at: null,
@@ -198,7 +234,31 @@ export class MessageService {
     );
   }
 
-  async edit(actor: Actor, messageId: string, rawContent: string): Promise<Message> {
+  /** Refuses a bot reply chain that is too deep or a channel whose bot-to-bot traffic is too busy. */
+  private async checkBotLoop(channelId: string, hops: number): Promise<void> {
+    if (!this.botLoop) return;
+    if (hops > this.botLoop.maxHops) {
+      throw new AppError(
+        429,
+        'bot_loop',
+        `Bots have replied to each other ${String(this.botLoop.maxHops)} times in a row; a person has to step in`,
+      );
+    }
+    if (!(await this.botLoop.budget.consume(channelId))) {
+      throw new AppError(
+        429,
+        'bot_budget',
+        'Too many bot-to-bot messages in this channel; wait a minute',
+      );
+    }
+  }
+
+  async edit(
+    actor: Actor,
+    messageId: string,
+    rawContent: string,
+    options: { clearComponents?: boolean } = {},
+  ): Promise<Message> {
     const target = await this.find(messageId, actor.id);
     if (!target.isMember) throw forbidden();
     if (target.deleted_at) throw notFound();
@@ -211,7 +271,11 @@ export class MessageService {
     const { message, notify } = await this.db.transaction().execute(async (trx) => {
       await trx
         .updateTable('messages')
-        .set({ content, edited_at: new Date() })
+        .set({
+          content,
+          edited_at: new Date(),
+          ...(options.clearComponents && { components: null }),
+        })
         .where('id', '=', messageId)
         .execute();
       const notify = await this.syncMentions(trx, messageId, target.channel_id, actor.id, content);
