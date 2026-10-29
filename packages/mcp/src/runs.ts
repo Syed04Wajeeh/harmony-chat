@@ -158,6 +158,8 @@ export function renderRun(run: Run, options: RunOptions, now: number): PanelView
   return { title: clip(`Agent run: ${run.title}`, 100), blocks };
 }
 
+export type RunSnapshot = Omit<Run, 'abort' | 'cancelledBy'>;
+
 interface Sync {
   timer: NodeJS.Timeout | undefined;
   lastPutAt: number;
@@ -201,6 +203,34 @@ export class RunManager {
 
   active(): Run[] {
     return [...this.runs.values()].filter((run) => ACTIVE_STATUSES.includes(run.status));
+  }
+
+  /** The parts of a run worth keeping between processes (the Claude Code hook is one per event). */
+  snapshot(run: Run): RunSnapshot {
+    return {
+      id: run.id,
+      key: run.key,
+      channelId: run.channelId,
+      title: run.title,
+      status: run.status,
+      step: run.step,
+      steps: run.steps,
+      totalSteps: run.totalSteps,
+      startedAt: run.startedAt,
+      endedAt: run.endedAt,
+      notes: run.notes,
+      link: run.link,
+      summary: run.summary,
+    };
+  }
+
+  /** Brings back a run saved by `snapshot`; the panel is written on the next change. */
+  restore(saved: RunSnapshot): Run {
+    const run: Run = { ...saved, cancelledBy: undefined, abort: new AbortController() };
+    this.runs.set(run.id, run);
+    this.sync.set(run.id, { timer: undefined, lastPutAt: 0, inflight: undefined, dirty: false });
+    this.current = run;
+    return run;
   }
 
   async start(input: {
