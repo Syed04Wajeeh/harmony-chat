@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { Approvals, personOf, type Risk } from './approvals.js';
 import { HarmonyClient } from './client.js';
 import { ConfigError } from './config.js';
+import { intFrom, parseApprovalSettings, requireToken } from './agentd-config.js';
 import { defuseMassMentions } from './format.js';
 import { RunManager, type Run, type RunSnapshot } from './runs.js';
 import { ChannelResolver } from './tools.js';
@@ -53,47 +54,12 @@ export interface HookConfig {
   stateDir: string;
 }
 
-const intFrom = (raw: string | undefined, fallback: number, name: string, min = 1): number => {
-  if (raw === undefined || raw.trim() === '') return fallback;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < min) {
-    throw new ConfigError(`${name} must be an integer of at least ${String(min)}.`);
-  }
-  return value;
-};
-
 export function loadHookConfig(env: Record<string, string | undefined>): HookConfig {
-  const token = env.HARMONY_BOT_TOKEN?.trim();
-  if (!token || !/^hb_\d+_\S+$/.test(token)) {
-    throw new ConfigError('Set HARMONY_BOT_TOKEN to a Harmony bot token (hb_<botId>_<secret>).');
-  }
+  const token = requireToken(env);
   const channel = (env.HARMONY_AGENT_CHANNEL ?? env.HARMONY_DEFAULT_CHANNEL)?.trim();
   if (!channel) throw new ConfigError('Set HARMONY_AGENT_CHANNEL to a channel id or #name.');
-  let approvalPattern: RegExp | undefined;
-  const rawPattern = env.HARMONY_APPROVAL_PATTERN;
-  if (rawPattern && rawPattern.trim() !== '') {
-    try {
-      approvalPattern = new RegExp(rawPattern);
-    } catch {
-      throw new ConfigError('HARMONY_APPROVAL_PATTERN is not a valid regular expression.');
-    }
-  }
-  const approvalSeconds = intFrom(
-    env.HARMONY_APPROVAL_TIMEOUT_SECONDS,
-    300,
-    'HARMONY_APPROVAL_TIMEOUT_SECONDS',
-  );
-  if (approvalSeconds > 3600) {
-    throw new ConfigError('HARMONY_APPROVAL_TIMEOUT_SECONDS is at most 3600.');
-  }
-  const onTimeout = env.HARMONY_APPROVAL_ON_TIMEOUT?.trim() || 'deny';
-  if (onTimeout !== 'deny' && onTimeout !== 'ask') {
-    throw new ConfigError('HARMONY_APPROVAL_ON_TIMEOUT must be "deny" or "ask".');
-  }
-  const risk = env.HARMONY_APPROVAL_RISK?.trim() || 'medium';
-  if (risk !== 'low' && risk !== 'medium' && risk !== 'high') {
-    throw new ConfigError('HARMONY_APPROVAL_RISK must be low, medium or high.');
-  }
+  const { approvalPattern, approvalSeconds, onTimeout, risk, permission } =
+    parseApprovalSettings(env);
   return {
     url: (env.HARMONY_URL?.trim() || 'http://127.0.0.1:8471').replace(/\/+$/, ''),
     token,
@@ -103,7 +69,7 @@ export function loadHookConfig(env: Record<string, string | undefined>): HookCon
     approvalSeconds,
     onTimeout,
     risk,
-    permission: env.HARMONY_APPROVAL_PERMISSION?.trim() || 'manage_messages',
+    permission,
     maxSeconds: intFrom(
       env.HARMONY_HOOK_MAX_SECONDS,
       approvalSeconds + 20,

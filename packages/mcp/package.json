@@ -6,7 +6,8 @@
   "type": "module",
   "bin": {
     "harmony-mcp": "./dist/index.js",
-    "harmony-hook": "./dist/hook-bin.js"
+    "harmony-hook": "./dist/hook-bin.js",
+    "harmony-agentd": "./dist/agentd-bin.js"
   },
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
