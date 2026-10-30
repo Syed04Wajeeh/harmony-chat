@@ -489,9 +489,17 @@ export async function startAgentd(config: AgentdConfig, deps: AgentdDeps = {}): 
     if (!session || text === '') return;
     if (agent && agent.endedAt !== undefined) agent = undefined;
     const queued = room.queueSteer(session, agent, from, text);
+    const target = agent ? `subagent '${agent.label}'` : `session \`${session.short}\``;
     void client
-      .addReaction(message.id, queued ? '👍' : '⚠️')
-      .catch(() => warn('could not react to a steering message'));
+      .sendMessage(message.channelId, {
+        content: defuseMassMentions(
+          queued
+            ? `Noted. It reaches ${target} with its next tool result.`
+            : `Too many notes are waiting for ${target}; try again in a moment.`,
+        ),
+        replyToId: message.id,
+      })
+      .catch(() => warn('could not acknowledge a steering message'));
   }
 
   async function postStatusMessage(session: Session): Promise<void> {
