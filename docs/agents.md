@@ -79,7 +79,7 @@ Buttons carry `requiredPermission` (`HARMONY_CONTROL_PERMISSION`, default `manag
 - **Stop** a subagent or a whole session. The daemon records a flag. The next `PreToolUse` of that agent (or of any agent of the session) is answered `permissionDecision: "deny"` with a reason that names the person who stopped it and tells it to stop and say where it left off. A pending approval of a stopped session ends as cancelled. Nothing ever answers `decision: "block"` on `Stop` or `SubagentStop`, because that would keep the agent running (the hooks reference: "Prevents Claude from stopping", with an 8-continuation cap), so a stopped agent can always end and no loop is possible. A new prompt typed in the terminal clears a session stop: the person at the keyboard has taken over.
 - **Pause and Resume** (session). While paused, every `PreToolUse` of the session waits in the daemon, up to `HARMONY_AGENTD_PAUSE_SECONDS` (120), then is denied with a message saying the session is paused; Resume releases the waiting calls at once. This is safe only because the wait is bounded: Claude Code cancels a hook after its `timeout` (seconds), so the `PreToolUse` timeout in settings must be longer than the pause wait and the approval timeout (the example uses 340).
 - **Steer.** With `HARMONY_STEER_CHANNEL` set (a text channel), the daemon posts one status message per session there. A person **replies to it**, or **mentions the bot and starts with the session id** (or a subagent's `Agent id`, shown on its panel), and the note is queued; with exactly one live session the id can be left out. The daemon answers in the channel ("Noted...") and delivers the note as `additionalContext` of the agent's next `PostToolUse` (subagent notes to that subagent, session notes to the main agent), `UserPromptSubmit`, or `Stop` of the main agent (once; not when `stop_hook_active`). `additionalContext` is documented for exactly these events. The text is attributed (`Message from Ada via Harmony: "..."`) and prefixed with a notice that it came from a chat message, not from the terminal user. `HARMONY_STEER_USERS` (comma-separated logins) limits who may steer; bots, webhooks and deleted messages are ignored; at most 10 notes wait per target.
-- **Approvals** work as before (`HARMONY_APPROVAL_PATTERN`) and name who asked: "Subagent 'B+C worker' wants to run: git push ...", with the agent type, folder and session in the details. Secret-looking parts of the command are hidden in the message.
+- **Approvals** work as before (`HARMONY_APPROVAL_PATTERN`) and name who asked: "Subagent 'B+C worker' wants to run: git push ...", with the agent type, folder and session in the details. Secret-looking parts of the command are hidden in the message. For Bash the pattern is tested against each part of the command that runs: quoted strings and heredoc bodies are dropped and the rest is split at `;`, `&&`, `||`, `|` and newlines, so anchor it with `^`. A command that only mentions `git push` in an `echo`, a commit message or a heredoc does not ask (it used to, and blocked an agent for the full timeout).
 
 ### Setup
 
@@ -96,7 +96,7 @@ Buttons carry `requiredPermission` (`HARMONY_CONTROL_PERMISSION`, default `manag
     "HARMONY_DASHBOARD_CHANNEL": "#agents",
     "HARMONY_AGENT_CHANNEL": "#agent-chat",
     "HARMONY_STEER_CHANNEL": "#agent-chat",
-    "HARMONY_APPROVAL_PATTERN": "git push|rm -rf|docker"
+    "HARMONY_APPROVAL_PATTERN": "^(git push|rm -rf|docker)"
   },
   "hooks": {
     "SessionStart": [

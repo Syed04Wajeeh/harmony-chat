@@ -5,7 +5,9 @@ import { PanelView } from '@harmony/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   approvalDetails,
+  commandSegments,
   loadHookConfig,
+  needsApproval,
   runHook,
   subjectOf,
   type HookInput,
@@ -258,5 +260,49 @@ describe('harmony-hook', () => {
       permission: 'manage_messages',
       runPanel: false,
     });
+  });
+});
+
+describe('approval matching', () => {
+  const bash = (command: string): HookInput => ({
+    session_id: 's1',
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_input: { command },
+  });
+  const danger = /^(git push|docker volume rm)\b/;
+
+  it('splits a command into the parts that run', () => {
+    expect(commandSegments("cd a && make; echo 'x; y' | tee f || true")).toEqual([
+      'cd a',
+      'make',
+      "echo ''",
+      'tee f',
+      'true',
+    ]);
+  });
+
+  it('matches a dangerous command anywhere in a chain', () => {
+    expect(needsApproval(danger, bash('git push origin main'))).toBe(true);
+    expect(needsApproval(danger, bash('cd repo && git push origin main'))).toBe(true);
+    expect(needsApproval(danger, bash('true; docker volume rm data'))).toBe(true);
+  });
+
+  it('ignores commands that only mention one in quotes or a heredoc', () => {
+    expect(needsApproval(danger, bash("echo 'then git push' >> notes.md"))).toBe(false);
+    expect(needsApproval(danger, bash('git commit -m "before git push"'))).toBe(false);
+    expect(needsApproval(danger, bash("cat > f <<'EOF'\ngit push origin main\nEOF\nls"))).toBe(
+      false,
+    );
+  });
+
+  it('still checks other tools against their input', () => {
+    const input: HookInput = {
+      session_id: 's1',
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Write',
+      tool_input: { file_path: '/tmp/x' },
+    };
+    expect(needsApproval(/Write/, input)).toBe(true);
   });
 });

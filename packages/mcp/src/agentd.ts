@@ -41,7 +41,7 @@ import {
   sessionKey,
 } from './control-view.js';
 import { defuseMassMentions } from './format.js';
-import { preToolUseOutput, subjectOf, type HookInput } from './hook.js';
+import { needsApproval, preToolUseOutput, subjectOf, type HookInput } from './hook.js';
 import { PanelSync } from './panel-sync.js';
 import { clip, describeActivity, oneLine, redact } from './redact.js';
 import { ChannelResolver } from './tools.js';
@@ -637,7 +637,7 @@ export async function startAgentd(config: AgentdConfig, deps: AgentdDeps = {}): 
           }
         }
         const pattern = config.approval.approvalPattern;
-        if (pattern && config.approvalChannel && pattern.test(subjectOf(event as HookInput))) {
+        if (pattern && config.approvalChannel && needsApproval(pattern, event as HookInput)) {
           const decision = await askApproval(event, session, agent, announce);
           // A denied or stopped call does not count as work done.
           if (!decision.output?.includes('"deny"')) room.toolStarted(session, agent, event);

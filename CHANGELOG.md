@@ -2,6 +2,12 @@
 
 All notable changes to Harmony are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Design decisions and measurements behind them are in [NOTES.md](NOTES.md).
 
+## [Unreleased]
+
+### Fixed
+
+- **Agent approvals only match commands that run.** The hook tested `HARMONY_APPROVAL_PATTERN` against the whole Bash command, so a command that merely mentioned a watched command (in an `echo`, a commit message or a heredoc) asked for approval and blocked the agent until the timeout. It now drops quoted strings and heredoc bodies and tests each `;`, `&&`, `||`, `|` or newline separated part; anchor patterns with `^`.
+
 ## [0.3.0] - 2026-10-30
 
 ### Upgrading

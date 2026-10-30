@@ -138,7 +138,7 @@ It never blocks Claude Code on a failure: any error (Harmony down, bad token, ba
 | ---------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------- |
 | `HARMONY_URL`, `HARMONY_BOT_TOKEN`             | see above              | As for the MCP server.                                                                  |
 | `HARMONY_AGENT_CHANNEL`                        | required               | Text channel for approvals and notes.                                                   |
-| `HARMONY_APPROVAL_PATTERN`                     | none (never asks)      | Regular expression, for example `git push\|rm -rf\|docker`.                             |
+| `HARMONY_APPROVAL_PATTERN`                     | none (never asks)      | Regular expression, for example `^(git push\|rm -rf\|docker)`. See below.               |
 | `HARMONY_APPROVAL_TIMEOUT_SECONDS`             | `300`                  | 1 to 3600.                                                                              |
 | `HARMONY_APPROVAL_ON_TIMEOUT`                  | `deny`                 | `deny`, or `ask` to hand back to the terminal prompt.                                   |
 | `HARMONY_APPROVAL_RISK`                        | `medium`               | `high` asks for a second confirmation on Approve.                                       |
@@ -155,7 +155,7 @@ Paste into `.claude/settings.local.json` (not committed, since it holds the toke
     "HARMONY_URL": "http://127.0.0.1:8471",
     "HARMONY_BOT_TOKEN": "hb_...",
     "HARMONY_AGENT_CHANNEL": "#approvals",
-    "HARMONY_APPROVAL_PATTERN": "git push|rm -rf|docker|kubectl"
+    "HARMONY_APPROVAL_PATTERN": "^(git push|rm -rf|docker|kubectl)"
   },
   "hooks": {
     "PreToolUse": [

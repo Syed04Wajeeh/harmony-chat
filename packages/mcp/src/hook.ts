@@ -101,6 +101,31 @@ export function subjectOf(input: HookInput): string {
   return `${input.tool_name ?? ''} ${JSON.stringify(input.tool_input ?? {}).slice(0, 2000)}`;
 }
 
+/**
+ * The parts of a shell command that actually run: heredoc bodies and quoted strings are dropped,
+ * then the rest is split at `;`, `&&`, `||`, `|` and newlines. Matching the approval pattern
+ * against these keeps a command that only mentions `git push` (in an echo, a commit message or a
+ * heredoc) from asking for approval.
+ */
+export function commandSegments(command: string): string[] {
+  const withoutHeredocs = command.replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?^\s*\2\s*$/gm, ' ');
+  const withoutQuotes = withoutHeredocs.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, "''");
+  return withoutQuotes
+    .split(/&&|\|\||[;|\n]/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+/** Whether a tool call needs a person's approval under `pattern`. */
+export function needsApproval(pattern: RegExp, input: HookInput): boolean {
+  const command = input.tool_input?.command;
+  if (input.tool_name === 'Bash' && typeof command === 'string') {
+    const once = new RegExp(pattern.source, pattern.flags.replace('g', ''));
+    return commandSegments(command).some((segment) => once.test(segment));
+  }
+  return pattern.test(subjectOf(input));
+}
+
 const clip = (text: string, max: number) =>
   text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 
@@ -170,7 +195,9 @@ export async function handleHook(
   const client = deps.client ?? new HarmonyClient({ url: config.url, token: config.token });
   const event = input.hook_event_name;
   const wantsApproval =
-    event === 'PreToolUse' && config.approvalPattern?.test(subjectOf(input)) === true;
+    event === 'PreToolUse' &&
+    config.approvalPattern !== undefined &&
+    needsApproval(config.approvalPattern, input);
   if (
     !wantsApproval &&
     !['Notification', 'Stop', 'SessionStart', 'UserPromptSubmit'].includes(event)
@@ -327,7 +354,7 @@ export async function runHook(
     const rawPattern = env.HARMONY_APPROVAL_PATTERN;
     if (!rawPattern || rawPattern.trim() === '') return {};
     try {
-      if (!new RegExp(rawPattern).test(subjectOf(input))) return {};
+      if (!needsApproval(new RegExp(rawPattern), input)) return {};
     } catch {
       rejected = 'HARMONY_APPROVAL_PATTERN is not a valid regular expression';
     }
