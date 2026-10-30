@@ -210,6 +210,28 @@ The schema is from the official hooks reference (<https://code.claude.com/docs/e
 
 where `permissionDecision` is `allow`, `deny`, `ask` or `defer`; `ask` shows the normal prompt, `defer` is only honoured in non-interactive mode and is not used here, and a hook `timeout` is in seconds. Note that `allow` skips Claude Code's own prompt for that call: the person's click in Harmony is the approval.
 
+### Agent control room: `harmony-agentd`
+
+The third bin, `dist/agentd-bin.js` (`harmony-agentd`), is the daemon behind `harmony-hook` when `HARMONY_AGENTD=1`. The hook starts it on demand (detached; pidfile and lock under `$XDG_RUNTIME_DIR/harmony-agentd/` or `~/.cache/harmony-agentd/`), sends it every event over a mode-600 unix socket and prints what it answers. The daemon holds the one gateway socket, owns a session panel per Claude Code session and a panel per subagent, and handles Stop, Pause, Resume, steering notes and approvals. What it shows, what people can do, the settings block for all nine hooks and the threat model are in [docs/agents.md](../../docs/agents.md#agent-control-room). If the daemon cannot be reached the hook behaves exactly as described above (direct approvals and notes).
+
+| Variable                                            | Default           | Meaning                                                                                                                     |
+| --------------------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `HARMONY_AGENTD`                                    | off               | `1` sends hook events to the daemon first.                                                                                  |
+| `HARMONY_BOT_TOKEN_FILE`                            | none              | Mode-600 file with the token (bare, or `HARMONY_BOT_TOKEN=...`); used when `HARMONY_BOT_TOKEN` is unset. Also for the hook. |
+| `HARMONY_DASHBOARD_CHANNEL`                         | required          | Dashboard (or text) channel for the panels.                                                                                 |
+| `HARMONY_AGENT_CHANNEL`, `HARMONY_APPROVAL_CHANNEL` | none              | Text channel for "needs input" notes and for approvals (the approval channel defaults to the agent channel).                |
+| `HARMONY_STEER_CHANNEL`, `HARMONY_STEER_USERS`      | off, anyone       | Text channel watched for notes to agents; optional comma-separated logins allowed to steer.                                 |
+| `HARMONY_CONTROL_PERMISSION`                        | `manage_messages` | Permission needed to press Stop, Pause and Resume.                                                                          |
+| `HARMONY_AGENTD_CONTROLS`                           | `1`               | `0` shows panels without buttons.                                                                                           |
+| `HARMONY_AGENTD_PAUSE_SECONDS`                      | `120`             | How long a paused session holds a tool call before denying it. Keep it below the `PreToolUse` hook timeout.                 |
+| `HARMONY_AGENTD_IDLE_MINUTES`, `..._STALE_MINUTES`  | `30`, `30`        | Exit after this long with no live session; mark a silent session ended.                                                     |
+| `HARMONY_AGENTD_KEEP_FINISHED`, `..._KEEP_ENDED`    | `10`, `2`         | Finished subagent panels kept per session; ended sessions kept.                                                             |
+| `HARMONY_AGENTD_SUMMARY_LINES`                      | `2`               | Lines of a subagent's final answer shown on its panel (`0` none).                                                           |
+| `HARMONY_PANEL_MIN_INTERVAL_MS`                     | `1000`            | At most one write per panel in this time.                                                                                   |
+| `HARMONY_AGENTD_DIR`                                | see above         | Directory for the socket, pidfile, lock and log.                                                                            |
+
+`harmony-agentd status` and `harmony-agentd stop` talk to the running daemon. Source: `src/agentd.ts` (daemon), `src/agentd-client.ts` (hook side, built-ins only so it starts fast), `src/agentd-config.ts` (token file, paths), `src/control.ts` (sessions, subagents, correlation, stop, pause, steer), `src/control-view.ts` (panels), `src/panel-sync.ts` (coalesced writes), `src/redact.ts`.
+
 There is also one resource template, `harmony://channel/{id}/recent`, with the last 30 messages.
 
 Not provided: `set_status`. Presence and profile changes are human-only in Harmony (`presence.set` and `PATCH /api/me` answer bots with `human_only`), and this server does not work around that.

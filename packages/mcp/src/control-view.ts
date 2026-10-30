@@ -185,6 +185,7 @@ export function renderAgent(session: Session, agent: Agent, options: ViewOptions
   const pairs: { key: string; value: string }[] = [
     { key: 'Task', value: clip(agent.label, 300) },
     { key: 'Type', value: clip(agent.type, 100) },
+    { key: 'Agent id', value: agent.short },
   ];
   if (agent.endedAt === undefined) {
     pairs.push({ key: 'Now', value: clip(agent.activity || 'Starting', 300) });

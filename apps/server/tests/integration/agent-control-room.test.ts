@@ -1,6 +1,13 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -156,10 +163,17 @@ describe('the agent control room end to end', () => {
         const value = await fn();
         if (value) return value;
         if (Date.now() > deadline) {
-          const logs = spawnSync('sh', ['-c', `ls -la ${stateDir}; tail -n 20 ${stateDir}/*.log`], { encoding: 'utf8' });
-          const status = spawnSync(process.execPath, [daemonBin, 'status'], { env, encoding: 'utf8' });
+          const logs = spawnSync('sh', ['-c', `ls -la ${stateDir}; tail -n 20 ${stateDir}/*.log`], {
+            encoding: 'utf8',
+          });
+          const status = spawnSync(process.execPath, [daemonBin, 'status'], {
+            env,
+            encoding: 'utf8',
+          });
           const listed = JSON.stringify((await panels()).map((p) => p.key + ':' + p.view.title));
-          throw new Error(`condition not met in time\n${logs.stdout}${logs.stderr}\n${status.stdout}${status.stderr}\n${listed}`);
+          throw new Error(
+            `condition not met in time\n${logs.stdout}${logs.stderr}\n${status.stdout}${status.stderr}\n${listed}`,
+          );
         }
         await sleep(60);
       }
@@ -180,7 +194,9 @@ describe('the agent control room end to end', () => {
     expect(sessionPanel.key).toMatch(/^cc-/);
 
     // Two parallel subagents, exactly as Claude Code reports them: the parent's Agent call first.
-    const agentCalls = recorded.filter((e) => e.hook_event_name === 'PreToolUse' && e.tool_name === 'Agent');
+    const agentCalls = recorded.filter(
+      (e) => e.hook_event_name === 'PreToolUse' && e.tool_name === 'Agent',
+    );
     expect(agentCalls).toHaveLength(2);
     const startOf = (id: string) =>
       ev({ hook_event_name: 'SubagentStart', agent_id: id, agent_type: 'general-purpose' });
@@ -237,11 +253,24 @@ describe('the agent control room end to end', () => {
     expect((await runHook(ls(agents.b, 'ls ./b'))).stdout).toBe('');
     // The main agent is not affected either.
     expect(
-      (await runHook(ev({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: `${cwd}/a.ts` } }))).stdout,
+      (
+        await runHook(
+          ev({
+            hook_event_name: 'PreToolUse',
+            tool_name: 'Read',
+            tool_input: { file_path: `${cwd}/a.ts` },
+          }),
+        )
+      ).stdout,
     ).toBe('');
     // A stopped subagent can always end: SubagentStop is never blocked.
     const ended = await runHook(
-      ev({ hook_event_name: 'SubagentStop', agent_id: agents.a, agent_type: 'general-purpose', last_assistant_message: 'Stopped early.' }),
+      ev({
+        hook_event_name: 'SubagentStop',
+        agent_id: agents.a,
+        agent_type: 'general-purpose',
+        last_assistant_message: 'Stopped early.',
+      }),
     );
     expect(ended.stdout).toBe('');
 
@@ -265,15 +294,24 @@ describe('the agent control room end to end', () => {
     expect(context?.hookEventName).toBe('PostToolUse');
     expect(context?.additionalContext).toContain('via Harmony: "Please leave the tests alone."');
     expect(context?.additionalContext).toContain('not from the user at your terminal');
-    expect(decision((await runHook(ev({ hook_event_name: 'PostToolUse', tool_name: 'Bash' }))).stdout)).toBeUndefined();
+    expect(
+      decision((await runHook(ev({ hook_event_name: 'PostToolUse', tool_name: 'Bash' }))).stdout),
+    ).toBeUndefined();
 
     // Finish: B done with its result, then the session ends.
     await runHook(
-      ev({ hook_event_name: 'SubagentStop', agent_id: agents.b, agent_type: 'general-purpose', last_assistant_message: 'The output of `ls ./b` was:\n\n```\nthree.txt\n```' }),
+      ev({
+        hook_event_name: 'SubagentStop',
+        agent_id: agents.b,
+        agent_type: 'general-purpose',
+        last_assistant_message: 'The output of `ls ./b` was:\n\n```\nthree.txt\n```',
+      }),
     );
     await until(async () => {
       const p = await panelTitled('Subagent: List folder b')();
-      return p && JSON.stringify(p.view).includes('Done') && JSON.stringify(p.view).includes('three.txt');
+      return (
+        p && JSON.stringify(p.view).includes('Done') && JSON.stringify(p.view).includes('three.txt')
+      );
     });
     await runHook(ev({ hook_event_name: 'Stop', stop_hook_active: false }));
     await runHook(ev({ hook_event_name: 'SessionEnd', reason: 'other' }));
