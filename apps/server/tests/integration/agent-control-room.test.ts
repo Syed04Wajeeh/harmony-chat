@@ -219,7 +219,7 @@ describe('the agent control room end to end', () => {
     expect((await runHook(ls(agents.a, 'ls ./a'))).stdout).toBe('');
     expect((await runHook(ls(agents.b, 'ls ./b'))).stdout).toBe('');
     await until(async () => {
-      const p = (await panelTitled('Subagent: List folder a')()) as Panel | undefined;
+      const p = await panelTitled('Subagent: List folder a')();
       return p && JSON.stringify(p.view).includes('Bash: ls ./a');
     });
 
