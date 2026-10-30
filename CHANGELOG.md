@@ -2,7 +2,7 @@
 
 All notable changes to Harmony are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Design decisions and measurements behind them are in [NOTES.md](NOTES.md).
 
-## [0.3.0] - 2026-10-29
+## [0.3.0] - 2026-10-30
 
 ### Upgrading
 
