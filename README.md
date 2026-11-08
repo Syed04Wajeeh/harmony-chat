@@ -1,6 +1,6 @@
 # Harmony
 
-A self-hosted team chat with servers, channels, DMs, roles, polls, a bot and webhook platform, and an AI agent hub. Sign-in is your Tailscale identity, so there are no passwords, and it runs as two app instances over Redis pub/sub.
+Self-hosted team chat: servers, channels, DMs, roles, polls, bots and webhooks, plus a place to watch and steer AI agents. You sign in with your Tailscale identity, so there are no passwords. It runs as two app instances that share messages over Redis pub/sub.
 
 [![CI](https://github.com/Syed04Wajeeh/harmony-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/Syed04Wajeeh/harmony-chat/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -31,28 +31,67 @@ A self-hosted team chat with servers, channels, DMs, roles, polls, a bot and web
 
 ## What it is
 
-Harmony is a chat server for a small group, such as a family, a team or a homelab. People sign in with the Tailscale identity their device already has; the app checks it behind a reverse proxy and never stores a password. It has the usual features (servers, public and private channels, DMs, replies, reactions, mentions, search, uploads, unread counts, presence) plus roles, per-user themes, a bot and webhook platform with dashboards, an agent hub, and an optional desktop app. It was built to learn and to show the engineering around a realtime system: scaling it out, measuring it, and writing down what is trusted and why.
+Harmony is chat for a small group: a family, a team, a homelab. Your device already has a Tailscale identity, and Harmony uses it. The app reads that identity behind a reverse proxy and never stores a password.
 
-## Highlights
+You get what you'd expect from a chat app (servers, public and private channels, DMs, replies, reactions, mentions, search, uploads, unread counts, presence), and on top of that roles, per-user themes, bots with dashboards, an agent hub and an optional desktop app.
 
-1. **Passwordless auth with a written trust model.** Identity comes from the headers Tailscale Serve sets. Serve's header handling was checked against its source (v1.102.3) and against a live endpoint, nginx adds a shared secret so nothing else on the Docker network can forge identity, and every state-changing request and WebSocket upgrade must carry the expected `Origin`, which stops CSRF and cross-site WebSocket hijacking. [Trust model](docs/security/trust-model.md).
-2. **Horizontal scaling over Redis pub/sub.** Two identical app instances sit behind nginx with no sticky sessions. Every delivery goes through Redis, including to sockets on the same instance. Measured on one host: 1,000 messages sent half through each instance were received by both clients with 0 lost and 0 duplicated, latency p50 3 ms and p95 5 ms. With `docker kill` on one instance mid-run (20 receivers, about 100 messages/s), clients reconnected to the other and no persisted message was missing at any receiver in the valid runs; sends in flight at the moment of the kill failed with 502 and were not persisted. [Performance](docs/performance.md).
-3. **Measured performance, and what the measurements found.**
-   - _Send path:_ profiling showed a send cost 12 Postgres statements and the outbox worker woke once per notification. Cutting that to 6 statements raised the highest tested rate with p95 under 100 ms from 500 to 900 msg/s, and the saturation ceiling from about 698 to about 1,010 to 1,023 msg/s (two instances, 10 receivers per message). At a 750 msg/s target p95 went from 1,509 ms to 6 ms.
-   - _Regression:_ adding roles dropped a 900 msg/s run to 741 to 815.6 msg/s with p50 around 1 s, with an unchanged statement count and a good `EXPLAIN ANALYZE`. A/B runs against `main` and `pg_stat_statements` with planning time on showed the extra joins in one query cost 1.361 ms of planning per send (the driver sends it unprepared). Serving nicknames from the permission cache restored 897.2 to 898.1 msg/s at p95 11 to 12 ms.
-   - _Presence:_ broadcasting presence to every socket was quadratic. Scoping it to guilds and DMs and batching it over one second took 10,000 concurrent connections from stopping at 5,151 (1.00 % failures, handshake p95 10,995 ms) to 10,000 connected with 0 failures (handshake p95 29 ms), and presence frames received from 96,328/s to 2,942/s.
-   - All of these are one host with the load generator on the same machine; conditions are in [docs/performance.md](docs/performance.md).
-4. **A bot and integration platform.** Bots are users with scoped tokens (only a hash is stored).
-   - _Webhooks:_ incoming webhooks accept Discord's payload (checked against Uptime Kuma's source, [recipe](examples/uptime-kuma.md)) and convert Forgejo, GitHub, Alertmanager, Grafana, Watchtower or any JSON through presets and safe declarative templates, with optional signature checks and a live preview ([guide](docs/integrations.md#webhook-presets-and-templates)).
-   - _Commands and events:_ slash commands reach a bot as signed requests (HMAC with the timestamp inside the MAC); outgoing events use a transactional outbox with at-least-once, retried delivery (exponential backoff with jitter, then `dead`). A bot with no URL is a gateway bot: it connects out over the WebSocket and receives commands, button clicks and numbered, acknowledged, resumable events ([guide](docs/integrations.md#building-a-gateway-bot)). Requests to user-supplied URLs go through an SSRF guard that pins the resolved address.
-   - _Dashboards:_ bots publish declarative panels (stats, charts, tables, status lists, buttons) into dashboard channels or pinned above a text channel, rendered natively with theme tokens ([guide](docs/integrations.md#panels-and-buttons)).
-   - _Bot channels:_ managers assign bots to a channel and can make it a bot feed where only bots and moderators post; bots register interval or cron schedules and get a signed `refresh` to update their panels ([guide](docs/integrations.md#scheduling-refreshes)).
-   - Reference: [API](docs/api/protocol.md), [security](docs/security/trust-model.md#bots-and-integrations), [ingress](docs/integrations.md), [echo bot](examples/echo-bot/README.md), [homelab bot](examples/homelab-bot/README.md) (Docker, game servers and monitors behind a locked-down socket proxy).
-5. **An AI agent hub.** An [MCP server](packages/mcp/README.md) lets agents such as Claude Code read, post and ask people questions through a bot token. Agents request approval with Approve and Deny buttons, show live run panels with a Cancel button, and a Claude Code hook routes risky commands to a person; bot-to-bot reply chains are capped. [Guide](docs/agents.md). An [agent control room](docs/agents.md#agent-control-room) shows every Claude Code session and subagent as panels and lets people stop, pause or steer them.
-6. **A module system.** Reactions, pins, search, uploads, polls, custom emoji and a coin flip are modules: a folder that registers routes, WebSocket frames, slash commands, migrations, message data and settings through a typed context, with a test that the send path costs the same with and without them. Polls are the vertical-slice example (server, tables, UI). [Modules](docs/modules.md).
-7. **Roles and permissions.** Roles with positions, per-channel overwrites, and one pure function shared by server and client tests to resolve them, with a worked example and hierarchy rules. [Permissions](docs/permissions.md).
-8. **Customization.** Themes are validated data over an allowlist of tokens, with a contrast checker and auto-fix; custom CSS is opt-in and sanitized on both server and client; plus profiles, custom emoji, server branding and admin-granted perks. [Customization](docs/customization.md), [theming](docs/theming.md).
-9. **A desktop app.** Tauri v2 shell that loads your server's own origin, so identity and Origin checks are unchanged. Its IPC capability for your server is a short, fixed list (notify, set badge, window controls for the custom Windows title bar, disconnect). [Desktop](apps/desktop/README.md), [bridge security](docs/security/trust-model.md#desktop-app).
+I built it to learn the engineering around a realtime system, and to show it: running more than one instance, measuring it under load, and writing down what it trusts and why.
+
+## What's interesting about it
+
+### Sign-in without passwords
+
+Tailscale Serve sets identity headers on every request, and Harmony trusts them. Before relying on that I checked how Serve handles those headers, both in its source (v1.102.3) and against a live endpoint. nginx adds a shared secret so nothing else on the Docker network can pretend to be a user. Every state-changing request and every WebSocket upgrade has to carry the expected `Origin`, which blocks CSRF and cross-site WebSocket hijacking. The reasoning is in the [trust model](docs/security/trust-model.md).
+
+### Two instances over Redis
+
+Two identical app instances sit behind nginx, with no sticky sessions. Every delivery goes through Redis, even to a socket on the same instance, so there's only one code path.
+
+On one host, 1,000 messages sent half through each instance reached both clients with 0 lost and 0 duplicated, at p50 3 ms and p95 5 ms. I also ran `docker kill` on one instance mid-run (20 receivers, about 100 messages a second). Clients reconnected to the other instance, and in the valid runs no receiver was missing a persisted message. Sends that were in flight when the instance died failed with 502 and were never saved. Details are in [performance](docs/performance.md).
+
+### What load testing found
+
+Three results from the load tests:
+
+- A send cost 12 Postgres statements, and the outbox worker woke up once per notification. Getting that down to 6 statements raised the highest rate I could hold under a 100 ms p95 from 500 to 900 msg/s, and the saturation point from about 698 to about 1,010 to 1,023 msg/s (two instances, 10 receivers per message). At a 750 msg/s target, p95 dropped from 1,509 ms to 6 ms.
+- Adding roles made sends slower, and nothing obvious showed why. A 900 msg/s run fell to 741 to 815.6 msg/s with p50 around 1 s, yet the statement count hadn't changed and `EXPLAIN ANALYZE` looked fine. A/B runs against `main`, plus `pg_stat_statements` with planning time switched on, showed that the extra joins in one query cost 1.361 ms of planning on every send, because the driver sends that query unprepared. Serving nicknames from the permission cache brought it back to 897.2 to 898.1 msg/s at p95 11 to 12 ms.
+- Presence was broadcast to every socket, which grows quadratically. After scoping it to guilds and DMs and batching it once a second, a 10,000-connection test went from stalling at 5,151 (1.00 % failures, handshake p95 10,995 ms) to all 10,000 connected with 0 failures (handshake p95 29 ms). Presence frames received fell from 96,328/s to 2,942/s.
+
+All of this ran on one host, with the load generator on the same machine. The conditions for each number are in [docs/performance.md](docs/performance.md).
+
+### Bots and integrations
+
+Bots are users with scoped tokens, and only a hash of each token is stored.
+
+Incoming webhooks accept Discord's payload, which I checked against Uptime Kuma's source ([recipe](examples/uptime-kuma.md)). Presets and declarative templates turn Forgejo, GitHub, Alertmanager, Grafana, Watchtower or any other JSON into messages, with optional signature checks and a live preview ([guide](docs/integrations.md#webhook-presets-and-templates)).
+
+Slash commands reach a bot as signed requests, with the timestamp inside the HMAC. Outgoing events go through a transactional outbox and are delivered at least once, retried with exponential backoff and jitter until they're marked `dead`. A bot without a URL can instead connect out over the WebSocket and receive commands, button clicks and numbered events it acknowledges and can resume from ([guide](docs/integrations.md#building-a-gateway-bot)). Any request to a user-supplied URL goes through an SSRF guard that pins the resolved address.
+
+Bots can publish dashboards: stats, charts, tables, status lists and buttons, as declarative panels that Harmony renders with the current theme. They go in dashboard channels or pinned above a text channel ([guide](docs/integrations.md#panels-and-buttons)). Managers can assign bots to a channel and make it a feed where only bots and moderators post. Bots can register interval or cron schedules and get a signed `refresh` when it's time to update their panels ([guide](docs/integrations.md#scheduling-refreshes)).
+
+More: the [API](docs/api/protocol.md), [bot security](docs/security/trust-model.md#bots-and-integrations), the [ingress](docs/integrations.md), the [echo bot](examples/echo-bot/README.md) and the [homelab bot](examples/homelab-bot/README.md), which runs Docker containers, game servers and monitors through a locked-down socket proxy.
+
+### AI agents
+
+An [MCP server](packages/mcp/README.md) lets agents such as Claude Code read channels, post and ask people questions, using an ordinary bot token. An agent can ask for approval with Approve and Deny buttons and show a live run panel with a Cancel button. A Claude Code hook sends risky commands to a person before they run, and bot-to-bot reply chains are capped so two agents can't talk forever ([guide](docs/agents.md)).
+
+The [agent control room](docs/agents.md#agent-control-room) shows every Claude Code session and each of its subagents as a panel, and people can stop, pause or steer them from chat.
+
+### Modules
+
+Reactions, pins, search, uploads, polls, custom emoji and a coin flip are all modules. A module is a folder that registers routes, WebSocket frames, slash commands, migrations, message data and settings through a typed context. A test checks that the send path costs the same with and without them. Polls are the full example, with server code, tables and UI ([modules](docs/modules.md)).
+
+### Roles and permissions
+
+Roles have positions and per-channel overwrites. One pure function resolves them, and both server and client tests use it. The [permissions doc](docs/permissions.md) has a worked example and the hierarchy rules.
+
+### Customization
+
+Themes are validated data over an allowlist of tokens, with a contrast checker that can fix colors for you. Custom CSS is opt-in and sanitized on both the server and the client. There are also profiles, custom emoji, server branding and perks an admin can grant ([customization](docs/customization.md), [theming](docs/theming.md)).
+
+### Desktop app
+
+A Tauri v2 shell loads your server's own origin, so identity and `Origin` checks work exactly as in a browser. The page can call only a short fixed list of native commands: notify, set the badge, the window controls for the custom Windows title bar, and disconnect ([desktop](apps/desktop/README.md), [bridge security](docs/security/trust-model.md#desktop-app)).
 
 ## Architecture
 
@@ -75,7 +114,7 @@ flowchart LR
   worker -->|"signed, retried HTTP"| bots["Bots and<br/>webhook receivers"]
 ```
 
-People enter through Serve and the user proxy, which is the only holder of the proxy secret. Machines enter through a separate proxy that blanks every identity header, so a request there can only act as a bot or a webhook. Postgres and Redis publish no ports. Migrations run in a one-shot `migrate` service before the app instances start.
+People come in through Serve and the user proxy, and that proxy is the only thing holding the proxy secret. Machines come in through a separate proxy that blanks every identity header, so a request there can only act as a bot or a webhook. Postgres and Redis publish no ports. Migrations run in a one-shot `migrate` service before the app instances start.
 
 ```mermaid
 sequenceDiagram
@@ -96,7 +135,7 @@ sequenceDiagram
   A-->>C: ack (nonce, message)
 ```
 
-The sender's own socket gets both the ack and the broadcast with the same message id and the client keeps one. On reconnect a client subscribes with its last seen id: the server joins the Redis channel first and then backfills from Postgres, so a message published in between may arrive twice (live and in the backfill) but is not lost, and the client dedupes by id. Why these choices were made: [NOTES.md](NOTES.md).
+The sender's socket gets both the ack and the broadcast with the same message id, and the client keeps one. When a client reconnects it subscribes with the last id it saw. The server joins the Redis channel first and then backfills from Postgres. A message published in that gap can arrive twice, once live and once in the backfill, but it can't go missing, and the client dedupes by id. The reasons behind these choices are in [NOTES.md](NOTES.md).
 
 ## Tech stack
 
@@ -114,7 +153,7 @@ The sender's own socket gets both the ack and the broadcast with the same messag
 
 ## Quickstart
 
-Requires Docker, and Tailscale on the host if you want sign-in to work (see below).
+You need Docker, and Tailscale on the host if you want sign-in to work.
 
 ```sh
 cp .env.example .env     # set POSTGRES_PASSWORD, PROXY_SHARED_SECRET (openssl rand -hex 32), PUBLIC_ORIGIN
@@ -122,20 +161,20 @@ docker compose up -d --build
 curl http://127.0.0.1:8470/healthz
 ```
 
-Point Tailscale Serve at nginx and set `PUBLIC_ORIGIN` to the exact URL browsers use:
+Point Tailscale Serve at nginx, and set `PUBLIC_ORIGIN` to the exact URL your browser uses:
 
 ```sh
 tailscale serve --bg --https=18470 http://127.0.0.1:8470
 # PUBLIC_ORIGIN=https://chat.example.ts.net:18470
 ```
 
-`ALLOWED_LOGINS` (comma-separated) restricts access to specific tailnet users; empty allows anyone on the tailnet. The first user to sign in becomes the instance admin and gets a starter server. Newcomers join no server unless the admin picks a lobby server (Settings, Instance); everyone can find everyone under Home, All members, and invite people to a server by direct message. To call the API without Serve, send the header it would add: `curl -H 'Tailscale-User-Login: you@example.com' http://127.0.0.1:8470/api/me`.
+`ALLOWED_LOGINS` (comma-separated) limits access to specific tailnet users. Leave it empty to let anyone on the tailnet in. The first person to sign in becomes the instance admin and gets a starter server. Everyone after that joins no server until the admin picks a lobby server (Settings, Instance), but they can find each other under Home, All members, and invite people to a server by DM. To call the API without Serve, send the header Serve would add: `curl -H 'Tailscale-User-Login: you@example.com' http://127.0.0.1:8470/api/me`.
 
-For later updates run `scripts/deploy.sh`, which rebuilds, recreates the containers and restarts the proxies only when their bind-mounted config changed (compose does not notice that on its own). The host-local ingress for scripts is `127.0.0.1:8471`; see [docs/integrations.md](docs/integrations.md).
+To update later, run `scripts/deploy.sh`. It rebuilds, recreates the containers, and restarts the proxies when their bind-mounted config has changed, which compose doesn't notice on its own. Scripts on the host reach Harmony at `127.0.0.1:8471`; see [docs/integrations.md](docs/integrations.md).
 
 ## Local development
 
-Requires Node 24, pnpm 12 (`corepack enable pnpm`) and Docker.
+You need Node 24, pnpm 12 (`corepack enable pnpm`) and Docker.
 
 ```sh
 pnpm install
@@ -150,18 +189,18 @@ pnpm --filter @harmony/server migrate
 pnpm dev                                         # server on :8080, Vite on :5173
 ```
 
-Open http://localhost:5173. In development a `dev_login=name@example.com` cookie switches identity per browser, which is how the e2e tests play several users; the server refuses to start with `DEV_AUTH_LOGIN` set outside development ([details](docs/security/trust-model.md#development-mode)). `docker compose -f compose.dev.yml down -v` removes the dev data. For a phone, run Vite with `--host` and set `PUBLIC_ORIGIN` to that origin.
+Then open http://localhost:5173. In development a `dev_login=name@example.com` cookie sets who you are in that browser, which is how the e2e tests play several users. The server won't start with `DEV_AUTH_LOGIN` set outside development ([details](docs/security/trust-model.md#development-mode)). `docker compose -f compose.dev.yml down -v` deletes the dev data. To try it on a phone, run Vite with `--host` and set `PUBLIC_ORIGIN` to that origin.
 
 ### Tests
 
 | Command                 | Covers                                                                                                                                                                                            | Count                                                           |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `pnpm test:unit`        | Pure logic, permissions, theme and CSS sanitizing, SSRF rules, the web store and components (Vitest, Testing Library), desktop page                                                               | 1242 (732 server, 276 web, 27 desktop, 144 mcp, 63 homelab bot) |
+| `pnpm test:unit`        | Pure logic, permissions, theme and CSS sanitizing, SSRF rules, the web store and components (Vitest, Testing Library), desktop page                                                               | 1246 (732 server, 276 web, 27 desktop, 148 mcp, 63 homelab bot) |
 | `pnpm test:integration` | Real Postgres, Redis and nginx via Testcontainers (needs Docker): migrations, REST, the hub with two instances, webhooks, bots, the worker, modules                                               | 472                                                             |
 | `pnpm test:e2e`         | Playwright against the dev stack: two users, mobile drawer and long-press sheet, uploads, polls, roles, profiles, webhooks, bots; needs `playwright install chromium`                             | specs in `apps/web/e2e`, run in CI                              |
 | `pnpm load:test`        | k6 and Node scripts against an isolated two-instance stack (`pnpm load:up` first, `pnpm load:down` after); also `pnpm load:failover`. Steps: [docs/performance.md](docs/performance.md#reproduce) | see [performance](docs/performance.md)                          |
 
-The unit and integration counts are from running both commands on this checkout. CI also runs `pnpm lint`, `pnpm typecheck`, `pnpm build`, a link check (`node scripts/check-links.mjs`), a Docker image build, and the desktop app's `cargo fmt`, `clippy` and `cargo test`.
+The unit and integration counts come from running both commands on this checkout. CI also runs `pnpm lint`, `pnpm typecheck`, `pnpm build`, a link check (`node scripts/check-links.mjs`), a Docker image build, and `cargo fmt`, `clippy` and `cargo test` for the desktop app.
 
 ## Project structure
 
@@ -204,20 +243,20 @@ scripts/       deploy.sh, check-links.mjs
 
 ## Desktop app
 
-Installers for Windows (`.exe`, `.msi`), macOS (Apple silicon `.dmg`) and Linux (`.AppImage`, `.deb`) are on the [Releases page](https://github.com/Syed04Wajeeh/harmony-chat/releases). On first start the app asks for your Harmony server URL and shows that server in its own window, with a tray icon, launch at login, native notifications for mentions and DMs, an unread badge and auto-update. It needs Tailscale running on that machine and does not work offline.
+Installers for Windows (`.exe`, `.msi`), macOS (Apple silicon `.dmg`) and Linux (`.AppImage`, `.deb`) are on the [Releases page](https://github.com/Syed04Wajeeh/harmony-chat/releases). The first time it starts, the app asks for your Harmony server's URL and then opens that server in its own window. It has a tray icon, launch at login, native notifications for mentions and DMs, an unread badge and auto-update. Tailscale has to be running on the machine, and it doesn't work offline.
 
-The installers are not code-signed. Windows SmartScreen shows "Unknown publisher" (More info, then Run anyway) and macOS Gatekeeper blocks the first launch (right-click the app, choose Open). Details: [apps/desktop/README.md](apps/desktop/README.md).
+The installers aren't code-signed. On Windows, SmartScreen shows "Unknown publisher": click More info, then Run anyway. On macOS, Gatekeeper blocks the first launch: right-click the app and choose Open. More in [apps/desktop/README.md](apps/desktop/README.md).
 
 ## Limitations
 
-- **One host.** The stack is Docker Compose on a single machine. Two app instances give failover and more connection capacity, not more write throughput: Postgres was the limit in the measurements, and two instances were no faster than one at the tested rates ([why](docs/performance.md#one-instance-versus-two)). There is no database replication or Redis persistence.
-- **Measurements are from one shared home server**, with the load generator on the same machine, TLS and Serve bypassed, and mostly one run per cell. See the limits section of [docs/performance.md](docs/performance.md#limitations).
-- **Unread counts do not scale with total messages in some data shapes.** With 599,998 messages concentrated in a few busy channels, `GET /api/guilds` took 221 ms at p50. The analysis, a rejected index and a proposed counter design are in [docs/performance.md](docs/performance.md#unread-counts-analysis-only-not-fixed); it is not fixed.
-- **Presence lags by up to one second** (the batch window, `PRESENCE_BATCH_MS`). That was not measured end to end.
-- **No end-to-end encryption.** The server can read messages. Trust in the host and in Tailscale's control plane is spelled out in the [trust model](docs/security/trust-model.md#what-we-trust-residual-risk).
-- **No voice or video.**
-- **Embed images are loaded straight from the sender's URL**, so the image host sees readers' IP addresses ([NOTES](NOTES.md)).
-- **Desktop installers are unsigned** (above).
+- It runs on one host, as Docker Compose on a single machine. The second app instance gives failover and more connection capacity, not more write throughput. Postgres was the limit in every measurement, and two instances were no faster than one at the rates I tested ([why](docs/performance.md#one-instance-versus-two)). There's no database replication and no Redis persistence.
+- The measurements come from one shared home server, with the load generator on the same machine, TLS and Serve bypassed, and mostly one run per setting. The [limits section](docs/performance.md#limitations) of the performance doc has the details.
+- Unread counts don't scale with total messages in some data shapes. With 599,998 messages packed into a few busy channels, `GET /api/guilds` took 221 ms at p50. The analysis, an index I rejected, and a proposed counter design are in [docs/performance.md](docs/performance.md#unread-counts-analysis-only-not-fixed). It isn't fixed yet.
+- Presence can lag by up to a second (the batch window, `PRESENCE_BATCH_MS`). I haven't measured that end to end.
+- Messages aren't end-to-end encrypted, so the server can read them. What you're trusting in the host and in Tailscale's control plane is written up in the [trust model](docs/security/trust-model.md#what-we-trust-residual-risk).
+- There's no voice or video.
+- Embed images load straight from the sender's URL, so that image host sees readers' IP addresses ([NOTES](NOTES.md)).
+- The desktop installers are unsigned (see above).
 
 ## Roadmap
 
